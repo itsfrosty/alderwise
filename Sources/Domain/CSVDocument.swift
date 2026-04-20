@@ -47,6 +47,21 @@ public enum CSVParsingError: Error, Equatable, Sendable {
     case wrongColumnCount(line: Int, expected: Int, actual: Int)
 }
 
+extension CSVParsingError: LocalizedError {
+    public var errorDescription: String? {
+        switch self {
+        case .emptyDocument:
+            "The CSV file does not contain any rows."
+        case .unterminatedQuotedField(let line):
+            "Unterminated quoted field in CSV starting at line \(line)."
+        case .unexpectedQuote(let line, let column):
+            "Unexpected quote in CSV at line \(line), column \(column)."
+        case .wrongColumnCount(let line, let expected, let actual):
+            "CSV row \(line) has \(actual) columns, but the header has \(expected)."
+        }
+    }
+}
+
 public struct CSVParser: Sendable {
     public init() {}
 

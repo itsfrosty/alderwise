@@ -58,3 +58,34 @@ func parserAllowsExtraTrailingEmptyFieldsInRows() throws {
     #expect(document.rows[0].cells.count == 7)
     #expect(document.rows[0].cells.map(\.value).suffix(2) == ["72116.52", ""])
 }
+
+@Test
+func parserAcceptsHeaderOnlyDocuments() throws {
+    let csv = "Date,Description,Amount\n"
+
+    let document = try CSVParser().parse(csv)
+
+    #expect(document.headers.map(\.name) == ["Date", "Description", "Amount"])
+    #expect(document.rows.isEmpty)
+}
+
+@Test
+func parserPreservesExtremelyLongFieldValues() throws {
+    let description = String(repeating: "Long merchant memo ", count: 600)
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,\(description),-4.75
+    """
+
+    let document = try CSVParser().parse(csv)
+
+    #expect(document.rows.count == 1)
+    #expect(document.rows[0].cells[1].value == description)
+}
+
+@Test
+func parsingErrorsDescribeLineAndColumnDetails() {
+    let error = CSVParsingError.unexpectedQuote(line: 12, column: 8)
+
+    #expect(error.localizedDescription == "Unexpected quote in CSV at line 12, column 8.")
+}

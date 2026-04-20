@@ -139,7 +139,7 @@ struct CSVImportPreviewSheet: View {
                 GridRow {
                     Text("Line")
                     ForEach(workingPreview.headers, id: \.columnIndex) { header in
-                        Text(header.name)
+                        headerCell(for: header)
                     }
                     Text("Signed Amount")
                 }
@@ -212,6 +212,21 @@ struct CSVImportPreviewSheet: View {
         return amount.formatted(.number.precision(.fractionLength(2)))
     }
 
+    private func headerCell(for header: CSVColumn) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(header.name)
+                .lineLimit(1)
+            if let target = mappingTargetDescription(for: header.columnIndex) {
+                Text(target)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(mappingColor(for: target), in: Capsule())
+            }
+        }
+    }
+
     private func columnPicker(selection: Binding<Int?>) -> some View {
         Picker("", selection: selection) {
             Text("Not detected").tag(nil as Int?)
@@ -221,6 +236,43 @@ struct CSVImportPreviewSheet: View {
         }
         .labelsHidden()
         .frame(minWidth: 160)
+    }
+
+    private func mappingTargetDescription(for columnIndex: Int) -> String? {
+        if workingPreview.mapping.dateColumnIndex == columnIndex {
+            return "Date"
+        }
+        if workingPreview.mapping.descriptionColumnIndex == columnIndex {
+            return "Description"
+        }
+
+        switch workingPreview.mapping.amount {
+        case .singleSignedAmount(let amountColumnIndex):
+            return amountColumnIndex == columnIndex ? "Amount" : nil
+        case .debitCredit(let debitColumnIndex, let creditColumnIndex):
+            if debitColumnIndex == columnIndex {
+                return "Debit"
+            }
+            if creditColumnIndex == columnIndex {
+                return "Credit"
+            }
+            return nil
+        case nil:
+            return nil
+        }
+    }
+
+    private func mappingColor(for target: String) -> Color {
+        switch target {
+        case "Date":
+            .blue
+        case "Description":
+            .teal
+        case "Amount", "Debit", "Credit":
+            .purple
+        default:
+            .secondary
+        }
     }
 
     private func applyMapping() {
