@@ -22,14 +22,24 @@ struct WorkspaceRootView: View {
         } detail: {
             detailView(for: AppSection(rawValue: selectedSectionRawValue) ?? .home)
         }
+        .environmentObject(model)
         .toolbar {
             ToolbarItemGroup {
                 Button("Import CSV") {}
                     .keyboardShortcut("i", modifiers: [.command])
                 Button("Create Account") {
-                    model.addSampleAccount()
+                    model.isPresentingAccountSheet = true
                 }
                 .keyboardShortcut("n", modifiers: [.command])
+            }
+        }
+        .sheet(isPresented: $model.isPresentingAccountSheet) {
+            AccountCreationSheet { name, kind, institutionName in
+                model.createAccount(
+                    name: name,
+                    kind: kind,
+                    institutionName: institutionName
+                )
             }
         }
     }

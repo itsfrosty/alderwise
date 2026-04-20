@@ -5,6 +5,7 @@ import SwiftUI
 struct SectionPlaceholderView: View {
     let section: AppSection
     let snapshot: WorkspaceSnapshot
+    @EnvironmentObject private var model: WorkspaceShellModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -13,6 +14,7 @@ struct SectionPlaceholderView: View {
 
             if section == .home {
                 summaryGrid
+                firstRunActions
             }
 
             ContentUnavailableView(
@@ -53,6 +55,26 @@ struct SectionPlaceholderView: View {
                         .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var firstRunActions: some View {
+        if snapshot.summary.accountCount == 0 {
+            HStack(spacing: 12) {
+                Button("Import CSV") {}
+                    .buttonStyle(.borderedProminent)
+
+                Button("Create Account") {
+                    model.isPresentingAccountSheet = true
+                }
+                .buttonStyle(.bordered)
+
+                Button("Add Sample Data") {
+                    model.addSampleAccount()
+                }
+                .buttonStyle(.bordered)
             }
         }
     }

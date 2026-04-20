@@ -12,6 +12,7 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     @Published private(set) var state: State = .loading
+    @Published var isPresentingAccountSheet = false
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
@@ -60,12 +61,29 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func addSampleAccount() {
-        guard let store else {
+        guard let service else {
             return
         }
 
         do {
-            _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+            try service.seedSampleDataIfNeeded()
+            reload()
+        } catch {
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    func createAccount(name: String, kind: AccountKind, institutionName: String?) {
+        guard let service else {
+            return
+        }
+
+        do {
+            _ = try service.createAccount(
+                named: name,
+                kind: kind,
+                institutionName: institutionName
+            )
             reload()
         } catch {
             state = .failed(error.localizedDescription)
