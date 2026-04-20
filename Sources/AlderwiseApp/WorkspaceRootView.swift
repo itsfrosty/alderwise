@@ -1,5 +1,6 @@
 import Domain
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct WorkspaceRootView: View {
     @ObservedObject var model: WorkspaceShellModel
@@ -25,7 +26,9 @@ struct WorkspaceRootView: View {
         .environmentObject(model)
         .toolbar {
             ToolbarItemGroup {
-                Button("Import CSV") {}
+                Button("Import CSV") {
+                    model.beginCSVImport()
+                }
                     .keyboardShortcut("i", modifiers: [.command])
                 Button("Create Account") {
                     model.isPresentingAccountSheet = true
@@ -41,6 +44,43 @@ struct WorkspaceRootView: View {
                     institutionName: institutionName
                 )
             }
+        }
+        .fileImporter(
+            isPresented: $model.isPresentingCSVImporter,
+            allowedContentTypes: [.commaSeparatedText, .plainText],
+            allowsMultipleSelection: false
+        ) { result in
+            do {
+                let urls = try result.get()
+                guard let url = urls.first else {
+                    throw CocoaError(.fileNoSuchFile)
+                }
+                model.importCSV(from: .success(url))
+            } catch {
+                model.importCSV(from: .failure(error))
+            }
+        }
+        .sheet(isPresented: $model.isPresentingImportPreview) {
+            if let preview = model.csvImportPreview {
+                CSVImportPreviewSheet(preview: preview)
+            }
+        }
+        .alert(
+            "Import Failed",
+            isPresented: Binding(
+                get: { model.importErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        model.importErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                model.importErrorMessage = nil
+            }
+        } message: {
+            Text(model.importErrorMessage ?? "")
         }
     }
 

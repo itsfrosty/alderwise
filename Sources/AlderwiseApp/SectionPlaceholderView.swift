@@ -63,7 +63,9 @@ struct SectionPlaceholderView: View {
     private var firstRunActions: some View {
         if snapshot.summary.accountCount == 0 {
             HStack(spacing: 12) {
-                Button("Import CSV") {}
+                Button("Import CSV") {
+                    model.beginCSVImport()
+                }
                     .buttonStyle(.borderedProminent)
 
                 Button("Create Account") {

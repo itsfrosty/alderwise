@@ -13,13 +13,23 @@ final class WorkspaceShellModel: ObservableObject {
 
     @Published private(set) var state: State = .loading
     @Published var isPresentingAccountSheet = false
+    @Published var isPresentingCSVImporter = false
+    @Published var isPresentingImportPreview = false
+    @Published private(set) var csvImportPreview: CSVImportPreview?
+    @Published var importErrorMessage: String?
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
+    private let csvImportPreviewService: CSVImportPreviewService
 
-    init(store: WorkspaceStore?, service: WorkspaceService?) {
+    init(
+        store: WorkspaceStore?,
+        service: WorkspaceService?,
+        csvImportPreviewService: CSVImportPreviewService = CSVImportPreviewService()
+    ) {
         self.store = store
         self.service = service
+        self.csvImportPreviewService = csvImportPreviewService
         reload()
     }
 
@@ -87,6 +97,28 @@ final class WorkspaceShellModel: ObservableObject {
             reload()
         } catch {
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    func beginCSVImport() {
+        isPresentingCSVImporter = true
+    }
+
+    func importCSV(from result: Result<URL, Error>) {
+        do {
+            let url = try result.get()
+            let didAccessScopedResource = url.startAccessingSecurityScopedResource()
+            defer {
+                if didAccessScopedResource {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let csvText = try String(contentsOf: url, encoding: .utf8)
+            csvImportPreview = try csvImportPreviewService.makePreview(from: csvText)
+            isPresentingImportPreview = true
+        } catch {
+            importErrorMessage = error.localizedDescription
         }
     }
 }
