@@ -122,6 +122,23 @@ struct WorkspaceRootView: View {
         } message: {
             Text(model.importResultMessage ?? "")
         }
+        .alert(
+            "Transaction Detail Unavailable",
+            isPresented: Binding(
+                get: { model.transactionDetailErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        model.transactionDetailErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                model.transactionDetailErrorMessage = nil
+            }
+        } message: {
+            Text(model.transactionDetailErrorMessage ?? "")
+        }
     }
 
     @ViewBuilder

@@ -27,6 +27,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var transactionFilter = TransactionLedgerFilter.empty
     @Published var selectedTransactionID: UUID?
     @Published private(set) var selectedTransactionDetail: TransactionDetail?
+    @Published var transactionDetailErrorMessage: String?
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
@@ -76,13 +77,14 @@ final class WorkspaceShellModel: ObservableObject {
         do {
             let snapshot = try service.loadSnapshot(filter: transactionFilter)
             state = .loaded(snapshot)
-            if let selectedTransactionID,
-               snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
-                selectedTransactionDetail = try service.loadTransactionDetail(id: selectedTransactionID)
+            let transactionID = if let selectedTransactionID,
+                                   snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
+                selectedTransactionID
             } else {
-                selectedTransactionID = snapshot.transactions.first?.id
-                selectedTransactionDetail = try selectedTransactionID.flatMap { try service.loadTransactionDetail(id: $0) }
+                snapshot.transactions.first?.id
             }
+            selectedTransactionID = transactionID
+            loadSelectedTransactionDetail(id: transactionID)
         } catch {
             state = .failed(error.localizedDescription)
         }
@@ -95,15 +97,22 @@ final class WorkspaceShellModel: ObservableObject {
 
     func selectTransaction(id: UUID?) {
         selectedTransactionID = id
+        loadSelectedTransactionDetail(id: id)
+    }
+
+    private func loadSelectedTransactionDetail(id: UUID?) {
         guard let service, let id else {
             selectedTransactionDetail = nil
+            transactionDetailErrorMessage = nil
             return
         }
 
         do {
             selectedTransactionDetail = try service.loadTransactionDetail(id: id)
+            transactionDetailErrorMessage = nil
         } catch {
-            state = .failed(error.localizedDescription)
+            selectedTransactionDetail = nil
+            transactionDetailErrorMessage = error.localizedDescription
         }
     }
 

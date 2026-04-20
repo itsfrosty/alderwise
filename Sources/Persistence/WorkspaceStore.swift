@@ -702,6 +702,32 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         }
     }
 
+    public func fetchTransactionImportOrigins() throws -> [TransactionImportOrigin] {
+        try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT DISTINCT
+                    import_sessions.id AS import_session_id,
+                    source_files.original_filename,
+                    source_files.imported_at
+                FROM transactions
+                JOIN import_sessions ON import_sessions.id = transactions.import_session_id
+                JOIN source_files ON source_files.id = import_sessions.source_file_id
+                ORDER BY source_files.imported_at DESC, import_sessions.id DESC
+                """
+            )
+
+            return rows.map { row in
+                TransactionImportOrigin(
+                    id: row["import_session_id"],
+                    originalFilename: row["original_filename"],
+                    importedAt: row["imported_at"]
+                )
+            }
+        }
+    }
+
     public func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws {
         try databaseQueue.write { db in
             try db.execute(

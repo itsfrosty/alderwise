@@ -52,6 +52,7 @@ public protocol ClassificationRuleReading: Sendable {
 public protocol TransactionLedgerReading: Sendable {
     func fetchTransactionLedger(filter: TransactionLedgerFilter) throws -> [TransactionLedgerRow]
     func fetchTransactionDetail(id: UUID) throws -> TransactionDetail?
+    func fetchTransactionImportOrigins() throws -> [TransactionImportOrigin]
 }
 
 public protocol TransactionLedgerWriting: Sendable {

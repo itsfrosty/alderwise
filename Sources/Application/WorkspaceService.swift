@@ -67,11 +67,13 @@ public struct WorkspaceService: Sendable {
     }
 
     public func loadSnapshot(filter: TransactionLedgerFilter = .empty) throws -> WorkspaceSnapshot {
-        WorkspaceSnapshot(
+        let ledgerReader = store as? any TransactionLedgerReading
+        return WorkspaceSnapshot(
             summary: try store.fetchSummary(),
             accounts: try store.fetchAccounts(),
             categories: try store.fetchCategories(),
-            transactions: try (store as? any TransactionLedgerReading)?.fetchTransactionLedger(filter: filter) ?? []
+            transactions: try ledgerReader?.fetchTransactionLedger(filter: filter) ?? [],
+            transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? []
         )
     }
 

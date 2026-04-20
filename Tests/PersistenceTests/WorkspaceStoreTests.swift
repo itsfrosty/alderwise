@@ -457,6 +457,84 @@ func fetchTransactionLedgerAppliesCoreFilters() throws {
 }
 
 @Test
+func fetchTransactionImportOriginsIsIndependentOfCurrentLedgerFilters() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let dining = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense")
+    let aprilSession = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "april-file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 0,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+    let maySession = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-may.csv",
+            contentHash: "may-file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_777_849_600),
+            rows: [],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 0,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000501")!,
+        accountID: account.id,
+        categoryID: dining,
+        importSessionID: aprilSession.id,
+        rawDescription: "APRIL TACO SHOP",
+        normalizedMerchantName: "taco shop",
+        amount: Decimal(-12.50),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000502")!,
+        accountID: account.id,
+        categoryID: dining,
+        importSessionID: maySession.id,
+        rawDescription: "MAY TACO SHOP",
+        normalizedMerchantName: "taco shop",
+        amount: Decimal(-15.00),
+        transactionDate: Date(timeIntervalSince1970: 1_777_849_600),
+        reviewStatus: "accepted"
+    )
+
+    let aprilRows = try store.fetchTransactionLedger(
+        filter: TransactionLedgerFilter(importSessionID: aprilSession.id)
+    )
+    let origins = try store.fetchTransactionImportOrigins()
+
+    #expect(aprilRows.map(\.importOrigin?.id) == [aprilSession.id])
+    #expect(origins.map(\.id) == [maySession.id, aprilSession.id])
+    #expect(origins.map(\.originalFilename) == ["checking-may.csv", "checking-april.csv"])
+}
+
+@Test
 func transactionDetailIncludesExplanationFieldsAndEditableValuesRoundTrip() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

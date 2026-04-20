@@ -172,10 +172,7 @@ struct TransactionLedgerView: View {
     }
 
     private var importOrigins: [TransactionImportOrigin] {
-        var seen: Set<Int64> = []
-        return snapshot.transactions.compactMap { $0.importOrigin }.filter { origin in
-            seen.insert(origin.id).inserted
-        }
+        snapshot.transactionImportOrigins
     }
 
     private func applyFilters() {
@@ -284,8 +281,8 @@ private struct TransactionDetailView: View {
                 .onAppear {
                     load(detail)
                 }
-                .onChange(of: detail.row.id) { _, _ in
-                    load(detail)
+                .onChange(of: detail) { _, newDetail in
+                    load(newDetail)
                 }
             } else {
                 ContentUnavailableView(
