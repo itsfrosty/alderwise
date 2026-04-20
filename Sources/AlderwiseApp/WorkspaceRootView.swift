@@ -60,9 +60,28 @@ struct WorkspaceRootView: View {
                 model.importCSV(from: .failure(error))
             }
         }
-        .sheet(isPresented: $model.isPresentingImportPreview) {
+        .sheet(
+            isPresented: Binding(
+                get: { model.isPresentingImportPreview },
+                set: { isPresented in
+                    if !isPresented {
+                        model.dismissCSVImportPreview()
+                    }
+                }
+            )
+        ) {
             if let preview = model.csvImportPreview {
-                CSVImportPreviewSheet(preview: preview)
+                CSVImportPreviewSheet(
+                    preview: preview,
+                    accounts: model.snapshot.accounts,
+                    originalFilename: model.pendingCSVImport?.originalFilename ?? "CSV file",
+                    onCancel: {
+                        model.dismissCSVImportPreview()
+                    },
+                    onImport: { preview, account in
+                        model.confirmCSVImport(preview: preview, account: account)
+                    }
+                )
             }
         }
         .alert(
@@ -81,6 +100,23 @@ struct WorkspaceRootView: View {
             }
         } message: {
             Text(model.importErrorMessage ?? "")
+        }
+        .alert(
+            "Import Staged",
+            isPresented: Binding(
+                get: { model.importResultMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        model.importResultMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                model.importResultMessage = nil
+            }
+        } message: {
+            Text(model.importResultMessage ?? "")
         }
     }
 

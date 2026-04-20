@@ -4,8 +4,13 @@ import SwiftUI
 
 struct CSVImportPreviewSheet: View {
     private let originalPreview: CSVImportPreview
+    private let accounts: [Account]
+    private let originalFilename: String
+    private let onCancel: () -> Void
+    private let onImport: (CSVImportPreview, Account) -> Void
 
     @State private var workingPreview: CSVImportPreview
+    @State private var selectedAccountID: Account.ID?
     @State private var dateColumnIndex: Int?
     @State private var descriptionColumnIndex: Int?
     @State private var signedAmountColumnIndex: Int?
@@ -14,9 +19,20 @@ struct CSVImportPreviewSheet: View {
 
     @Environment(\.dismiss) private var dismiss
 
-    init(preview: CSVImportPreview) {
+    init(
+        preview: CSVImportPreview,
+        accounts: [Account],
+        originalFilename: String,
+        onCancel: @escaping () -> Void,
+        onImport: @escaping (CSVImportPreview, Account) -> Void
+    ) {
         originalPreview = preview
+        self.accounts = accounts
+        self.originalFilename = originalFilename
+        self.onCancel = onCancel
+        self.onImport = onImport
         _workingPreview = State(initialValue: preview)
+        _selectedAccountID = State(initialValue: accounts.first?.id)
         _dateColumnIndex = State(initialValue: preview.mapping.dateColumnIndex)
         _descriptionColumnIndex = State(initialValue: preview.mapping.descriptionColumnIndex)
 
@@ -40,6 +56,7 @@ struct CSVImportPreviewSheet: View {
         VStack(alignment: .leading, spacing: 20) {
             header
             mappingSummary
+            accountPicker
             mappingControls
             validationSummary
             previewTable
@@ -74,7 +91,7 @@ struct CSVImportPreviewSheet: View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Import Preview")
                 .font(.title.bold())
-            Text("\(workingPreview.previewRows.count) rows ready for preview")
+            Text("\(originalFilename) · \(workingPreview.previewRows.count) rows ready for preview")
                 .foregroundStyle(.secondary)
         }
     }
@@ -84,6 +101,29 @@ struct CSVImportPreviewSheet: View {
             MappingBadge(title: "Date", value: columnName(at: workingPreview.mapping.dateColumnIndex))
             MappingBadge(title: "Description", value: columnName(at: workingPreview.mapping.descriptionColumnIndex))
             MappingBadge(title: "Amount", value: amountMappingDescription)
+        }
+    }
+
+    private var accountPicker: some View {
+        HStack(spacing: 12) {
+            Text("Account")
+                .font(.subheadline)
+            Picker("", selection: $selectedAccountID) {
+                if accounts.isEmpty {
+                    Text("No accounts available").tag(nil as Account.ID?)
+                }
+                ForEach(accounts) { account in
+                    Text(account.name).tag(account.id as Account.ID?)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 240)
+
+            if accounts.isEmpty {
+                Text("Create an account before importing.")
+                    .font(.subheadline)
+                    .foregroundStyle(.orange)
+            }
         }
     }
 
@@ -174,10 +214,34 @@ struct CSVImportPreviewSheet: View {
 
             Spacer()
             Button("Close") {
+                onCancel()
                 dismiss()
             }
             .keyboardShortcut(.cancelAction)
+
+            Button {
+                guard let selectedAccount else {
+                    return
+                }
+                onImport(workingPreview, selectedAccount)
+            } label: {
+                Label("Import", systemImage: "tray.and.arrow.down")
+            }
+            .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.defaultAction)
+            .disabled(!canImport)
         }
+    }
+
+    private var selectedAccount: Account? {
+        guard let selectedAccountID else {
+            return nil
+        }
+        return accounts.first { $0.id == selectedAccountID }
+    }
+
+    private var canImport: Bool {
+        workingPreview.validation.isReadyForImport && selectedAccount != nil
     }
 
     private var amountMappingDescription: String {

@@ -5,6 +5,11 @@ import SwiftUI
 
 @MainActor
 final class WorkspaceShellModel: ObservableObject {
+    struct PendingCSVImport {
+        var originalFilename: String
+        var csvText: String
+    }
+
     enum State {
         case loading
         case loaded(WorkspaceSnapshot)
@@ -16,7 +21,9 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var isPresentingCSVImporter = false
     @Published var isPresentingImportPreview = false
     @Published private(set) var csvImportPreview: CSVImportPreview?
+    @Published private(set) var pendingCSVImport: PendingCSVImport?
     @Published var importErrorMessage: String?
+    @Published var importResultMessage: String?
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
@@ -116,9 +123,38 @@ final class WorkspaceShellModel: ObservableObject {
 
             let csvText = try String(contentsOf: url, encoding: .utf8)
             csvImportPreview = try csvImportPreviewService.makePreview(from: csvText)
+            pendingCSVImport = PendingCSVImport(
+                originalFilename: url.lastPathComponent,
+                csvText: csvText
+            )
             isPresentingImportPreview = true
         } catch {
             importErrorMessage = error.localizedDescription
         }
+    }
+
+    func confirmCSVImport(preview: CSVImportPreview, account: Account) {
+        guard let service, let pendingCSVImport else {
+            return
+        }
+
+        do {
+            let session = try service.stageCSVImport(
+                preview: preview,
+                account: account,
+                originalFilename: pendingCSVImport.originalFilename,
+                csvText: pendingCSVImport.csvText
+            )
+            dismissCSVImportPreview()
+            importResultMessage = "\(session.rows.count) rows staged. \(session.invalidRowCount) invalid rows."
+        } catch {
+            importErrorMessage = error.localizedDescription
+        }
+    }
+
+    func dismissCSVImportPreview() {
+        isPresentingImportPreview = false
+        csvImportPreview = nil
+        pendingCSVImport = nil
     }
 }

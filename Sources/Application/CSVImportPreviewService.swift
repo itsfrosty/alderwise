@@ -6,8 +6,8 @@ public struct CSVImportPreview: Equatable, Sendable {
     public var mapping: CSVColumnMapping
     public var previewRows: [CSVImportPreviewRow]
     public var validation: CSVImportValidationSummary
+    public private(set) var sourceRows: [CSVRow]
 
-    private var sourceRows: [CSVRow]
     private var rowLimit: Int
 
     public init(
