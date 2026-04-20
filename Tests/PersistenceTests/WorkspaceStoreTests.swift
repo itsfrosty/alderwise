@@ -307,6 +307,120 @@ func fetchPendingReviewItemsReturnsLikelyDuplicateSourceRowContext() throws {
 }
 
 @Test
+func fetchPendingReviewItemsExcludesResolvedRows() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let duplicateTransactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
+    try insertTransaction(
+        databaseURL: databaseURL,
+        id: duplicateTransactionID,
+        accountID: account.id,
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-4.75),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+
+    let session = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .flaggedLikelyDuplicate(
+                        existingTransactionID: duplicateTransactionID,
+                        reason: "Same account, amount, normalized merchant, and nearby date."
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    try updateReviewItemStatus(
+        databaseURL: databaseURL,
+        sourceRowID: try #require(session.rows.first).id,
+        status: .resolved
+    )
+
+    let reviewItems = try store.fetchPendingReviewItems()
+
+    #expect(reviewItems.isEmpty)
+}
+
+@Test
+func fetchPendingReviewItemsThrowsForMalformedStoredIdentifiers() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let duplicateTransactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
+    try insertTransaction(
+        databaseURL: databaseURL,
+        id: duplicateTransactionID,
+        accountID: account.id,
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-4.75),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+
+    let session = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .flaggedLikelyDuplicate(
+                        existingTransactionID: duplicateTransactionID,
+                        reason: "Same account, amount, normalized merchant, and nearby date."
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    try corruptReviewItemID(
+        databaseURL: databaseURL,
+        sourceRowID: try #require(session.rows.first).id,
+        invalidID: "not-a-uuid"
+    )
+
+    #expect(throws: (any Error).self) {
+        _ = try store.fetchPendingReviewItems()
+    }
+}
+
+@Test
 func likelyDuplicateTransactionsMatchNearbyDateAmountAndMerchant() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -446,6 +560,42 @@ private func insertTransaction(
                 "accepted",
                 "none",
             ]
+        )
+    }
+}
+
+private func updateReviewItemStatus(
+    databaseURL: URL,
+    sourceRowID: Int64,
+    status: ReviewItemStatus
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            UPDATE review_items
+            SET status = ?
+            WHERE source_row_id = ?
+            """,
+            arguments: [status.rawValue, sourceRowID]
+        )
+    }
+}
+
+private func corruptReviewItemID(
+    databaseURL: URL,
+    sourceRowID: Int64,
+    invalidID: String
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            UPDATE review_items
+            SET id = ?
+            WHERE source_row_id = ?
+            """,
+            arguments: [invalidID, sourceRowID]
         )
     }
 }

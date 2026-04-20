@@ -267,18 +267,31 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 FROM review_items
                 JOIN source_rows ON source_rows.id = review_items.source_row_id
                 JOIN source_files ON source_files.id = source_rows.source_file_id
-                WHERE review_items.status = 'pending'
+                WHERE review_items.status = ?
                 ORDER BY review_items.created_at ASC, review_items.id ASC
-                """
+                """,
+                arguments: [ReviewItemStatus.pending.rawValue]
             )
 
-            return rows.compactMap { row in
-                guard let id = UUID(uuidString: row["id"]),
-                      let type = ReviewItemType(rawValue: row["type"]),
-                      let status = ReviewItemStatus(rawValue: row["status"]),
-                      let accountID = UUID(uuidString: row["account_id"])
-                else {
-                    return nil
+            return try rows.map { row in
+                let reviewItemIDText: String = row["id"]
+                guard let id = UUID(uuidString: reviewItemIDText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "id", value: reviewItemIDText)
+                }
+
+                let typeText: String = row["type"]
+                guard let type = ReviewItemType(rawValue: typeText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "type", value: typeText)
+                }
+
+                let statusText: String = row["status"]
+                guard let status = ReviewItemStatus(rawValue: statusText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "status", value: statusText)
+                }
+
+                let accountIDText: String = row["account_id"]
+                guard let accountID = UUID(uuidString: accountIDText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "account_id", value: accountIDText)
                 }
 
                 return PendingReviewItem(
@@ -676,6 +689,7 @@ private enum WorkspaceStoreError: Error {
     case insertedStagedSessionNotFound(Int64)
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
+    case invalidStoredReviewItem(field: String, value: String)
 }
 
 private extension Calendar {
