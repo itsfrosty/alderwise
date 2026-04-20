@@ -16,17 +16,20 @@ public struct StagedSourceRowDraft: Equatable, Sendable {
     public var rawPayload: String
     public var rowHash: String
     public var validationStatus: StagedSourceRowValidationStatus
+    public var importDecision: ImportRowDecision
 
     public init(
         sourceLineNumber: Int,
         rawPayload: String,
         rowHash: String,
-        validationStatus: StagedSourceRowValidationStatus
+        validationStatus: StagedSourceRowValidationStatus,
+        importDecision: ImportRowDecision = .imported(reason: "New source row.")
     ) {
         self.sourceLineNumber = sourceLineNumber
         self.rawPayload = rawPayload
         self.rowHash = rowHash
         self.validationStatus = validationStatus
+        self.importDecision = importDecision
     }
 }
 
@@ -96,6 +99,7 @@ public struct StagedSourceRow: Equatable, Sendable {
     public var rawPayload: String
     public var rowHash: String
     public var validationStatus: StagedSourceRowValidationStatus
+    public var importDecision: ImportRowDecision
 
     public init(
         id: Int64,
@@ -103,7 +107,8 @@ public struct StagedSourceRow: Equatable, Sendable {
         sourceLineNumber: Int,
         rawPayload: String,
         rowHash: String,
-        validationStatus: StagedSourceRowValidationStatus
+        validationStatus: StagedSourceRowValidationStatus,
+        importDecision: ImportRowDecision = .imported(reason: "New source row.")
     ) {
         self.id = id
         self.sourceFileID = sourceFileID
@@ -111,6 +116,7 @@ public struct StagedSourceRow: Equatable, Sendable {
         self.rawPayload = rawPayload
         self.rowHash = rowHash
         self.validationStatus = validationStatus
+        self.importDecision = importDecision
     }
 }
 

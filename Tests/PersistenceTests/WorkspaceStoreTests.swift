@@ -48,6 +48,15 @@ func stagedImportRecordsRoundTripThroughOnDiskWorkspace() throws {
     try store.bootstrap()
 
     let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let duplicateTransactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
+    try insertTransaction(
+        databaseURL: databaseURL,
+        id: duplicateTransactionID,
+        accountID: account.id,
+        normalizedMerchantName: "missing date",
+        amount: Decimal(-10.00),
+        transactionDate: Date(timeIntervalSince1970: 1_776_662_400)
+    )
     let importedAt = Date(timeIntervalSince1970: 1_776_662_400)
     let mapping = CSVColumnMapping(
         dateColumnIndex: 0,
@@ -66,13 +75,18 @@ func stagedImportRecordsRoundTripThroughOnDiskWorkspace() throws {
                     sourceLineNumber: 2,
                     rawPayload: #"["2026-04-01","Coffee","-4.50"]"#,
                     rowHash: "row-1-sha256",
-                    validationStatus: .valid
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row.")
                 ),
                 StagedSourceRowDraft(
                     sourceLineNumber: 3,
                     rawPayload: #"["","Missing date","-10.00"]"#,
                     rowHash: "row-2-sha256",
-                    validationStatus: .invalid
+                    validationStatus: .invalid,
+                    importDecision: .flaggedLikelyDuplicate(
+                        existingTransactionID: duplicateTransactionID,
+                        reason: "Same account, amount, normalized merchant, and nearby date."
+                    )
                 ),
             ],
             mapping: mapping,
@@ -95,6 +109,13 @@ func stagedImportRecordsRoundTripThroughOnDiskWorkspace() throws {
     #expect(fetched.status == .staged)
     #expect(fetched.rows.map(\.sourceLineNumber) == [2, 3])
     #expect(fetched.rows.map(\.validationStatus) == [.valid, .invalid])
+    #expect(fetched.rows.map(\.importDecision) == [
+        .imported(reason: "New source row."),
+        .flaggedLikelyDuplicate(
+            existingTransactionID: duplicateTransactionID,
+            reason: "Same account, amount, normalized merchant, and nearby date."
+        ),
+    ])
     #expect(fetched.rows.map(\.rawPayload) == [
         #"["2026-04-01","Coffee","-4.50"]"#,
         #"["","Missing date","-10.00"]"#,
@@ -137,6 +158,86 @@ func migratedLegacySourceFilesWithFilenameColumnAcceptStagedImports() throws {
 
     #expect(session.sourceFile.originalFilename == "checking-april.csv")
     #expect(session.rows.map(\.sourceLineNumber) == [2])
+}
+
+@Test
+func sourceRowHashesAreMatchedByAccountAcrossRenamedFiles() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "first-file-hash",
+            importedAt: Date(timeIntervalSince1970: 1_776_662_400),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","Coffee","-4.50"]"#,
+                    rowHash: "same-row-hash",
+                    validationStatus: .valid
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let matches = try store.fetchExistingSourceRowHashes(
+        accountID: account.id,
+        rowHashes: ["same-row-hash", "new-row-hash"]
+    )
+
+    #expect(matches == ["same-row-hash"])
+}
+
+@Test
+func likelyDuplicateTransactionsMatchNearbyDateAmountAndMerchant() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
+    try insertTransaction(
+        databaseURL: databaseURL,
+        id: transactionID,
+        accountID: account.id,
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-4.75),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+
+    let matches = try store.fetchLikelyDuplicateTransactions(
+        accountID: account.id,
+        candidates: [
+            NormalizedImportCandidate(
+                rowHash: "incoming-row",
+                sourceLineNumber: 2,
+                transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+                rawDescription: "SQ *Coffee Shop",
+                normalizedMerchantName: "coffee shop",
+                amount: Decimal(-4.75)
+            ),
+        ]
+    )
+
+    #expect(matches == [
+        LikelyDuplicateCandidate(
+            rowHash: "incoming-row",
+            existingTransactionID: transactionID,
+            reason: "Same account, amount, normalized merchant, and nearby date."
+        ),
+    ])
 }
 
 private func temporaryDatabaseURL() throws -> URL {
@@ -198,5 +299,47 @@ private func createLegacyWorkspaceWithFilenameSourceFiles(at databaseURL: URL) t
         try db.execute(sql: "CREATE TABLE transactions (id TEXT PRIMARY KEY)")
         try db.execute(sql: "CREATE TABLE review_items (id TEXT PRIMARY KEY, status TEXT NOT NULL)")
         try db.execute(sql: "CREATE TABLE targets (id TEXT PRIMARY KEY)")
+    }
+}
+
+private func insertTransaction(
+    databaseURL: URL,
+    id: UUID,
+    accountID: UUID,
+    normalizedMerchantName: String,
+    amount: Decimal,
+    transactionDate: Date
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO transactions (
+                id,
+                account_id,
+                raw_description,
+                normalized_merchant_name,
+                amount,
+                transaction_date,
+                direction,
+                decision_source,
+                review_status,
+                duplicate_status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                id.uuidString,
+                accountID.uuidString,
+                "SQ *Coffee Shop",
+                normalizedMerchantName,
+                NSDecimalNumber(decimal: amount).doubleValue,
+                transactionDate,
+                "expense",
+                "heuristic",
+                "accepted",
+                "none",
+            ]
+        )
     }
 }

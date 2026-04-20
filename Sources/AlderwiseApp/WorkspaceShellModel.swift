@@ -139,14 +139,19 @@ final class WorkspaceShellModel: ObservableObject {
         }
 
         do {
-            let session = try service.stageCSVImport(
+            let result = try service.stageCSVImport(
                 preview: preview,
                 account: account,
                 originalFilename: pendingCSVImport.originalFilename,
                 csvText: pendingCSVImport.csvText
             )
             dismissCSVImportPreview()
-            importResultMessage = "\(session.rows.count) rows staged. \(session.invalidRowCount) invalid rows."
+            switch result.outcome {
+            case .staged:
+                importResultMessage = "\(result.summary.importedRowCount) rows staged. \(result.summary.flaggedDuplicateRowCount) likely duplicates flagged."
+            case .exactReimportNoOp:
+                importResultMessage = "\(result.summary.skippedRowCount) rows already imported. No changes made."
+            }
         } catch {
             dismissCSVImportPreview()
             importErrorMessage = error.localizedDescription

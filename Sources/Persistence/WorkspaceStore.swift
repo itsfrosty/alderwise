@@ -2,7 +2,7 @@ import Domain
 import Foundation
 import GRDB
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading {
     private let databaseQueue: DatabaseQueue
 
     public init(databaseQueue: DatabaseQueue) {
@@ -51,6 +51,9 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 table.column("row_hash", .text).notNull().indexed()
                 table.column("raw_payload", .text).notNull()
                 table.column("validation_status", .text).notNull()
+                table.column("import_decision_kind", .text).notNull()
+                table.column("decision_reason", .text).notNull()
+                table.column("duplicate_transaction_id", .text)
             }
 
             try db.create(table: "import_sessions") { table in
@@ -112,8 +115,11 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             try db.create(table: "review_items") { table in
                 table.column("id", .text).primaryKey()
                 table.column("transaction_id", .text).references("transactions", onDelete: .cascade)
+                table.column("source_row_id", .integer).references("source_rows", onDelete: .cascade)
+                table.column("duplicate_transaction_id", .text).references("transactions", onDelete: .setNull)
                 table.column("type", .text).notNull()
                 table.column("status", .text).notNull()
+                table.column("reason", .text)
                 table.column("created_at", .datetime).notNull()
             }
 
@@ -160,6 +166,15 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             if !sourceRowColumns.contains("validation_status") {
                 try db.execute(sql: "ALTER TABLE source_rows ADD COLUMN validation_status TEXT NOT NULL DEFAULT 'valid'")
             }
+            if !sourceRowColumns.contains("import_decision_kind") {
+                try db.execute(sql: "ALTER TABLE source_rows ADD COLUMN import_decision_kind TEXT NOT NULL DEFAULT 'imported'")
+            }
+            if !sourceRowColumns.contains("decision_reason") {
+                try db.execute(sql: "ALTER TABLE source_rows ADD COLUMN decision_reason TEXT NOT NULL DEFAULT 'New source row.'")
+            }
+            if !sourceRowColumns.contains("duplicate_transaction_id") {
+                try db.execute(sql: "ALTER TABLE source_rows ADD COLUMN duplicate_transaction_id TEXT")
+            }
 
             let sessionColumns = try columnNames(in: "import_sessions", db: db)
             if !sessionColumns.contains("source_file_id") {
@@ -173,6 +188,19 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             }
             if !sessionColumns.contains("invalid_row_count") {
                 try db.execute(sql: "ALTER TABLE import_sessions ADD COLUMN invalid_row_count INTEGER NOT NULL DEFAULT 0")
+            }
+
+            if try db.tableExists("review_items") {
+                let reviewItemColumns = try columnNames(in: "review_items", db: db)
+                if !reviewItemColumns.contains("source_row_id") {
+                    try db.execute(sql: "ALTER TABLE review_items ADD COLUMN source_row_id INTEGER REFERENCES source_rows(id) ON DELETE CASCADE")
+                }
+                if !reviewItemColumns.contains("duplicate_transaction_id") {
+                    try db.execute(sql: "ALTER TABLE review_items ADD COLUMN duplicate_transaction_id TEXT REFERENCES transactions(id) ON DELETE SET NULL")
+                }
+                if !reviewItemColumns.contains("reason") {
+                    try db.execute(sql: "ALTER TABLE review_items ADD COLUMN reason TEXT")
+                }
             }
         }
 
@@ -247,8 +275,17 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
 
             let insertSourceRow = try db.makeStatement(
                 sql: """
-                INSERT INTO source_rows (source_file_id, source_line_number, row_hash, raw_payload, validation_status)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO source_rows (
+                    source_file_id,
+                    source_line_number,
+                    row_hash,
+                    raw_payload,
+                    validation_status,
+                    import_decision_kind,
+                    decision_reason,
+                    duplicate_transaction_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """
             )
             for row in draft.rows {
@@ -259,8 +296,21 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                         row.rowHash,
                         row.rawPayload,
                         row.validationStatus.rawValue,
+                        row.importDecision.storageKind,
+                        row.importDecision.reason,
+                        row.importDecision.duplicateTransactionID?.uuidString,
                     ]
                 )
+                let sourceRowID = db.lastInsertedRowID
+                if case .flaggedLikelyDuplicate(let existingTransactionID, let reason) = row.importDecision {
+                    try insertLikelyDuplicateReviewItem(
+                        sourceRowID: sourceRowID,
+                        existingTransactionID: existingTransactionID,
+                        reason: reason,
+                        createdAt: draft.importedAt,
+                        db: db
+                    )
+                }
             }
 
             try db.execute(
@@ -297,6 +347,80 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
     public func fetchStagedImportSession(id: Int64) throws -> StagedImportSession? {
         try databaseQueue.read { db in
             try fetchStagedImportSession(id: id, db: db)
+        }
+    }
+
+    public func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
+        guard !rowHashes.isEmpty else {
+            return []
+        }
+
+        return try databaseQueue.read { db in
+            let placeholders = Array(repeating: "?", count: rowHashes.count).joined(separator: ", ")
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT DISTINCT source_rows.row_hash
+                FROM source_rows
+                JOIN source_files ON source_files.id = source_rows.source_file_id
+                WHERE source_files.account_id = ?
+                  AND source_rows.row_hash IN (\(placeholders))
+                """,
+                arguments: StatementArguments([accountID.uuidString] + Array(rowHashes))
+            )
+
+            return Set(rows.map { row in row["row_hash"] })
+        }
+    }
+
+    public func fetchLikelyDuplicateTransactions(
+        accountID: UUID,
+        candidates: [NormalizedImportCandidate]
+    ) throws -> [LikelyDuplicateCandidate] {
+        guard !candidates.isEmpty else {
+            return []
+        }
+
+        return try databaseQueue.read { db in
+            var matches: [LikelyDuplicateCandidate] = []
+            for candidate in candidates {
+                let existingRows = try Row.fetchAll(
+                    db,
+                    sql: """
+                    SELECT id
+                    FROM transactions
+                    WHERE account_id = ?
+                      AND ABS(amount - ?) < 0.000001
+                      AND normalized_merchant_name = ?
+                      AND transaction_date BETWEEN ? AND ?
+                    ORDER BY transaction_date ASC, id ASC
+                    LIMIT 1
+                    """,
+                    arguments: [
+                        accountID.uuidString,
+                        NSDecimalNumber(decimal: candidate.amount).doubleValue,
+                        candidate.normalizedMerchantName,
+                        Calendar.alderwiseUTC.date(byAdding: .day, value: -3, to: candidate.transactionDate) ?? candidate.transactionDate,
+                        Calendar.alderwiseUTC.date(byAdding: .day, value: 3, to: candidate.transactionDate) ?? candidate.transactionDate,
+                    ]
+                )
+
+                guard
+                    let transactionIDText: String = existingRows.first?["id"],
+                    let transactionID = UUID(uuidString: transactionIDText)
+                else {
+                    continue
+                }
+
+                matches.append(
+                    LikelyDuplicateCandidate(
+                        rowHash: candidate.rowHash,
+                        existingTransactionID: transactionID,
+                        reason: "Same account, amount, normalized merchant, and nearby date."
+                    )
+                )
+            }
+            return matches
         }
     }
 
@@ -342,7 +466,16 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         let rowRecords = try Row.fetchAll(
             db,
             sql: """
-            SELECT id, source_file_id, source_line_number, raw_payload, row_hash, validation_status
+            SELECT
+                id,
+                source_file_id,
+                source_line_number,
+                raw_payload,
+                row_hash,
+                validation_status,
+                import_decision_kind,
+                decision_reason,
+                duplicate_transaction_id
             FROM source_rows
             WHERE source_file_id = ?
             ORDER BY source_line_number ASC, id ASC
@@ -357,7 +490,12 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 sourceLineNumber: row["source_line_number"],
                 rawPayload: row["raw_payload"],
                 rowHash: row["row_hash"],
-                validationStatus: StagedSourceRowValidationStatus(rawValue: row["validation_status"]) ?? .invalid
+                validationStatus: StagedSourceRowValidationStatus(rawValue: row["validation_status"]) ?? .invalid,
+                importDecision: ImportRowDecision.fromStorage(
+                    kind: row["import_decision_kind"],
+                    reason: row["decision_reason"],
+                    duplicateTransactionID: (row["duplicate_transaction_id"] as String?).flatMap(UUID.init(uuidString:))
+                )
             )
         }
 
@@ -419,6 +557,47 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             )
         }
     }
+
+    private func insertLikelyDuplicateReviewItem(
+        sourceRowID: Int64,
+        existingTransactionID: UUID,
+        reason: String,
+        createdAt: Date,
+        db: Database
+    ) throws {
+        let reviewItemColumns = try columnNames(in: "review_items", db: db)
+        guard reviewItemColumns.contains("source_row_id"),
+              reviewItemColumns.contains("duplicate_transaction_id"),
+              reviewItemColumns.contains("reason")
+        else {
+            return
+        }
+
+        try db.execute(
+            sql: """
+            INSERT INTO review_items (
+                id,
+                transaction_id,
+                source_row_id,
+                duplicate_transaction_id,
+                type,
+                status,
+                reason,
+                created_at
+            )
+            VALUES (?, NULL, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                UUID().uuidString,
+                sourceRowID,
+                existingTransactionID.uuidString,
+                "likely_duplicate",
+                "pending",
+                reason,
+                createdAt,
+            ]
+        )
+    }
 }
 
 private func columnNames(in table: String, db: Database) throws -> Set<String> {
@@ -429,4 +608,12 @@ private enum WorkspaceStoreError: Error {
     case insertedStagedSessionNotFound(Int64)
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
+}
+
+private extension Calendar {
+    static var alderwiseUTC: Calendar {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+        return calendar
+    }
 }
