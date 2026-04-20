@@ -35,14 +35,14 @@ struct TransactionLedgerView: View {
                     transactionList
                 }
             }
-            .frame(minWidth: 520, idealWidth: 680)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             TransactionDetailView(
                 detail: model.selectedTransactionDetail,
                 categories: snapshot.categories,
                 onSave: model.updateSelectedTransaction(draft:)
             )
-            .frame(minWidth: 320, idealWidth: 380)
+            .frame(idealWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Transactions")
         .searchable(text: $searchText, placement: .toolbar, prompt: "Search transactions")
