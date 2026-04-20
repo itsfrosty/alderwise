@@ -2,7 +2,7 @@ import Domain
 import Foundation
 import GRDB
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading {
     private let databaseQueue: DatabaseQueue
 
     public init(databaseQueue: DatabaseQueue) {
@@ -120,6 +120,12 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 table.column("type", .text).notNull()
                 table.column("status", .text).notNull()
                 table.column("reason", .text)
+                table.column("normalized_merchant_name", .text)
+                table.column("suggested_category_id", .text)
+                table.column("suggested_merchant_name", .text)
+                table.column("classification_source", .text)
+                table.column("classification_source_reference", .text)
+                table.column("classification_confidence", .double)
                 table.column("created_at", .datetime).notNull()
             }
 
@@ -217,6 +223,33 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 }
             }
         }
+        migrator.registerMigration("add-classification-review-context") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            guard try db.tableExists("review_items") else {
+                return
+            }
+
+            let reviewItemColumns = try columnNames(in: "review_items", db: db)
+            if !reviewItemColumns.contains("normalized_merchant_name") {
+                try db.execute(sql: "ALTER TABLE review_items ADD COLUMN normalized_merchant_name TEXT")
+            }
+            if !reviewItemColumns.contains("suggested_category_id") {
+                try db.execute(sql: "ALTER TABLE review_items ADD COLUMN suggested_category_id TEXT")
+            }
+            if !reviewItemColumns.contains("suggested_merchant_name") {
+                try db.execute(sql: "ALTER TABLE review_items ADD COLUMN suggested_merchant_name TEXT")
+            }
+            if !reviewItemColumns.contains("classification_source") {
+                try db.execute(sql: "ALTER TABLE review_items ADD COLUMN classification_source TEXT")
+            }
+            if !reviewItemColumns.contains("classification_source_reference") {
+                try db.execute(sql: "ALTER TABLE review_items ADD COLUMN classification_source_reference TEXT")
+            }
+            if !reviewItemColumns.contains("classification_confidence") {
+                try db.execute(sql: "ALTER TABLE review_items ADD COLUMN classification_confidence DOUBLE")
+            }
+        }
 
         try migrator.migrate(databaseQueue)
     }
@@ -272,6 +305,12 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     review_items.reason,
                     review_items.created_at,
                     review_items.duplicate_transaction_id,
+                    review_items.normalized_merchant_name,
+                    review_items.suggested_category_id,
+                    review_items.suggested_merchant_name,
+                    review_items.classification_source,
+                    review_items.classification_source_reference,
+                    review_items.classification_confidence,
                     source_rows.id AS source_row_id,
                     source_rows.source_line_number,
                     source_rows.row_hash,
@@ -324,7 +363,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                         rowHash: row["row_hash"],
                         rawPayload: row["raw_payload"]
                     ),
-                    duplicateTransactionID: (row["duplicate_transaction_id"] as String?).flatMap(UUID.init(uuidString:))
+                    duplicateTransactionID: (row["duplicate_transaction_id"] as String?).flatMap(UUID.init(uuidString:)),
+                    classification: try pendingReviewClassification(from: row)
                 )
             }
         }
@@ -474,6 +514,141 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         }
     }
 
+    public func approveClassificationReviewItem(
+        id: UUID,
+        assignment: ClassificationAssignment,
+        createRule: Bool,
+        resolvedAt: Date
+    ) throws -> ReviewDecisionEvent {
+        try databaseQueue.write { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT
+                    id,
+                    type,
+                    status,
+                    source_row_id,
+                    normalized_merchant_name
+                FROM review_items
+                WHERE id = ?
+                """,
+                arguments: [id.uuidString]
+            ) else {
+                throw WorkspaceStoreError.reviewItemNotFound(id)
+            }
+
+            let typeText: String = row["type"]
+            guard typeText == ReviewItemType.lowConfidenceCategory.rawValue else {
+                throw WorkspaceStoreError.unsupportedReviewItemType(typeText)
+            }
+
+            let statusText: String = row["status"]
+            guard statusText == ReviewItemStatus.pending.rawValue else {
+                throw WorkspaceStoreError.reviewItemNotPending(id)
+            }
+
+            let sourceRowID: Int64 = row["source_row_id"]
+            let merchantPattern = try requireString(
+                row["normalized_merchant_name"],
+                field: "review_items.normalized_merchant_name"
+            )
+            let details = createRule
+                ? "User approved classification and created a merchant rule."
+                : "User approved classification without creating a merchant rule."
+            let event = ReviewDecisionEvent(
+                id: UUID(),
+                reviewItemID: id,
+                sourceRowID: sourceRowID,
+                action: .approveSuggestion,
+                details: details,
+                createdAt: resolvedAt
+            )
+
+            try db.execute(
+                sql: """
+                UPDATE review_items
+                SET status = ?
+                WHERE id = ?
+                """,
+                arguments: [ReviewItemStatus.resolved.rawValue, id.uuidString]
+            )
+
+            if createRule {
+                try db.execute(
+                    sql: """
+                    INSERT INTO rules (id, pattern, category_id, merchant_name, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    arguments: [
+                        UUID().uuidString,
+                        merchantPattern,
+                        assignment.categoryID.uuidString,
+                        assignment.merchantName,
+                        resolvedAt,
+                    ]
+                )
+            }
+
+            try db.execute(
+                sql: """
+                INSERT INTO review_decision_events (
+                    id,
+                    review_item_id,
+                    source_row_id,
+                    action,
+                    details,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    event.id.uuidString,
+                    event.reviewItemID.uuidString,
+                    event.sourceRowID,
+                    event.action.rawValue,
+                    event.details,
+                    event.createdAt,
+                ]
+            )
+
+            return event
+        }
+    }
+
+    public func fetchClassificationRules() throws -> [ClassificationRule] {
+        try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT rules.id, rules.pattern, rules.category_id, rules.merchant_name
+                FROM rules
+                JOIN categories ON categories.id = rules.category_id
+                ORDER BY rules.created_at ASC, rules.id ASC
+                """
+            )
+
+            return try rows.map { row in
+                let ruleIDText: String = row["id"]
+                guard let ruleID = UUID(uuidString: ruleIDText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "rules.id", value: ruleIDText)
+                }
+
+                let categoryIDText: String = try requireString(row["category_id"], field: "rules.category_id")
+                guard let categoryID = UUID(uuidString: categoryIDText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "rules.category_id", value: categoryIDText)
+                }
+
+                return ClassificationRule(
+                    id: ruleID,
+                    merchantPattern: row["pattern"],
+                    categoryID: categoryID,
+                    merchantName: row["merchant_name"]
+                )
+            }
+        }
+    }
+
     public func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
         let account = Account(name: named, kind: kind, institutionName: institutionName)
         try databaseQueue.write { db in
@@ -535,6 +710,16 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                         sourceRowID: sourceRowID,
                         existingTransactionID: existingTransactionID,
                         reason: reason,
+                        createdAt: draft.importedAt,
+                        db: db
+                    )
+                } else if case .imported = row.importDecision,
+                          let classification = row.classification,
+                          case .reviewRequired = classification {
+                    try insertClassificationReviewItem(
+                        sourceRowID: sourceRowID,
+                        decision: classification,
+                        normalizedMerchantName: row.normalizedMerchantName,
                         createdAt: draft.importedAt,
                         db: db
                     )
@@ -837,6 +1022,65 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             ]
         )
     }
+
+    private func insertClassificationReviewItem(
+        sourceRowID: Int64,
+        decision: TransactionClassificationDecision,
+        normalizedMerchantName: String?,
+        createdAt: Date,
+        db: Database
+    ) throws {
+        guard case .reviewRequired(let prefill, let source, let sourceReference, let confidence, let reason) = decision else {
+            return
+        }
+
+        let reviewItemColumns = try columnNames(in: "review_items", db: db)
+        guard reviewItemColumns.contains("normalized_merchant_name"),
+              reviewItemColumns.contains("suggested_category_id"),
+              reviewItemColumns.contains("suggested_merchant_name"),
+              reviewItemColumns.contains("classification_source"),
+              reviewItemColumns.contains("classification_source_reference"),
+              reviewItemColumns.contains("classification_confidence")
+        else {
+            return
+        }
+
+        try db.execute(
+            sql: """
+            INSERT INTO review_items (
+                id,
+                transaction_id,
+                source_row_id,
+                duplicate_transaction_id,
+                type,
+                status,
+                reason,
+                normalized_merchant_name,
+                suggested_category_id,
+                suggested_merchant_name,
+                classification_source,
+                classification_source_reference,
+                classification_confidence,
+                created_at
+            )
+            VALUES (?, NULL, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                UUID().uuidString,
+                sourceRowID,
+                ReviewItemType.lowConfidenceCategory.rawValue,
+                ReviewItemStatus.pending.rawValue,
+                reason,
+                normalizedMerchantName,
+                prefill?.categoryID.uuidString,
+                prefill?.merchantName,
+                source?.rawValue,
+                sourceReference,
+                confidence,
+                createdAt,
+            ]
+        )
+    }
 }
 
 private func columnNames(in table: String, db: Database) throws -> Set<String> {
@@ -849,6 +1093,50 @@ private func requireString(_ value: String?, field: String) throws -> String {
     }
 
     throw WorkspaceStoreError.invalidStoredReviewItem(field: field, value: "NULL")
+}
+
+private func pendingReviewClassification(from row: Row) throws -> PendingReviewClassification? {
+    guard let normalizedMerchantName = row["normalized_merchant_name"] as String? else {
+        return nil
+    }
+
+    let categoryID: UUID?
+    if let categoryIDText = row["suggested_category_id"] as String? {
+        guard let parsedCategoryID = UUID(uuidString: categoryIDText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(
+                field: "review_items.suggested_category_id",
+                value: categoryIDText
+            )
+        }
+        categoryID = parsedCategoryID
+    } else {
+        categoryID = nil
+    }
+
+    let prefill = categoryID.map {
+        ClassificationAssignment(categoryID: $0, merchantName: row["suggested_merchant_name"])
+    }
+
+    let source: ClassificationDecisionSource?
+    if let sourceText = row["classification_source"] as String? {
+        guard let parsedSource = ClassificationDecisionSource(rawValue: sourceText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(
+                field: "review_items.classification_source",
+                value: sourceText
+            )
+        }
+        source = parsedSource
+    } else {
+        source = nil
+    }
+
+    return PendingReviewClassification(
+        normalizedMerchantName: normalizedMerchantName,
+        prefill: prefill,
+        source: source,
+        sourceReference: row["classification_source_reference"],
+        confidence: row["classification_confidence"]
+    )
 }
 
 private enum WorkspaceStoreError: Error {

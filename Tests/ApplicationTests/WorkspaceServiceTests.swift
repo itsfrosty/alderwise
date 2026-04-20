@@ -67,12 +67,13 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ClassificationRuleReading, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var stagedImportDrafts: [StagedImportSessionDraft] = []
     var likelyDuplicateCandidates: [LikelyDuplicateCandidate] = []
     var existingSourceRowHashes: Set<String> = []
+    var classificationRules: [ClassificationRule] = []
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -154,6 +155,10 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     ) throws -> [LikelyDuplicateCandidate] {
         let candidateHashes = Set(candidates.map(\.rowHash))
         return likelyDuplicateCandidates.filter { candidateHashes.contains($0.rowHash) }
+    }
+
+    func fetchClassificationRules() throws -> [ClassificationRule] {
+        classificationRules
     }
 }
 
@@ -316,6 +321,43 @@ func stageCSVImportReturnsClassificationResultsForImportedRows() throws {
             )
         ),
     ])
+}
+
+@Test
+func stageCSVImportUsesPersistedClassificationRulesToAvoidReview() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let store = MutableWorkspaceStore(accounts: [account])
+    store.classificationRules = [
+        ClassificationRule(
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop"
+        ),
+    ]
+    let service = WorkspaceService(store: store)
+    let csv = """
+    Date,Description,Amount
+    2026-04-02,SQ *Coffee Shop,-5.25
+    """
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-april.csv",
+        csvText: csv
+    )
+
+    #expect(result.classifications.count == 1)
+    #expect(result.classifications[0].decision.isAutoAccepted)
+    #expect(result.classifications[0].decision.source == .rule)
+    #expect(try #require(store.stagedImportDrafts.first).rows.first?.classification?.isAutoAccepted == true)
 }
 
 @Test

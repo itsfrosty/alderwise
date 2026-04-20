@@ -154,6 +154,17 @@ public struct ClassificationEngine: Sendable {
         self.suggestionAutoAcceptThreshold = suggestionAutoAcceptThreshold
     }
 
+    public func appendingExplicitRules(_ rules: [ClassificationRule]) -> ClassificationEngine {
+        ClassificationEngine(
+            explicitRules: explicitRules + rules,
+            heuristics: heuristics,
+            suggestionProvider: suggestionProvider,
+            suggestionsEnabled: suggestionsEnabled,
+            priorAcceptedMerchantNames: priorAcceptedMerchantNames,
+            suggestionAutoAcceptThreshold: suggestionAutoAcceptThreshold
+        )
+    }
+
     public func classify(
         candidate: NormalizedImportCandidate,
         hasDuplicateConcern: Bool = false
@@ -223,13 +234,15 @@ public struct ClassificationEngine: Sendable {
 
 private extension ClassificationRule {
     func matches(_ candidate: NormalizedImportCandidate) -> Bool {
-        candidate.normalizedMerchantName.contains(merchantPattern.normalizedClassificationPattern)
+        let pattern = merchantPattern.normalizedClassificationPattern
+        return !pattern.isEmpty && candidate.normalizedMerchantName.contains(pattern)
     }
 }
 
 private extension ClassificationHeuristic {
     func matches(_ candidate: NormalizedImportCandidate) -> Bool {
-        candidate.normalizedMerchantName.contains(merchantPattern.normalizedClassificationPattern)
+        let pattern = merchantPattern.normalizedClassificationPattern
+        return !pattern.isEmpty && candidate.normalizedMerchantName.contains(pattern)
     }
 }
 

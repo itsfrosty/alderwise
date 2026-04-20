@@ -32,10 +32,20 @@ public protocol ReviewQueueReading: Sendable {
 
 public protocol ReviewQueueWriting: Sendable {
     func keepBothForLikelyDuplicateReviewItem(id: UUID, resolvedAt: Date) throws -> ReviewDecisionEvent
+    func approveClassificationReviewItem(
+        id: UUID,
+        assignment: ClassificationAssignment,
+        createRule: Bool,
+        resolvedAt: Date
+    ) throws -> ReviewDecisionEvent
 }
 
 public protocol ReviewDecisionReading: Sendable {
     func fetchReviewDecisionEvents(reviewItemID: UUID) throws -> [ReviewDecisionEvent]
+}
+
+public protocol ClassificationRuleReading: Sendable {
+    func fetchClassificationRules() throws -> [ClassificationRule]
 }
 
 public typealias WorkspaceStoring = WorkspaceReading & AccountWriting

@@ -23,6 +23,9 @@ private final class RecordingReviewQueueStore: @unchecked Sendable, ReviewQueueR
         details: "User kept both the staged row and existing transaction after duplicate review.",
         createdAt: Date(timeIntervalSince1970: 1_775_171_260)
     )
+    var approvedClassificationReviewItemID: UUID?
+    var approvedAssignment: ClassificationAssignment?
+    var approvedCreateRule: Bool?
 
     func fetchPendingReviewItems() throws -> [PendingReviewItem] {
         items
@@ -30,6 +33,19 @@ private final class RecordingReviewQueueStore: @unchecked Sendable, ReviewQueueR
 
     func keepBothForLikelyDuplicateReviewItem(id: UUID, resolvedAt: Date) throws -> ReviewDecisionEvent {
         resolvedReviewItemID = id
+        self.resolvedAt = resolvedAt
+        return returnedEvent
+    }
+
+    func approveClassificationReviewItem(
+        id: UUID,
+        assignment: ClassificationAssignment,
+        createRule: Bool,
+        resolvedAt: Date
+    ) throws -> ReviewDecisionEvent {
+        approvedClassificationReviewItemID = id
+        approvedAssignment = assignment
+        approvedCreateRule = createRule
         self.resolvedAt = resolvedAt
         return returnedEvent
     }
@@ -74,6 +90,29 @@ func keepBothLikelyDuplicateDelegatesToStoreAndReturnsDecisionEvent() throws {
     let event = try service.keepBothLikelyDuplicateReviewItem(id: reviewItemID, resolvedAt: resolvedAt)
 
     #expect(store.resolvedReviewItemID == reviewItemID)
+    #expect(store.resolvedAt == resolvedAt)
+    #expect(event == store.returnedEvent)
+}
+
+@Test
+func approveClassificationDelegatesToStoreAndReturnsDecisionEvent() throws {
+    let store = RecordingReviewQueueStore()
+    let service = ReviewService(store: store)
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000555")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let assignment = ClassificationAssignment(categoryID: categoryID, merchantName: "Coffee Shop")
+    let resolvedAt = Date(timeIntervalSince1970: 1_775_171_260)
+
+    let event = try service.approveClassificationReviewItem(
+        id: reviewItemID,
+        assignment: assignment,
+        createRule: true,
+        resolvedAt: resolvedAt
+    )
+
+    #expect(store.approvedClassificationReviewItemID == reviewItemID)
+    #expect(store.approvedAssignment == assignment)
+    #expect(store.approvedCreateRule == true)
     #expect(store.resolvedAt == resolvedAt)
     #expect(event == store.returnedEvent)
 }

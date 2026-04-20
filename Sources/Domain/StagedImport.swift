@@ -17,19 +17,25 @@ public struct StagedSourceRowDraft: Equatable, Sendable {
     public var rowHash: String
     public var validationStatus: StagedSourceRowValidationStatus
     public var importDecision: ImportRowDecision
+    public var classification: TransactionClassificationDecision?
+    public var normalizedMerchantName: String?
 
     public init(
         sourceLineNumber: Int,
         rawPayload: String,
         rowHash: String,
         validationStatus: StagedSourceRowValidationStatus,
-        importDecision: ImportRowDecision = .imported(reason: "New source row.")
+        importDecision: ImportRowDecision = .imported(reason: "New source row."),
+        classification: TransactionClassificationDecision? = nil,
+        normalizedMerchantName: String? = nil
     ) {
         self.sourceLineNumber = sourceLineNumber
         self.rawPayload = rawPayload
         self.rowHash = rowHash
         self.validationStatus = validationStatus
         self.importDecision = importDecision
+        self.classification = classification
+        self.normalizedMerchantName = normalizedMerchantName
     }
 }
 

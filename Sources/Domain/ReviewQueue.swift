@@ -15,6 +15,10 @@ public enum ReviewItemStatus: String, Codable, Equatable, Sendable {
 
 public enum ReviewDecisionAction: String, Codable, Equatable, Sendable {
     case keepBoth = "keep_both"
+    case approveSuggestion = "approve_suggestion"
+    case changeCategory = "change_category"
+    case renameMerchant = "rename_merchant"
+    case createRule = "create_rule"
 }
 
 public struct PendingReviewSourceFile: Equatable, Sendable {
@@ -50,6 +54,7 @@ public struct PendingReviewItem: Equatable, Sendable {
     public var sourceFile: PendingReviewSourceFile
     public var sourceRow: PendingReviewSourceRow
     public var duplicateTransactionID: UUID?
+    public var classification: PendingReviewClassification?
 
     public init(
         id: UUID,
@@ -59,7 +64,8 @@ public struct PendingReviewItem: Equatable, Sendable {
         createdAt: Date,
         sourceFile: PendingReviewSourceFile,
         sourceRow: PendingReviewSourceRow,
-        duplicateTransactionID: UUID?
+        duplicateTransactionID: UUID?,
+        classification: PendingReviewClassification? = nil
     ) {
         self.id = id
         self.type = type
@@ -69,6 +75,29 @@ public struct PendingReviewItem: Equatable, Sendable {
         self.sourceFile = sourceFile
         self.sourceRow = sourceRow
         self.duplicateTransactionID = duplicateTransactionID
+        self.classification = classification
+    }
+}
+
+public struct PendingReviewClassification: Equatable, Sendable {
+    public var normalizedMerchantName: String
+    public var prefill: ClassificationAssignment?
+    public var source: ClassificationDecisionSource?
+    public var sourceReference: String?
+    public var confidence: Double?
+
+    public init(
+        normalizedMerchantName: String,
+        prefill: ClassificationAssignment?,
+        source: ClassificationDecisionSource?,
+        sourceReference: String?,
+        confidence: Double?
+    ) {
+        self.normalizedMerchantName = normalizedMerchantName
+        self.prefill = prefill
+        self.source = source
+        self.sourceReference = sourceReference
+        self.confidence = confidence
     }
 }
 

@@ -160,6 +160,26 @@ public struct WorkspaceService: Sendable {
         )
         let duplicateByRowHash = Dictionary(duplicateCandidates.map { ($0.rowHash, $0) }, uniquingKeysWith: { first, _ in first })
 
+        let importClassifier = try effectiveClassifier()
+        let classifications = normalizedRows.map { normalizedRow in
+            ImportRowClassification(
+                rowHash: normalizedRow.rowHash,
+                sourceLineNumber: normalizedRow.sourceLineNumber,
+                decision: importClassifier.classify(
+                    candidate: normalizedRow.candidate,
+                    hasDuplicateConcern: duplicateByRowHash[normalizedRow.rowHash] != nil
+                )
+            )
+        }
+        let classificationByRowHash = Dictionary(
+            zip(normalizedRows.map(\.rowHash), classifications),
+            uniquingKeysWith: { first, _ in first }
+        )
+        let normalizedMerchantByRowHash = Dictionary(
+            normalizedRows.map { ($0.rowHash, $0.normalizedMerchantName) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
         var remainingSkippedRows = skippedRows
         let rows = rowIdentities.map { rowIdentity in
             let decision: ImportRowDecision
@@ -181,20 +201,12 @@ public struct WorkspaceService: Sendable {
                 rawPayload: rowIdentity.rawPayload,
                 rowHash: rowIdentity.rowHash,
                 validationStatus: .valid,
-                importDecision: decision
+                importDecision: decision,
+                classification: classificationByRowHash[rowIdentity.rowHash]?.decision,
+                normalizedMerchantName: normalizedMerchantByRowHash[rowIdentity.rowHash]
             )
         }
         let decisions = rows.map(\.importDecision)
-        let classifications = normalizedRows.map { normalizedRow in
-            ImportRowClassification(
-                rowHash: normalizedRow.rowHash,
-                sourceLineNumber: normalizedRow.sourceLineNumber,
-                decision: classifier.classify(
-                    candidate: normalizedRow.candidate,
-                    hasDuplicateConcern: duplicateByRowHash[normalizedRow.rowHash] != nil
-                )
-            )
-        }
 
         let session = try store.createStagedImportSession(
             StagedImportSessionDraft(
@@ -243,6 +255,14 @@ public struct WorkspaceService: Sendable {
             amount: amount,
             rawPayload: rowIdentity.rawPayload
         )
+    }
+
+    private func effectiveClassifier() throws -> ClassificationEngine {
+        guard let ruleReader = store as? any ClassificationRuleReading else {
+            return classifier
+        }
+
+        return try classifier.appendingExplicitRules(ruleReader.fetchClassificationRules())
     }
 
     private static func rawPayload(for row: CSVRow) throws -> String {

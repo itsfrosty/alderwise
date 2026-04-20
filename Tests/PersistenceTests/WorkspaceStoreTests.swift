@@ -364,6 +364,149 @@ func fetchPendingReviewItemsExcludesResolvedRows() throws {
 }
 
 @Test
+func stagedImportCreatesClassificationReviewItemsForRowsNeedingReview() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","SQ *Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: ClassificationAssignment(
+                            categoryID: categoryID,
+                            merchantName: "Coffee Shop"
+                        ),
+                        source: .heuristic,
+                        sourceReference: nil,
+                        confidence: 0.65,
+                        reason: "Deterministic heuristic requires review."
+                    ),
+                    normalizedMerchantName: "coffee shop"
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let reviewItems = try store.fetchPendingReviewItems()
+
+    #expect(reviewItems.count == 1)
+    #expect(reviewItems[0].type == .lowConfidenceCategory)
+    #expect(reviewItems[0].sourceRow.rowHash == "row-1-sha256")
+    #expect(reviewItems[0].classification?.normalizedMerchantName == "coffee shop")
+    #expect(reviewItems[0].classification?.prefill?.categoryID == categoryID)
+    #expect(reviewItems[0].classification?.prefill?.merchantName == "Coffee Shop")
+    #expect(reviewItems[0].reason == "Deterministic heuristic requires review.")
+}
+
+@Test
+func approveClassificationReviewItemResolvesReviewAndPersistsLearnedRule() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","SQ *Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "coffee shop"
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+    let reviewItemID = try #require(try store.fetchPendingReviewItems().first?.id)
+    let resolvedAt = Date(timeIntervalSince1970: 1_775_171_260)
+
+    let event = try store.approveClassificationReviewItem(
+        id: reviewItemID,
+        assignment: ClassificationAssignment(
+            categoryID: categoryID,
+            merchantName: "Coffee Shop"
+        ),
+        createRule: true,
+        resolvedAt: resolvedAt
+    )
+
+    #expect(try store.fetchPendingReviewItems().isEmpty)
+    #expect(event.reviewItemID == reviewItemID)
+    #expect(event.action == .approveSuggestion)
+    #expect(event.createdAt == resolvedAt)
+    let rules = try store.fetchClassificationRules()
+    #expect(rules.count == 1)
+    #expect(rules[0].merchantPattern == "coffee shop")
+    #expect(rules[0].categoryID == categoryID)
+    #expect(rules[0].merchantName == "Coffee Shop")
+}
+
+@Test
+func fetchClassificationRulesIgnoresRulesWithoutCategory() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    try insertRule(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000222")!,
+        pattern: "coffee shop",
+        categoryID: nil,
+        merchantName: "Coffee Shop",
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    let rules = try store.fetchClassificationRules()
+
+    #expect(rules.isEmpty)
+}
+
+@Test
 func fetchPendingReviewItemsThrowsForMalformedStoredIdentifiers() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -651,6 +794,54 @@ private func insertTransaction(
                 "heuristic",
                 "accepted",
                 "none",
+            ]
+        )
+    }
+}
+
+private func insertCategory(
+    databaseURL: URL,
+    id: UUID,
+    name: String,
+    kind: String
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO categories (id, name, kind)
+            VALUES (?, ?, ?)
+            """,
+            arguments: [
+                id.uuidString,
+                name,
+                kind,
+            ]
+        )
+    }
+}
+
+private func insertRule(
+    databaseURL: URL,
+    id: UUID,
+    pattern: String,
+    categoryID: UUID?,
+    merchantName: String?,
+    createdAt: Date
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO rules (id, pattern, category_id, merchant_name, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                id.uuidString,
+                pattern,
+                categoryID?.uuidString,
+                merchantName,
+                createdAt,
             ]
         )
     }

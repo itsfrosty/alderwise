@@ -26,6 +26,10 @@ struct WorkspaceRootView: View {
         .environmentObject(model)
         .toolbar {
             ToolbarItemGroup {
+                Button("Review Queue") {
+                    selectedSectionRawValue = AppSection.review.rawValue
+                }
+                .keyboardShortcut("r", modifiers: [.command])
                 Button("Import CSV") {
                     model.beginCSVImport()
                 }
