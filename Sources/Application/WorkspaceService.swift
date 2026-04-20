@@ -110,17 +110,20 @@ public struct WorkspaceService: Sendable {
             throw WorkspaceServiceError.importPreviewSourceRowsUnavailable
         }
 
-        let normalizedRows = try preview.sourceRows.map { row in
-            try normalizedRow(for: row, mapping: preview.mapping)
+        let rowIdentities = try preview.sourceRows.map { row in
+            try StagedImportRowIdentity(row: row, rawPayload: Self.rawPayload(for: row))
         }
-        let rowHashes = Set(normalizedRows.map(\.rowHash))
-        let existingRowHashes = try store.fetchExistingSourceRowHashes(
+        let rowHashes = Set(rowIdentities.map(\.rowHash))
+        let existingRowHashCounts = try store.fetchExistingSourceRowHashCounts(
             accountID: account.id,
             rowHashes: rowHashes
         )
+        let incomingRowHashCounts = Dictionary(rowIdentities.map { ($0.rowHash, 1) }, uniquingKeysWith: +)
 
-        if !normalizedRows.isEmpty && existingRowHashes == rowHashes {
-            let decisions = normalizedRows.map { _ in
+        if !rowIdentities.isEmpty && incomingRowHashCounts.allSatisfy({ hash, count in
+            (existingRowHashCounts[hash] ?? 0) >= count
+        }) {
+            let decisions = rowIdentities.map { _ in
                 ImportRowDecision.skippedExactReimport(reason: "Source row already exists for this account.")
             }
             return StagedCSVImportResult(
@@ -131,15 +134,33 @@ public struct WorkspaceService: Sendable {
             )
         }
 
+        var remainingExistingRowHashCounts = existingRowHashCounts
+        var normalizedRows: [NormalizedImportCandidateWithPayload] = []
+        var skippedRows: [String: Int] = [:]
+        for rowIdentity in rowIdentities {
+            let existingCount = remainingExistingRowHashCounts[rowIdentity.rowHash] ?? 0
+            if existingCount > 0 {
+                remainingExistingRowHashCounts[rowIdentity.rowHash] = existingCount - 1
+                skippedRows[rowIdentity.rowHash, default: 0] += 1
+            } else {
+                normalizedRows.append(try normalizedRow(for: rowIdentity, mapping: preview.mapping))
+            }
+        }
+
         let duplicateCandidates = try store.fetchLikelyDuplicateTransactions(
             accountID: account.id,
             candidates: normalizedRows.asCandidates
         )
-        let duplicateByRowHash = Dictionary(uniqueKeysWithValues: duplicateCandidates.map { ($0.rowHash, $0) })
+        let duplicateByRowHash = Dictionary(duplicateCandidates.map { ($0.rowHash, $0) }, uniquingKeysWith: { first, _ in first })
 
-        let rows = normalizedRows.map { normalizedRow in
+        var remainingSkippedRows = skippedRows
+        let rows = rowIdentities.map { rowIdentity in
             let decision: ImportRowDecision
-            if let duplicate = duplicateByRowHash[normalizedRow.rowHash] {
+            let skippedCount = remainingSkippedRows[rowIdentity.rowHash] ?? 0
+            if skippedCount > 0 {
+                remainingSkippedRows[rowIdentity.rowHash] = skippedCount - 1
+                decision = .skippedExactReimport(reason: "Source row already exists for this account.")
+            } else if let duplicate = duplicateByRowHash[rowIdentity.rowHash] {
                 decision = .flaggedLikelyDuplicate(
                     existingTransactionID: duplicate.existingTransactionID,
                     reason: duplicate.reason
@@ -149,9 +170,9 @@ public struct WorkspaceService: Sendable {
             }
 
             return StagedSourceRowDraft(
-                sourceLineNumber: normalizedRow.sourceLineNumber,
-                rawPayload: normalizedRow.rawPayload,
-                rowHash: normalizedRow.rowHash,
+                sourceLineNumber: rowIdentity.sourceLineNumber,
+                rawPayload: rowIdentity.rawPayload,
+                rowHash: rowIdentity.rowHash,
                 validationStatus: .valid,
                 importDecision: decision
             )
@@ -184,28 +205,25 @@ public struct WorkspaceService: Sendable {
     }
 
     private func normalizedRow(
-        for row: CSVRow,
+        for rowIdentity: StagedImportRowIdentity,
         mapping: CSVColumnMapping
     ) throws -> NormalizedImportCandidateWithPayload {
-        let rawPayload = try Self.rawPayload(for: row)
-        let rowHash = Self.sha256Hex(rawPayload)
-
         guard
-            let transactionDate = dateValue(in: row, at: mapping.dateColumnIndex),
-            let description = stringValue(in: row, at: mapping.descriptionColumnIndex),
-            let amount = amountValue(in: row, mapping: mapping)
+            let transactionDate = dateValue(in: rowIdentity.row, at: mapping.dateColumnIndex),
+            let description = stringValue(in: rowIdentity.row, at: mapping.descriptionColumnIndex),
+            let amount = amountValue(in: rowIdentity.row, mapping: mapping)
         else {
-            throw WorkspaceServiceError.importPreviewCouldNotNormalizeRow(line: row.sourceLineNumber)
+            throw WorkspaceServiceError.importPreviewCouldNotNormalizeRow(line: rowIdentity.sourceLineNumber)
         }
 
         return NormalizedImportCandidateWithPayload(
-            rowHash: rowHash,
-            sourceLineNumber: row.sourceLineNumber,
+            rowHash: rowIdentity.rowHash,
+            sourceLineNumber: rowIdentity.sourceLineNumber,
             transactionDate: transactionDate,
             rawDescription: description,
             normalizedMerchantName: merchantNormalizer.normalize(description),
             amount: amount,
-            rawPayload: rawPayload
+            rawPayload: rowIdentity.rawPayload
         )
     }
 
@@ -217,7 +235,7 @@ public struct WorkspaceService: Sendable {
         return String(data: data, encoding: .utf8) ?? "[]"
     }
 
-    private static func sha256Hex(_ text: String) -> String {
+    fileprivate static func sha256Hex(_ text: String) -> String {
         SHA256.hash(data: Data(text.utf8))
             .map { String(format: "%02x", $0) }
             .joined()
@@ -290,6 +308,20 @@ public struct WorkspaceService: Sendable {
 private extension String {
     var nilIfEmpty: String? {
         isEmpty ? nil : self
+    }
+}
+
+private struct StagedImportRowIdentity: Equatable, Sendable {
+    var row: CSVRow
+    var sourceLineNumber: Int
+    var rawPayload: String
+    var rowHash: String
+
+    init(row: CSVRow, rawPayload: String) {
+        self.row = row
+        self.sourceLineNumber = row.sourceLineNumber
+        self.rawPayload = rawPayload
+        self.rowHash = WorkspaceService.sha256Hex(rawPayload)
     }
 }
 

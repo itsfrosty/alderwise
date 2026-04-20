@@ -19,6 +19,7 @@ public protocol StagedImportReading: Sendable {
 
 public protocol ImportDecisionReading: Sendable {
     func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String>
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int]
     func fetchLikelyDuplicateTransactions(
         accountID: UUID,
         candidates: [NormalizedImportCandidate]

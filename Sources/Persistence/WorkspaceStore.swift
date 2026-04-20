@@ -355,21 +355,32 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             return []
         }
 
+        return Set(try fetchExistingSourceRowHashCounts(accountID: accountID, rowHashes: rowHashes).keys)
+    }
+
+    public func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        guard !rowHashes.isEmpty else {
+            return [:]
+        }
+
         return try databaseQueue.read { db in
             let placeholders = Array(repeating: "?", count: rowHashes.count).joined(separator: ", ")
             let rows = try Row.fetchAll(
                 db,
                 sql: """
-                SELECT DISTINCT source_rows.row_hash
+                SELECT source_rows.row_hash, COUNT(*) AS row_count
                 FROM source_rows
                 JOIN source_files ON source_files.id = source_rows.source_file_id
                 WHERE source_files.account_id = ?
                   AND source_rows.row_hash IN (\(placeholders))
+                GROUP BY source_rows.row_hash
                 """,
                 arguments: StatementArguments([accountID.uuidString] + Array(rowHashes))
             )
 
-            return Set(rows.map { row in row["row_hash"] })
+            return Dictionary(uniqueKeysWithValues: rows.map { row in
+                (row["row_hash"] as String, row["row_count"] as Int)
+            })
         }
     }
 

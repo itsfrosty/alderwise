@@ -55,6 +55,10 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
         []
     }
 
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        [:]
+    }
+
     func fetchLikelyDuplicateTransactions(
         accountID: UUID,
         candidates: [NormalizedImportCandidate]
@@ -68,6 +72,7 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     var accounts: [Account]
     var stagedImportDrafts: [StagedImportSessionDraft] = []
     var likelyDuplicateCandidates: [LikelyDuplicateCandidate] = []
+    var existingSourceRowHashes: Set<String> = []
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -124,13 +129,23 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     }
 
     func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
-        Set(
+        existingSourceRowHashes.union(
             stagedImportDrafts
                 .filter { $0.accountID == accountID }
                 .flatMap(\.rows)
                 .map(\.rowHash)
                 .filter { rowHashes.contains($0) }
         )
+    }
+
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        let storedHashes = stagedImportDrafts
+            .filter { $0.accountID == accountID }
+            .flatMap(\.rows)
+            .map(\.rowHash)
+            .filter { rowHashes.contains($0) }
+        let explicitHashes = existingSourceRowHashes.filter { rowHashes.contains($0) }
+        return Dictionary((storedHashes + explicitHashes).map { ($0, 1) }, uniquingKeysWith: +)
     }
 
     func fetchLikelyDuplicateTransactions(
@@ -293,6 +308,100 @@ func stageCSVImportTreatsRenamedExactReimportAsNoOp() throws {
 }
 
 @Test
+func stageCSVImportDoesNotTreatExtraRepeatedRowsAsExactReimportNoOp() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store)
+    let firstCSV = """
+    Date,Description,Amount
+    2026-04-01,Coffee Shop,-4.75
+    """
+    let repeatedCSV = """
+    Date,Description,Amount
+    2026-04-01,Coffee Shop,-4.75
+    2026-04-01,Coffee Shop,-4.75
+    """
+
+    _ = try service.stageCSVImport(
+        preview: try CSVImportPreviewService().makePreview(from: firstCSV),
+        account: account,
+        originalFilename: "checking-april.csv",
+        csvText: firstCSV
+    )
+    let repeatedResult = try service.stageCSVImport(
+        preview: try CSVImportPreviewService().makePreview(from: repeatedCSV),
+        account: account,
+        originalFilename: "checking-april-repeated.csv",
+        csvText: repeatedCSV
+    )
+
+    #expect(repeatedResult.outcome == .staged)
+    #expect(repeatedResult.summary.importedRowCount == 1)
+    #expect(repeatedResult.summary.skippedRowCount == 1)
+    #expect(repeatedResult.session != nil)
+    #expect(store.stagedImportDrafts.count == 2)
+}
+
+@Test
+func stageCSVImportCanNoOpExactReimportBeforeDateNormalization() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store)
+    let preview = CSVImportPreview(
+        headers: [
+            CSVColumn(name: "Date", columnIndex: 0),
+            CSVColumn(name: "Description", columnIndex: 1),
+            CSVColumn(name: "Amount", columnIndex: 2),
+        ],
+        mapping: CSVColumnMapping(
+            dateColumnIndex: 0,
+            descriptionColumnIndex: 1,
+            amount: .singleSignedAmount(columnIndex: 2)
+        ),
+        previewRows: [],
+        validation: CSVImportValidationSummary(
+            missingRequiredFields: [],
+            validRowCount: 1,
+            invalidRowCount: 0,
+            rowIssues: []
+        ),
+        sourceRows: [
+            CSVRow(
+                sourceLineNumber: 2,
+                cells: [
+                    CSVCell(value: "April 1, 2026", columnIndex: 0),
+                    CSVCell(value: "Coffee Shop", columnIndex: 1),
+                    CSVCell(value: "-4.75", columnIndex: 2),
+                ]
+            ),
+        ]
+    )
+    let rowHash = try WorkspaceService.rowHash(for: preview.sourceRows[0])
+    store.existingSourceRowHashes = [rowHash]
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "renamed-export.csv",
+        csvText: "Date,Description,Amount\nApril 1, 2026,Coffee Shop,-4.75"
+    )
+
+    #expect(result.outcome == .exactReimportNoOp)
+    #expect(result.summary.skippedRowCount == 1)
+    #expect(store.stagedImportDrafts.isEmpty)
+}
+
+@Test
 func stageCSVImportFlagsLikelyDuplicatesForReviewInsteadOfSkipping() throws {
     let account = Account(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
@@ -336,6 +445,57 @@ func stageCSVImportFlagsLikelyDuplicatesForReviewInsteadOfSkipping() throws {
     ])
     #expect(draft.rows.map(\.importDecision) == result.decisions)
     #expect(draft.rows.map(\.validationStatus) == [.valid])
+}
+
+@Test
+func stageCSVImportHandlesRepeatedRowsThatShareADuplicateCandidate() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store)
+    let csv = """
+    Date,Description,Amount
+    2026-04-02,SQ *Coffee Shop,-4.75
+    2026-04-02,SQ *Coffee Shop,-4.75
+    """
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+    let rowHash = try WorkspaceService.rowHash(for: preview.sourceRows[0])
+    let existingTransactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
+    store.likelyDuplicateCandidates = [
+        LikelyDuplicateCandidate(
+            rowHash: rowHash,
+            existingTransactionID: existingTransactionID,
+            reason: "Same account, amount, normalized merchant, and nearby date."
+        ),
+        LikelyDuplicateCandidate(
+            rowHash: rowHash,
+            existingTransactionID: existingTransactionID,
+            reason: "Same account, amount, normalized merchant, and nearby date."
+        ),
+    ]
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-april.csv",
+        csvText: csv
+    )
+
+    #expect(result.summary.flaggedDuplicateRowCount == 2)
+    #expect(result.decisions == [
+        .flaggedLikelyDuplicate(
+            existingTransactionID: existingTransactionID,
+            reason: "Same account, amount, normalized merchant, and nearby date."
+        ),
+        .flaggedLikelyDuplicate(
+            existingTransactionID: existingTransactionID,
+            reason: "Same account, amount, normalized merchant, and nearby date."
+        ),
+    ])
 }
 
 @Test

@@ -201,6 +201,52 @@ func sourceRowHashesAreMatchedByAccountAcrossRenamedFiles() throws {
 }
 
 @Test
+func sourceRowHashCountsPreserveRepeatedRowsForAccount() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "first-file-hash",
+            importedAt: Date(timeIntervalSince1970: 1_776_662_400),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","Coffee","-4.50"]"#,
+                    rowHash: "same-row-hash",
+                    validationStatus: .valid
+                ),
+                StagedSourceRowDraft(
+                    sourceLineNumber: 3,
+                    rawPayload: #"["2026-04-01","Coffee","-4.50"]"#,
+                    rowHash: "same-row-hash",
+                    validationStatus: .valid
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 2,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let counts = try store.fetchExistingSourceRowHashCounts(
+        accountID: account.id,
+        rowHashes: ["same-row-hash", "missing-row-hash"]
+    )
+
+    #expect(counts == ["same-row-hash": 2])
+}
+
+@Test
 func likelyDuplicateTransactionsMatchNearbyDateAmountAndMerchant() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
