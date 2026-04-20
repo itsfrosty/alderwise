@@ -30,4 +30,12 @@ public protocol ReviewQueueReading: Sendable {
     func fetchPendingReviewItems() throws -> [PendingReviewItem]
 }
 
+public protocol ReviewQueueWriting: Sendable {
+    func keepBothForLikelyDuplicateReviewItem(id: UUID, resolvedAt: Date) throws -> ReviewDecisionEvent
+}
+
+public protocol ReviewDecisionReading: Sendable {
+    func fetchReviewDecisionEvents(reviewItemID: UUID) throws -> [ReviewDecisionEvent]
+}
+
 public typealias WorkspaceStoring = WorkspaceReading & AccountWriting

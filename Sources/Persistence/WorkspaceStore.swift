@@ -2,7 +2,7 @@ import Domain
 import Foundation
 import GRDB
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading {
     private let databaseQueue: DatabaseQueue
 
     public init(databaseQueue: DatabaseQueue) {
@@ -203,6 +203,20 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 }
             }
         }
+        migrator.registerMigration("add-review-decision-events") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            if try !db.tableExists("review_decision_events") {
+                try db.create(table: "review_decision_events") { table in
+                    table.column("id", .text).primaryKey()
+                    table.column("review_item_id", .text).notNull().indexed().references("review_items", onDelete: .cascade)
+                    table.column("source_row_id", .integer).notNull().indexed().references("source_rows", onDelete: .cascade)
+                    table.column("action", .text).notNull()
+                    table.column("details", .text).notNull()
+                    table.column("created_at", .datetime).notNull()
+                }
+            }
+        }
 
         try migrator.migrate(databaseQueue)
     }
@@ -313,6 +327,150 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     duplicateTransactionID: (row["duplicate_transaction_id"] as String?).flatMap(UUID.init(uuidString:))
                 )
             }
+        }
+    }
+
+    public func fetchReviewDecisionEvents(reviewItemID: UUID) throws -> [ReviewDecisionEvent] {
+        try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT id, review_item_id, source_row_id, action, details, created_at
+                FROM review_decision_events
+                WHERE review_item_id = ?
+                ORDER BY created_at ASC, id ASC
+                """,
+                arguments: [reviewItemID.uuidString]
+            )
+
+            return try rows.map { row in
+                let eventIDText: String = row["id"]
+                guard let eventID = UUID(uuidString: eventIDText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "review_decision_events.id", value: eventIDText)
+                }
+
+                let reviewItemIDText: String = row["review_item_id"]
+                guard let storedReviewItemID = UUID(uuidString: reviewItemIDText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "review_decision_events.review_item_id", value: reviewItemIDText)
+                }
+
+                let actionText: String = row["action"]
+                guard let action = ReviewDecisionAction(rawValue: actionText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "review_decision_events.action", value: actionText)
+                }
+
+                return ReviewDecisionEvent(
+                    id: eventID,
+                    reviewItemID: storedReviewItemID,
+                    sourceRowID: row["source_row_id"],
+                    action: action,
+                    details: row["details"],
+                    createdAt: row["created_at"]
+                )
+            }
+        }
+    }
+
+    public func keepBothForLikelyDuplicateReviewItem(id: UUID, resolvedAt: Date) throws -> ReviewDecisionEvent {
+        try databaseQueue.write { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT
+                    review_items.id,
+                    review_items.type,
+                    review_items.status,
+                    review_items.duplicate_transaction_id,
+                    review_items.source_row_id
+                FROM review_items
+                WHERE review_items.id = ?
+                """,
+                arguments: [id.uuidString]
+            ) else {
+                throw WorkspaceStoreError.reviewItemNotFound(id)
+            }
+
+            let typeText: String = row["type"]
+            guard typeText == ReviewItemType.likelyDuplicate.rawValue else {
+                throw WorkspaceStoreError.unsupportedReviewItemType(typeText)
+            }
+
+            let statusText: String = row["status"]
+            guard statusText == ReviewItemStatus.pending.rawValue else {
+                throw WorkspaceStoreError.reviewItemNotPending(id)
+            }
+
+            let duplicateTransactionIDText: String = try requireString(
+                row["duplicate_transaction_id"],
+                field: "review_items.duplicate_transaction_id"
+            )
+            guard let duplicateTransactionID = UUID(uuidString: duplicateTransactionIDText) else {
+                throw WorkspaceStoreError.invalidStoredReviewItem(
+                    field: "review_items.duplicate_transaction_id",
+                    value: duplicateTransactionIDText
+                )
+            }
+
+            let sourceRowID: Int64 = row["source_row_id"]
+            let details = "User kept both the staged row and existing transaction after duplicate review."
+            let event = ReviewDecisionEvent(
+                id: UUID(),
+                reviewItemID: id,
+                sourceRowID: sourceRowID,
+                action: .keepBoth,
+                details: details,
+                createdAt: resolvedAt
+            )
+
+            try db.execute(
+                sql: """
+                UPDATE review_items
+                SET status = ?
+                WHERE id = ?
+                """,
+                arguments: [ReviewItemStatus.resolved.rawValue, id.uuidString]
+            )
+
+            try db.execute(
+                sql: """
+                UPDATE source_rows
+                SET import_decision_kind = ?, decision_reason = ?, duplicate_transaction_id = ?
+                WHERE id = ?
+                """,
+                arguments: [
+                    ImportRowDecision.keptBothAfterLikelyDuplicateReview(
+                        existingTransactionID: duplicateTransactionID,
+                        reason: details
+                    ).storageKind,
+                    details,
+                    duplicateTransactionID.uuidString,
+                    sourceRowID,
+                ]
+            )
+
+            try db.execute(
+                sql: """
+                INSERT INTO review_decision_events (
+                    id,
+                    review_item_id,
+                    source_row_id,
+                    action,
+                    details,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    event.id.uuidString,
+                    event.reviewItemID.uuidString,
+                    event.sourceRowID,
+                    event.action.rawValue,
+                    event.details,
+                    event.createdAt,
+                ]
+            )
+
+            return event
         }
     }
 
@@ -685,11 +843,22 @@ private func columnNames(in table: String, db: Database) throws -> Set<String> {
     Set(try db.columns(in: table).map(\.name))
 }
 
+private func requireString(_ value: String?, field: String) throws -> String {
+    if let value {
+        return value
+    }
+
+    throw WorkspaceStoreError.invalidStoredReviewItem(field: field, value: "NULL")
+}
+
 private enum WorkspaceStoreError: Error {
     case insertedStagedSessionNotFound(Int64)
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
     case invalidStoredReviewItem(field: String, value: String)
+    case reviewItemNotFound(UUID)
+    case reviewItemNotPending(UUID)
+    case unsupportedReviewItemType(String)
 }
 
 private extension Calendar {

@@ -11,6 +11,30 @@ private struct StubReviewQueueStore: ReviewQueueReading {
     }
 }
 
+private final class RecordingReviewQueueStore: @unchecked Sendable, ReviewQueueReading, ReviewQueueWriting {
+    var items: [PendingReviewItem] = []
+    var resolvedReviewItemID: UUID?
+    var resolvedAt: Date?
+    var returnedEvent = ReviewDecisionEvent(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000777")!,
+        reviewItemID: UUID(uuidString: "00000000-0000-0000-0000-000000000555")!,
+        sourceRowID: 42,
+        action: .keepBoth,
+        details: "User kept both the staged row and existing transaction after duplicate review.",
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    func fetchPendingReviewItems() throws -> [PendingReviewItem] {
+        items
+    }
+
+    func keepBothForLikelyDuplicateReviewItem(id: UUID, resolvedAt: Date) throws -> ReviewDecisionEvent {
+        resolvedReviewItemID = id
+        self.resolvedAt = resolvedAt
+        return returnedEvent
+    }
+}
+
 @Test
 func loadPendingReviewItemsReturnsStoreItems() throws {
     let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000123")!
@@ -38,4 +62,18 @@ func loadPendingReviewItemsReturnsStoreItems() throws {
     let items = try service.loadPendingReviewItems()
 
     #expect(items == [item])
+}
+
+@Test
+func keepBothLikelyDuplicateDelegatesToStoreAndReturnsDecisionEvent() throws {
+    let store = RecordingReviewQueueStore()
+    let service = ReviewService(store: store)
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000555")!
+    let resolvedAt = Date(timeIntervalSince1970: 1_775_171_260)
+
+    let event = try service.keepBothLikelyDuplicateReviewItem(id: reviewItemID, resolvedAt: resolvedAt)
+
+    #expect(store.resolvedReviewItemID == reviewItemID)
+    #expect(store.resolvedAt == resolvedAt)
+    #expect(event == store.returnedEvent)
 }

@@ -13,6 +13,10 @@ public enum ReviewItemStatus: String, Codable, Equatable, Sendable {
     case resolved
 }
 
+public enum ReviewDecisionAction: String, Codable, Equatable, Sendable {
+    case keepBoth = "keep_both"
+}
+
 public struct PendingReviewSourceFile: Equatable, Sendable {
     public var accountID: UUID
     public var originalFilename: String
@@ -65,5 +69,30 @@ public struct PendingReviewItem: Equatable, Sendable {
         self.sourceFile = sourceFile
         self.sourceRow = sourceRow
         self.duplicateTransactionID = duplicateTransactionID
+    }
+}
+
+public struct ReviewDecisionEvent: Equatable, Sendable {
+    public var id: UUID
+    public var reviewItemID: UUID
+    public var sourceRowID: Int64
+    public var action: ReviewDecisionAction
+    public var details: String
+    public var createdAt: Date
+
+    public init(
+        id: UUID,
+        reviewItemID: UUID,
+        sourceRowID: Int64,
+        action: ReviewDecisionAction,
+        details: String,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.reviewItemID = reviewItemID
+        self.sourceRowID = sourceRowID
+        self.action = action
+        self.details = details
+        self.createdAt = createdAt
     }
 }

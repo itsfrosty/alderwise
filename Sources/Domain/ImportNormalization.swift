@@ -56,6 +56,7 @@ public enum ImportRowDecision: Codable, Equatable, Sendable {
     case imported(reason: String)
     case skippedExactReimport(reason: String)
     case flaggedLikelyDuplicate(existingTransactionID: UUID, reason: String)
+    case keptBothAfterLikelyDuplicateReview(existingTransactionID: UUID, reason: String)
 
     public var storageKind: String {
         switch self {
@@ -65,6 +66,8 @@ public enum ImportRowDecision: Codable, Equatable, Sendable {
             "skipped_exact_reimport"
         case .flaggedLikelyDuplicate:
             "flagged_likely_duplicate"
+        case .keptBothAfterLikelyDuplicateReview:
+            "kept_both_after_likely_duplicate_review"
         }
     }
 
@@ -72,14 +75,16 @@ public enum ImportRowDecision: Codable, Equatable, Sendable {
         switch self {
         case .imported(let reason),
              .skippedExactReimport(let reason),
-             .flaggedLikelyDuplicate(_, let reason):
+             .flaggedLikelyDuplicate(_, let reason),
+             .keptBothAfterLikelyDuplicateReview(_, let reason):
             reason
         }
     }
 
     public var duplicateTransactionID: UUID? {
         switch self {
-        case .flaggedLikelyDuplicate(let existingTransactionID, _):
+        case .flaggedLikelyDuplicate(let existingTransactionID, _),
+             .keptBothAfterLikelyDuplicateReview(let existingTransactionID, _):
             existingTransactionID
         case .imported, .skippedExactReimport:
             nil
@@ -94,6 +99,12 @@ public enum ImportRowDecision: Codable, Equatable, Sendable {
         switch kind {
         case "skipped_exact_reimport":
             .skippedExactReimport(reason: reason)
+        case "kept_both_after_likely_duplicate_review":
+            if let duplicateTransactionID {
+                .keptBothAfterLikelyDuplicateReview(existingTransactionID: duplicateTransactionID, reason: reason)
+            } else {
+                .imported(reason: reason)
+            }
         case "flagged_likely_duplicate":
             if let duplicateTransactionID {
                 .flaggedLikelyDuplicate(existingTransactionID: duplicateTransactionID, reason: reason)

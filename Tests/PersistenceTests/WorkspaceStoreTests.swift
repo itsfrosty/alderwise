@@ -421,6 +421,83 @@ func fetchPendingReviewItemsThrowsForMalformedStoredIdentifiers() throws {
 }
 
 @Test
+func keepBothLikelyDuplicateResolvesReviewItemUpdatesSourceRowDecisionAndRecordsEvent() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let duplicateTransactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
+    try insertTransaction(
+        databaseURL: databaseURL,
+        id: duplicateTransactionID,
+        accountID: account.id,
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-4.75),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+
+    let session = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .flaggedLikelyDuplicate(
+                        existingTransactionID: duplicateTransactionID,
+                        reason: "Same account, amount, normalized merchant, and nearby date."
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+    let reviewItemID = try #require(try store.fetchPendingReviewItems().first?.id)
+    let resolvedAt = Date(timeIntervalSince1970: 1_775_171_260)
+    let sourceRow = try #require(session.rows.first)
+
+    let event = try store.keepBothForLikelyDuplicateReviewItem(id: reviewItemID, resolvedAt: resolvedAt)
+
+    #expect(try store.fetchPendingReviewItems().isEmpty)
+    #expect(try fetchReviewItemStatus(databaseURL: databaseURL, reviewItemID: reviewItemID) == .resolved)
+    #expect(event.reviewItemID == reviewItemID)
+    #expect(event.sourceRowID == sourceRow.id)
+    #expect(event.action == .keepBoth)
+    #expect(event.createdAt == resolvedAt)
+    #expect(event.details == "User kept both the staged row and existing transaction after duplicate review.")
+    #expect(try store.fetchReviewDecisionEvents(reviewItemID: reviewItemID) == [event])
+
+    let resolvedSession = try #require(try store.fetchStagedImportSession(id: session.id))
+    #expect(resolvedSession.rows == [
+        StagedSourceRow(
+            id: sourceRow.id,
+            sourceFileID: sourceRow.sourceFileID,
+            sourceLineNumber: 2,
+            rawPayload: #"["2026-04-01","Coffee Shop","-4.75"]"#,
+            rowHash: "row-1-sha256",
+            validationStatus: .valid,
+            importDecision: .keptBothAfterLikelyDuplicateReview(
+                existingTransactionID: duplicateTransactionID,
+                reason: "User kept both the staged row and existing transaction after duplicate review."
+            )
+        ),
+    ])
+}
+
+@Test
 func likelyDuplicateTransactionsMatchNearbyDateAmountAndMerchant() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -465,6 +542,21 @@ private func temporaryDatabaseURL() throws -> URL {
         .appending(path: "AlderwisePersistenceTests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory.appending(path: "workspace.sqlite")
+}
+
+private func fetchReviewItemStatus(databaseURL: URL, reviewItemID: UUID) throws -> ReviewItemStatus? {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    return try queue.read { db in
+        guard let statusText = try String.fetchOne(
+            db,
+            sql: "SELECT status FROM review_items WHERE id = ?",
+            arguments: [reviewItemID.uuidString]
+        ) else {
+            return nil
+        }
+
+        return ReviewItemStatus(rawValue: statusText)
+    }
 }
 
 private func createLegacyWorkspaceWithFilenameSourceFiles(at databaseURL: URL) throws {
