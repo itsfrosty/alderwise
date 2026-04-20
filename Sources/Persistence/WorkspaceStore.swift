@@ -2,7 +2,7 @@ import Domain
 import Foundation
 import GRDB
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading {
     private let databaseQueue: DatabaseQueue
 
     public init(databaseQueue: DatabaseQueue) {
@@ -241,6 +241,63 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     kind: AccountKind(rawValue: row["kind"]) ?? .checking,
                     institutionName: row["institution_name"],
                     createdAt: row["created_at"]
+                )
+            }
+        }
+    }
+
+    public func fetchPendingReviewItems() throws -> [PendingReviewItem] {
+        try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT
+                    review_items.id,
+                    review_items.type,
+                    review_items.status,
+                    review_items.reason,
+                    review_items.created_at,
+                    review_items.duplicate_transaction_id,
+                    source_rows.id AS source_row_id,
+                    source_rows.source_line_number,
+                    source_rows.row_hash,
+                    source_rows.raw_payload,
+                    source_files.account_id,
+                    source_files.original_filename
+                FROM review_items
+                JOIN source_rows ON source_rows.id = review_items.source_row_id
+                JOIN source_files ON source_files.id = source_rows.source_file_id
+                WHERE review_items.status = 'pending'
+                ORDER BY review_items.created_at ASC, review_items.id ASC
+                """
+            )
+
+            return rows.compactMap { row in
+                guard let id = UUID(uuidString: row["id"]),
+                      let type = ReviewItemType(rawValue: row["type"]),
+                      let status = ReviewItemStatus(rawValue: row["status"]),
+                      let accountID = UUID(uuidString: row["account_id"])
+                else {
+                    return nil
+                }
+
+                return PendingReviewItem(
+                    id: id,
+                    type: type,
+                    status: status,
+                    reason: row["reason"],
+                    createdAt: row["created_at"],
+                    sourceFile: PendingReviewSourceFile(
+                        accountID: accountID,
+                        originalFilename: row["original_filename"]
+                    ),
+                    sourceRow: PendingReviewSourceRow(
+                        id: row["source_row_id"],
+                        sourceLineNumber: row["source_line_number"],
+                        rowHash: row["row_hash"],
+                        rawPayload: row["raw_payload"]
+                    ),
+                    duplicateTransactionID: (row["duplicate_transaction_id"] as String?).flatMap(UUID.init(uuidString:))
                 )
             }
         }

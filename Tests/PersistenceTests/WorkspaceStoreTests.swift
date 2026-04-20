@@ -247,6 +247,66 @@ func sourceRowHashCountsPreserveRepeatedRowsForAccount() throws {
 }
 
 @Test
+func fetchPendingReviewItemsReturnsLikelyDuplicateSourceRowContext() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let duplicateTransactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
+    try insertTransaction(
+        databaseURL: databaseURL,
+        id: duplicateTransactionID,
+        accountID: account.id,
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-4.75),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .flaggedLikelyDuplicate(
+                        existingTransactionID: duplicateTransactionID,
+                        reason: "Same account, amount, normalized merchant, and nearby date."
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let reviewItems = try store.fetchPendingReviewItems()
+
+    #expect(reviewItems.count == 1)
+    #expect(reviewItems[0].type == .likelyDuplicate)
+    #expect(reviewItems[0].status == .pending)
+    #expect(reviewItems[0].sourceFile.accountID == account.id)
+    #expect(reviewItems[0].sourceFile.originalFilename == "checking-april.csv")
+    #expect(reviewItems[0].sourceRow.sourceLineNumber == 2)
+    #expect(reviewItems[0].sourceRow.rowHash == "row-1-sha256")
+    #expect(reviewItems[0].sourceRow.rawPayload == #"["2026-04-01","Coffee Shop","-4.75"]"#)
+    #expect(reviewItems[0].duplicateTransactionID == duplicateTransactionID)
+    #expect(reviewItems[0].reason == "Same account, amount, normalized merchant, and nearby date.")
+}
+
+@Test
 func likelyDuplicateTransactionsMatchNearbyDateAmountAndMerchant() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

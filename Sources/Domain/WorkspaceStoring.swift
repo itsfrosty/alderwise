@@ -26,4 +26,8 @@ public protocol ImportDecisionReading: Sendable {
     ) throws -> [LikelyDuplicateCandidate]
 }
 
+public protocol ReviewQueueReading: Sendable {
+    func fetchPendingReviewItems() throws -> [PendingReviewItem]
+}
+
 public typealias WorkspaceStoring = WorkspaceReading & AccountWriting
