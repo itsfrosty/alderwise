@@ -5,6 +5,7 @@ import SwiftUI
 
 @main
 struct AlderwiseApp: App {
+    @NSApplicationDelegateAdaptor(AppActivationDelegate.self) private var appDelegate
     @StateObject private var model = WorkspaceShellModel.makeDefault()
 
     var body: some Scene {

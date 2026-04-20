@@ -1,6 +1,16 @@
 import Domain
+import Foundation
 import Persistence
 import Testing
+
+@Test
+func workspaceLocationProvidesDecodedDatabasePath() {
+    let databaseURL = URL(fileURLWithPath: "/Users/example/Library/Application Support/Alderwise/workspace.sqlite")
+    let location = WorkspaceLocation(databaseURL: databaseURL)
+
+    #expect(location.databasePath == "/Users/example/Library/Application Support/Alderwise/workspace.sqlite")
+    #expect(!location.databasePath.contains("%20"))
+}
 
 @Test
 func bootstrapCreatesSchemaAndReturnsEmptySummary() throws {

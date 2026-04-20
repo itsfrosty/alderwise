@@ -7,8 +7,14 @@ struct AccountCreationSheet: View {
     @State private var name = ""
     @State private var institutionName = ""
     @State private var kind = AccountKind.checking
+    @FocusState private var focusedField: Field?
 
     let onCreate: (String, AccountKind, String?) -> Void
+
+    private enum Field {
+        case name
+        case institution
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -16,8 +22,10 @@ struct AccountCreationSheet: View {
                 .font(.title2.bold())
 
             TextField("Account name", text: $name)
+                .focused($focusedField, equals: .name)
 
             TextField("Institution name (optional)", text: $institutionName)
+                .focused($focusedField, equals: .institution)
 
             Picker("Kind", selection: $kind) {
                 ForEach(AccountKind.allCases, id: \.self) { kind in
@@ -42,5 +50,8 @@ struct AccountCreationSheet: View {
         }
         .padding(24)
         .frame(width: 420)
+        .onAppear {
+            focusedField = .name
+        }
     }
 }

@@ -3,6 +3,14 @@ import Foundation
 public struct WorkspaceLocation {
     public let databaseURL: URL
 
+    public init(databaseURL: URL) {
+        self.databaseURL = databaseURL
+    }
+
+    public var databasePath: String {
+        databaseURL.path
+    }
+
     public static func live() throws -> WorkspaceLocation {
         let supportDirectory = try FileManager.default.url(
             for: .applicationSupportDirectory,

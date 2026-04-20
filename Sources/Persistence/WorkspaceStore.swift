@@ -15,7 +15,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring {
 
     public static func live() throws -> WorkspaceStore {
         let location = try WorkspaceLocation.live()
-        return WorkspaceStore(databaseQueue: try DatabaseQueue(path: location.databaseURL.path()))
+        return WorkspaceStore(databaseQueue: try DatabaseQueue(path: location.databasePath))
     }
 
     public func bootstrap() throws {
