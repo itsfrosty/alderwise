@@ -30,17 +30,20 @@ public struct StagedCSVImportResult: Equatable, Sendable {
     public var outcome: StagedCSVImportOutcome
     public var session: StagedImportSession?
     public var decisions: [ImportRowDecision]
+    public var classifications: [ImportRowClassification]
     public var summary: StagedImportDecisionSummary
 
     public init(
         outcome: StagedCSVImportOutcome,
         session: StagedImportSession?,
         decisions: [ImportRowDecision],
+        classifications: [ImportRowClassification] = [],
         summary: StagedImportDecisionSummary
     ) {
         self.outcome = outcome
         self.session = session
         self.decisions = decisions
+        self.classifications = classifications
         self.summary = summary
     }
 }
@@ -48,13 +51,16 @@ public struct StagedCSVImportResult: Equatable, Sendable {
 public struct WorkspaceService: Sendable {
     private let store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading
     private let merchantNormalizer: MerchantNormalizer
+    private let classifier: ClassificationEngine
 
     public init(
         store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading,
-        merchantNormalizer: MerchantNormalizer = MerchantNormalizer()
+        merchantNormalizer: MerchantNormalizer = MerchantNormalizer(),
+        classifier: ClassificationEngine = ClassificationEngine()
     ) {
         self.store = store
         self.merchantNormalizer = merchantNormalizer
+        self.classifier = classifier
     }
 
     public func loadSnapshot() throws -> WorkspaceSnapshot {
@@ -130,6 +136,7 @@ public struct WorkspaceService: Sendable {
                 outcome: .exactReimportNoOp,
                 session: nil,
                 decisions: decisions,
+                classifications: [],
                 summary: .make(decisions: decisions)
             )
         }
@@ -178,6 +185,16 @@ public struct WorkspaceService: Sendable {
             )
         }
         let decisions = rows.map(\.importDecision)
+        let classifications = normalizedRows.map { normalizedRow in
+            ImportRowClassification(
+                rowHash: normalizedRow.rowHash,
+                sourceLineNumber: normalizedRow.sourceLineNumber,
+                decision: classifier.classify(
+                    candidate: normalizedRow.candidate,
+                    hasDuplicateConcern: duplicateByRowHash[normalizedRow.rowHash] != nil
+                )
+            )
+        }
 
         let session = try store.createStagedImportSession(
             StagedImportSessionDraft(
@@ -196,6 +213,7 @@ public struct WorkspaceService: Sendable {
             outcome: .staged,
             session: session,
             decisions: decisions,
+            classifications: classifications,
             summary: .make(decisions: decisions)
         )
     }

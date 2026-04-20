@@ -266,6 +266,59 @@ func stageCSVImportCreatesStagedSessionFromValidPreview() throws {
 }
 
 @Test
+func stageCSVImportReturnsClassificationResultsForImportedRows() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let ruleID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let store = MutableWorkspaceStore(accounts: [account])
+    let classifier = ClassificationEngine(
+        explicitRules: [
+            ClassificationRule(
+                id: ruleID,
+                merchantPattern: "coffee shop",
+                categoryID: categoryID,
+                merchantName: "Coffee Shop"
+            ),
+        ]
+    )
+    let service = WorkspaceService(store: store, classifier: classifier)
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,SQ *Coffee Shop,-4.75
+    """
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-april.csv",
+        csvText: csv
+    )
+
+    #expect(result.classifications == [
+        ImportRowClassification(
+            rowHash: try WorkspaceService.rowHash(for: preview.sourceRows[0]),
+            sourceLineNumber: 2,
+            decision: .autoAccepted(
+                assignment: ClassificationAssignment(
+                    categoryID: categoryID,
+                    merchantName: "Coffee Shop"
+                ),
+                source: .rule,
+                sourceReference: ruleID.uuidString,
+                confidence: 1.0,
+                reason: "Matched explicit merchant rule."
+            )
+        ),
+    ])
+}
+
+@Test
 func stageCSVImportTreatsRenamedExactReimportAsNoOp() throws {
     let account = Account(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
