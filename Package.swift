@@ -57,7 +57,11 @@ let package = Package(
         ),
         .testTarget(
             name: "PersistenceTests",
-            dependencies: ["Persistence", "Domain"],
+            dependencies: [
+                "Persistence",
+                "Domain",
+                .product(name: "GRDB", package: "GRDB.swift"),
+            ],
             path: "Tests/PersistenceTests"
         ),
     ]

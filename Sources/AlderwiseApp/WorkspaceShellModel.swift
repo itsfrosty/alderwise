@@ -148,6 +148,7 @@ final class WorkspaceShellModel: ObservableObject {
             dismissCSVImportPreview()
             importResultMessage = "\(session.rows.count) rows staged. \(session.invalidRowCount) invalid rows."
         } catch {
+            dismissCSVImportPreview()
             importErrorMessage = error.localizedDescription
         }
     }

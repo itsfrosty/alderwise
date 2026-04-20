@@ -140,6 +140,15 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             if !sourceFileColumns.contains("original_filename") {
                 try db.execute(sql: "ALTER TABLE source_files ADD COLUMN original_filename TEXT NOT NULL DEFAULT ''")
             }
+            if sourceFileColumns.contains("filename") {
+                try db.execute(
+                    sql: """
+                    UPDATE source_files
+                    SET original_filename = filename
+                    WHERE original_filename = ''
+                    """
+                )
+            }
             if !sourceFileColumns.contains("row_count") {
                 try db.execute(sql: "ALTER TABLE source_files ADD COLUMN row_count INTEGER NOT NULL DEFAULT 0")
             }
@@ -233,19 +242,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         let mappingJSON = try String(data: JSONEncoder().encode(draft.mapping), encoding: .utf8) ?? "{}"
 
         return try databaseQueue.write { db in
-            try db.execute(
-                sql: """
-                INSERT INTO source_files (account_id, original_filename, content_hash, imported_at, row_count)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                arguments: [
-                    draft.accountID.uuidString,
-                    draft.originalFilename,
-                    draft.contentHash,
-                    draft.importedAt,
-                    draft.rows.count,
-                ]
-            )
+            try insertSourceFile(draft, db: db)
             let sourceFileID = db.lastInsertedRowID
 
             let insertSourceRow = try db.makeStatement(
@@ -380,6 +377,47 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             status: ImportSessionStatus(rawValue: sessionRow["status"]) ?? .staged,
             rows: rows
         )
+    }
+
+    private func insertSourceFile(_ draft: StagedImportSessionDraft, db: Database) throws {
+        let sourceFileColumns = try columnNames(in: "source_files", db: db)
+        if sourceFileColumns.contains("filename") {
+            try db.execute(
+                sql: """
+                INSERT INTO source_files (
+                    account_id,
+                    filename,
+                    original_filename,
+                    content_hash,
+                    imported_at,
+                    row_count
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    draft.accountID.uuidString,
+                    draft.originalFilename,
+                    draft.originalFilename,
+                    draft.contentHash,
+                    draft.importedAt,
+                    draft.rows.count,
+                ]
+            )
+        } else {
+            try db.execute(
+                sql: """
+                INSERT INTO source_files (account_id, original_filename, content_hash, imported_at, row_count)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    draft.accountID.uuidString,
+                    draft.originalFilename,
+                    draft.contentHash,
+                    draft.importedAt,
+                    draft.rows.count,
+                ]
+            )
+        }
     }
 }
 
