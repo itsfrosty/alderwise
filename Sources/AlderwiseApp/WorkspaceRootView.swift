@@ -137,7 +137,11 @@ struct WorkspaceRootView: View {
             ProgressView("Loading workspace…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let snapshot):
-            SectionPlaceholderView(section: section, snapshot: snapshot)
+            if section == .transactions {
+                TransactionLedgerView(snapshot: snapshot, model: model)
+            } else {
+                SectionPlaceholderView(section: section, snapshot: snapshot)
+            }
         }
     }
 }

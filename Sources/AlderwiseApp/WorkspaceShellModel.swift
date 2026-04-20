@@ -24,6 +24,9 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var pendingCSVImport: PendingCSVImport?
     @Published var importErrorMessage: String?
     @Published var importResultMessage: String?
+    @Published var transactionFilter = TransactionLedgerFilter.empty
+    @Published var selectedTransactionID: UUID?
+    @Published private(set) var selectedTransactionDetail: TransactionDetail?
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
@@ -71,7 +74,47 @@ final class WorkspaceShellModel: ObservableObject {
         }
 
         do {
-            state = .loaded(try service.loadSnapshot())
+            let snapshot = try service.loadSnapshot(filter: transactionFilter)
+            state = .loaded(snapshot)
+            if let selectedTransactionID,
+               snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
+                selectedTransactionDetail = try service.loadTransactionDetail(id: selectedTransactionID)
+            } else {
+                selectedTransactionID = snapshot.transactions.first?.id
+                selectedTransactionDetail = try selectedTransactionID.flatMap { try service.loadTransactionDetail(id: $0) }
+            }
+        } catch {
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    func updateTransactionFilter(_ filter: TransactionLedgerFilter) {
+        transactionFilter = filter
+        reload()
+    }
+
+    func selectTransaction(id: UUID?) {
+        selectedTransactionID = id
+        guard let service, let id else {
+            selectedTransactionDetail = nil
+            return
+        }
+
+        do {
+            selectedTransactionDetail = try service.loadTransactionDetail(id: id)
+        } catch {
+            state = .failed(error.localizedDescription)
+        }
+    }
+
+    func updateSelectedTransaction(draft: TransactionLedgerEditDraft) {
+        guard let service, let selectedTransactionID else {
+            return
+        }
+
+        do {
+            try service.updateTransactionLedgerFields(id: selectedTransactionID, draft: draft)
+            reload()
         } catch {
             state = .failed(error.localizedDescription)
         }

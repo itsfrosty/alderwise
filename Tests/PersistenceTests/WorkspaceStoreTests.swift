@@ -364,6 +364,166 @@ func fetchPendingReviewItemsExcludesResolvedRows() throws {
 }
 
 @Test
+func fetchTransactionLedgerAppliesCoreFilters() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let checking = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let card = try store.createAccount(named: "Card", kind: .creditCard, institutionName: "Visa")
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let travel = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+    try insertCategory(databaseURL: databaseURL, id: travel, name: "Travel", kind: "expense")
+    let session = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: checking.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","Berkeley Bowl","-42.20"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let matchingID = UUID(uuidString: "00000000-0000-0000-0000-000000000301")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: matchingID,
+        accountID: checking.id,
+        categoryID: groceries,
+        importSessionID: session.id,
+        rawDescription: "BERKELEY BOWL MARKET",
+        normalizedMerchantName: "berkeley bowl",
+        amount: Decimal(-42.20),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000302")!,
+        accountID: checking.id,
+        categoryID: travel,
+        importSessionID: session.id,
+        rawDescription: "BART",
+        normalizedMerchantName: "bart",
+        amount: Decimal(-6.40),
+        transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000303")!,
+        accountID: card.id,
+        categoryID: groceries,
+        importSessionID: nil,
+        rawDescription: "BERKELEY BOWL CARD",
+        normalizedMerchantName: "berkeley bowl",
+        amount: Decimal(-18.00),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "pending"
+    )
+
+    let rows = try store.fetchTransactionLedger(
+        filter: TransactionLedgerFilter(
+            searchText: "bowl",
+            startDate: Date(timeIntervalSince1970: 1_775_000_000),
+            endDate: Date(timeIntervalSince1970: 1_775_200_000),
+            accountID: checking.id,
+            categoryID: groceries,
+            reviewStatus: .accepted,
+            importSessionID: session.id
+        )
+    )
+
+    #expect(rows.map(\.id) == [matchingID])
+    #expect(rows[0].accountName == "Checking")
+    #expect(rows[0].categoryName == "Groceries")
+    #expect(rows[0].importOrigin?.originalFilename == "checking-april.csv")
+}
+
+@Test
+func transactionDetailIncludesExplanationFieldsAndEditableValuesRoundTrip() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let dining = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    try insertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense")
+    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+    let session = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 0,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000401")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: transactionID,
+        accountID: account.id,
+        categoryID: dining,
+        importSessionID: session.id,
+        rawDescription: "SQ *TACO SHOP",
+        normalizedMerchantName: "taco shop",
+        amount: Decimal(-12.50),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        decisionSource: "rule",
+        decisionSourceReference: "rule-123",
+        confidence: 0.98,
+        notes: "old note"
+    )
+
+    try store.updateTransactionLedgerFields(
+        id: transactionID,
+        draft: TransactionLedgerEditDraft(
+            merchantName: "Neighborhood Tacos",
+            categoryID: groceries,
+            notes: "weekly lunch"
+        )
+    )
+    let detail = try #require(try store.fetchTransactionDetail(id: transactionID))
+
+    #expect(detail.row.merchantName == "Neighborhood Tacos")
+    #expect(detail.row.categoryID == groceries)
+    #expect(detail.row.categoryName == "Groceries")
+    #expect(detail.notes == "weekly lunch")
+    #expect(detail.decisionSource == .rule)
+    #expect(detail.decisionSourceReference == "rule-123")
+    #expect(detail.confidence == 0.98)
+    #expect(detail.importOrigin?.id == session.id)
+    #expect(detail.importOrigin?.originalFilename == "checking-april.csv")
+}
+
+@Test
 func stagedImportCreatesClassificationReviewItemsForRowsNeedingReview() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -794,6 +954,66 @@ private func insertTransaction(
                 "heuristic",
                 "accepted",
                 "none",
+            ]
+        )
+    }
+}
+
+private func insertLedgerTransaction(
+    databaseURL: URL,
+    id: UUID,
+    accountID: UUID,
+    categoryID: UUID?,
+    importSessionID: Int64?,
+    rawDescription: String,
+    normalizedMerchantName: String,
+    amount: Decimal,
+    transactionDate: Date,
+    reviewStatus: String,
+    decisionSource: String = "heuristic",
+    decisionSourceReference: String? = nil,
+    confidence: Double? = nil,
+    notes: String? = nil
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO transactions (
+                id,
+                account_id,
+                import_session_id,
+                category_id,
+                raw_description,
+                normalized_merchant_name,
+                amount,
+                transaction_date,
+                direction,
+                decision_source,
+                decision_source_reference,
+                confidence,
+                review_status,
+                duplicate_status,
+                notes
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                id.uuidString,
+                accountID.uuidString,
+                importSessionID,
+                categoryID?.uuidString,
+                rawDescription,
+                normalizedMerchantName,
+                NSDecimalNumber(decimal: amount).doubleValue,
+                transactionDate,
+                "expense",
+                decisionSource,
+                decisionSourceReference,
+                confidence,
+                reviewStatus,
+                "none",
+                notes,
             ]
         )
     }

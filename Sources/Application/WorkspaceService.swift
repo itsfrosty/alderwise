@@ -6,6 +6,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case importPreviewNotReady
     case importPreviewSourceRowsUnavailable
     case importPreviewCouldNotNormalizeRow(line: Int)
+    case transactionLedgerUnavailable
 }
 
 extension WorkspaceServiceError: LocalizedError {
@@ -17,6 +18,8 @@ extension WorkspaceServiceError: LocalizedError {
             "The CSV preview no longer has the source rows needed for import."
         case .importPreviewCouldNotNormalizeRow(let line):
             "CSV row \(line) could not be normalized for import."
+        case .transactionLedgerUnavailable:
+            "The transaction ledger is unavailable for this workspace."
         }
     }
 }
@@ -63,11 +66,24 @@ public struct WorkspaceService: Sendable {
         self.classifier = classifier
     }
 
-    public func loadSnapshot() throws -> WorkspaceSnapshot {
+    public func loadSnapshot(filter: TransactionLedgerFilter = .empty) throws -> WorkspaceSnapshot {
         WorkspaceSnapshot(
             summary: try store.fetchSummary(),
-            accounts: try store.fetchAccounts()
+            accounts: try store.fetchAccounts(),
+            categories: try store.fetchCategories(),
+            transactions: try (store as? any TransactionLedgerReading)?.fetchTransactionLedger(filter: filter) ?? []
         )
+    }
+
+    public func loadTransactionDetail(id: UUID) throws -> TransactionDetail? {
+        try transactionLedgerReader().fetchTransactionDetail(id: id)
+    }
+
+    public func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws {
+        guard let writer = store as? any TransactionLedgerWriting else {
+            throw WorkspaceServiceError.transactionLedgerUnavailable
+        }
+        try writer.updateTransactionLedgerFields(id: id, draft: draft)
     }
 
     @discardableResult
@@ -263,6 +279,13 @@ public struct WorkspaceService: Sendable {
         }
 
         return try classifier.appendingExplicitRules(ruleReader.fetchClassificationRules())
+    }
+
+    private func transactionLedgerReader() throws -> any TransactionLedgerReading {
+        guard let reader = store as? any TransactionLedgerReading else {
+            throw WorkspaceServiceError.transactionLedgerUnavailable
+        }
+        return reader
     }
 
     private static func rawPayload(for row: CSVRow) throws -> String {

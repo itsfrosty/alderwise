@@ -2,7 +2,7 @@ import Domain
 import Foundation
 import GRDB
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting {
     private let databaseQueue: DatabaseQueue
 
     public init(databaseQueue: DatabaseQueue) {
@@ -289,6 +289,31 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     institutionName: row["institution_name"],
                     createdAt: row["created_at"]
                 )
+            }
+        }
+    }
+
+    public func fetchCategories() throws -> [BudgetCategory] {
+        try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT id, name, kind
+                FROM categories
+                ORDER BY name ASC
+                """
+            )
+
+            return try rows.map { row in
+                let idText: String = row["id"]
+                guard let id = UUID(uuidString: idText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: idText)
+                }
+                let kindText: String = row["kind"]
+                guard let kind = BudgetCategoryKind(rawValue: kindText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.kind", value: kindText)
+                }
+                return BudgetCategory(id: id, name: row["name"], kind: kind)
             }
         }
     }
@@ -645,6 +670,58 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     categoryID: categoryID,
                     merchantName: row["merchant_name"]
                 )
+            }
+        }
+    }
+
+    public func fetchTransactionLedger(filter: TransactionLedgerFilter = .empty) throws -> [TransactionLedgerRow] {
+        try databaseQueue.read { db in
+            let query = transactionLedgerQuery(filter: filter, includeIDPredicate: false)
+            let rows = try Row.fetchAll(db, sql: query.sql, arguments: query.arguments)
+            return try rows.map(transactionLedgerRow(from:))
+        }
+    }
+
+    public func fetchTransactionDetail(id: UUID) throws -> TransactionDetail? {
+        try databaseQueue.read { db in
+            var query = transactionLedgerQuery(filter: .empty, includeIDPredicate: true)
+            appendArgument(id.uuidString, to: &query.arguments)
+            guard let row = try Row.fetchOne(db, sql: query.sql, arguments: query.arguments) else {
+                return nil
+            }
+
+            let ledgerRow = try transactionLedgerRow(from: row)
+            return TransactionDetail(
+                row: ledgerRow,
+                notes: row["notes"],
+                decisionSource: try classificationSource(from: row["decision_source"]),
+                decisionSourceReference: row["decision_source_reference"],
+                confidence: row["confidence"],
+                duplicateStatus: row["duplicate_status"]
+            )
+        }
+    }
+
+    public func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws {
+        try databaseQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE transactions
+                SET normalized_merchant_name = ?,
+                    category_id = ?,
+                    notes = ?
+                WHERE id = ?
+                """,
+                arguments: [
+                    draft.merchantName.trimmingCharacters(in: .whitespacesAndNewlines),
+                    draft.categoryID?.uuidString,
+                    draft.notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                    id.uuidString,
+                ]
+            )
+
+            guard db.changesCount > 0 else {
+                throw WorkspaceStoreError.transactionNotFound(id)
             }
         }
     }
@@ -1087,6 +1164,175 @@ private func columnNames(in table: String, db: Database) throws -> Set<String> {
     Set(try db.columns(in: table).map(\.name))
 }
 
+private struct LedgerSQLQuery {
+    var sql: String
+    var arguments: StatementArguments
+}
+
+private func transactionLedgerQuery(
+    filter: TransactionLedgerFilter,
+    includeIDPredicate: Bool
+) -> LedgerSQLQuery {
+    var predicates: [String] = []
+    var arguments = StatementArguments()
+
+    let trimmedSearch = filter.searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if !trimmedSearch.isEmpty {
+        predicates.append(
+            """
+            (LOWER(transactions.raw_description) LIKE ?
+             OR LOWER(COALESCE(transactions.normalized_merchant_name, '')) LIKE ?
+             OR LOWER(COALESCE(categories.name, '')) LIKE ?)
+            """
+        )
+        let pattern = "%\(trimmedSearch)%"
+        appendArgument(pattern, to: &arguments)
+        appendArgument(pattern, to: &arguments)
+        appendArgument(pattern, to: &arguments)
+    }
+
+    if let startDate = filter.startDate {
+        predicates.append("transactions.transaction_date >= ?")
+        appendArgument(startDate, to: &arguments)
+    }
+    if let endDate = filter.endDate {
+        predicates.append("transactions.transaction_date <= ?")
+        appendArgument(endDate, to: &arguments)
+    }
+    if let accountID = filter.accountID {
+        predicates.append("transactions.account_id = ?")
+        appendArgument(accountID.uuidString, to: &arguments)
+    }
+    if let categoryID = filter.categoryID {
+        predicates.append("transactions.category_id = ?")
+        appendArgument(categoryID.uuidString, to: &arguments)
+    }
+    if let reviewStatus = filter.reviewStatus {
+        predicates.append("transactions.review_status = ?")
+        appendArgument(reviewStatus.rawValue, to: &arguments)
+    }
+    if let importSessionID = filter.importSessionID {
+        predicates.append("transactions.import_session_id = ?")
+        appendArgument(importSessionID, to: &arguments)
+    }
+    if includeIDPredicate {
+        predicates.append("transactions.id = ?")
+    }
+
+    let whereClause = predicates.isEmpty ? "" : "WHERE " + predicates.joined(separator: "\n  AND ")
+    return LedgerSQLQuery(
+        sql: """
+        SELECT
+            transactions.id,
+            transactions.account_id,
+            accounts.name AS account_name,
+            transactions.category_id,
+            categories.name AS category_name,
+            transactions.raw_description,
+            transactions.normalized_merchant_name,
+            transactions.amount,
+            transactions.transaction_date,
+            transactions.posted_date,
+            transactions.direction,
+            transactions.review_status,
+            transactions.notes,
+            transactions.decision_source,
+            transactions.decision_source_reference,
+            transactions.confidence,
+            transactions.duplicate_status,
+            import_sessions.id AS import_session_id,
+            source_files.original_filename,
+            source_files.imported_at
+        FROM transactions
+        JOIN accounts ON accounts.id = transactions.account_id
+        LEFT JOIN categories ON categories.id = transactions.category_id
+        LEFT JOIN import_sessions ON import_sessions.id = transactions.import_session_id
+        LEFT JOIN source_files ON source_files.id = import_sessions.source_file_id
+        \(whereClause)
+        ORDER BY transactions.transaction_date DESC, transactions.id ASC
+        """,
+        arguments: arguments
+    )
+}
+
+private func appendArgument<Value: DatabaseValueConvertible>(
+    _ value: Value,
+    to arguments: inout StatementArguments
+) {
+    _ = arguments.append(contentsOf: StatementArguments([value]))
+}
+
+private func transactionLedgerRow(from row: Row) throws -> TransactionLedgerRow {
+    let idText: String = row["id"]
+    guard let id = UUID(uuidString: idText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "transactions.id", value: idText)
+    }
+
+    let accountIDText: String = row["account_id"]
+    guard let accountID = UUID(uuidString: accountIDText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "transactions.account_id", value: accountIDText)
+    }
+
+    let categoryID: UUID?
+    if let categoryIDText = row["category_id"] as String? {
+        guard let parsedCategoryID = UUID(uuidString: categoryIDText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(field: "transactions.category_id", value: categoryIDText)
+        }
+        categoryID = parsedCategoryID
+    } else {
+        categoryID = nil
+    }
+
+    let directionText: String = row["direction"]
+    guard let direction = TransactionDirection(rawValue: directionText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "transactions.direction", value: directionText)
+    }
+
+    let reviewStatusText: String = row["review_status"]
+    guard let reviewStatus = TransactionReviewStatus(rawValue: reviewStatusText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "transactions.review_status", value: reviewStatusText)
+    }
+
+    let importOrigin: TransactionImportOrigin?
+    if let importSessionID = row["import_session_id"] as Int64? {
+        importOrigin = TransactionImportOrigin(
+            id: importSessionID,
+            originalFilename: row["original_filename"],
+            importedAt: row["imported_at"]
+        )
+    } else {
+        importOrigin = nil
+    }
+
+    let amountDouble: Double = row["amount"]
+    let rawDescription: String = row["raw_description"]
+    return TransactionLedgerRow(
+        id: id,
+        accountID: accountID,
+        accountName: row["account_name"],
+        categoryID: categoryID,
+        categoryName: row["category_name"],
+        rawDescription: rawDescription,
+        merchantName: (row["normalized_merchant_name"] as String?) ?? rawDescription,
+        amount: Decimal(amountDouble),
+        transactionDate: row["transaction_date"],
+        postedDate: row["posted_date"],
+        direction: direction,
+        reviewStatus: reviewStatus,
+        importOrigin: importOrigin
+    )
+}
+
+private func classificationSource(from sourceText: String?) throws -> ClassificationDecisionSource? {
+    guard let sourceText else {
+        return nil
+    }
+    guard let source = ClassificationDecisionSource(rawValue: sourceText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "transactions.decision_source", value: sourceText)
+    }
+    return source
+}
+
 private func requireString(_ value: String?, field: String) throws -> String {
     if let value {
         return value
@@ -1146,7 +1392,14 @@ private enum WorkspaceStoreError: Error {
     case invalidStoredReviewItem(field: String, value: String)
     case reviewItemNotFound(UUID)
     case reviewItemNotPending(UUID)
+    case transactionNotFound(UUID)
     case unsupportedReviewItemType(String)
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
+    }
 }
 
 private extension Calendar {

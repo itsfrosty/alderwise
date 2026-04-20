@@ -15,6 +15,10 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
         accounts
     }
 
+    func fetchCategories() throws -> [BudgetCategory] {
+        []
+    }
+
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
         Account(
             name: named,
@@ -86,6 +90,10 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
 
     func fetchAccounts() throws -> [Account] {
         accounts.sorted { $0.name < $1.name }
+    }
+
+    func fetchCategories() throws -> [BudgetCategory] {
+        []
     }
 
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {

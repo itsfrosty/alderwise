@@ -3,6 +3,7 @@ import Foundation
 public protocol WorkspaceReading: Sendable {
     func fetchSummary() throws -> WorkspaceSummary
     func fetchAccounts() throws -> [Account]
+    func fetchCategories() throws -> [BudgetCategory]
 }
 
 public protocol AccountWriting: Sendable {
@@ -46,6 +47,15 @@ public protocol ReviewDecisionReading: Sendable {
 
 public protocol ClassificationRuleReading: Sendable {
     func fetchClassificationRules() throws -> [ClassificationRule]
+}
+
+public protocol TransactionLedgerReading: Sendable {
+    func fetchTransactionLedger(filter: TransactionLedgerFilter) throws -> [TransactionLedgerRow]
+    func fetchTransactionDetail(id: UUID) throws -> TransactionDetail?
+}
+
+public protocol TransactionLedgerWriting: Sendable {
+    func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws
 }
 
 public typealias WorkspaceStoring = WorkspaceReading & AccountWriting
