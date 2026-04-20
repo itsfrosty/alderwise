@@ -6,22 +6,30 @@ struct WorkspaceRootView: View {
     @ObservedObject var model: WorkspaceShellModel
     @AppStorage("selectedSidebarSection") private var selectedSectionRawValue = AppSection.home.rawValue
 
-    private var selectedSectionBinding: Binding<AppSection?> {
+    private var selectedSection: AppSection {
+        AppSection(rawValue: selectedSectionRawValue) ?? .home
+    }
+
+    private var selectedSectionBinding: Binding<AppSection> {
         Binding(
-            get: { AppSection(rawValue: selectedSectionRawValue) ?? .home },
-            set: { selectedSectionRawValue = $0?.rawValue ?? AppSection.home.rawValue }
+            get: { selectedSection },
+            set: { selectedSectionRawValue = $0.rawValue }
         )
     }
 
     var body: some View {
         NavigationSplitView {
-            List(AppSection.allCases, selection: selectedSectionBinding) { section in
-                Label(section.title, systemImage: section.systemImage)
-                    .tag(section)
+            List(selection: selectedSectionBinding) {
+                ForEach(AppSection.allCases) { section in
+                    Label(section.title, systemImage: section.systemImage)
+                        .tag(section)
+                }
             }
+            .listStyle(.sidebar)
             .navigationSplitViewColumnWidth(min: 200, ideal: 220)
         } detail: {
-            detailView(for: AppSection(rawValue: selectedSectionRawValue) ?? .home)
+            detailView(for: selectedSection)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .environmentObject(model)
         .toolbar {
