@@ -1,6 +1,6 @@
 import Foundation
 
-public struct CSVColumnMapping: Equatable, Sendable {
+public struct CSVColumnMapping: Codable, Equatable, Sendable {
     public var dateColumnIndex: Int?
     public var descriptionColumnIndex: Int?
     public var amount: CSVAmountMapping?
@@ -16,7 +16,7 @@ public struct CSVColumnMapping: Equatable, Sendable {
     }
 }
 
-public enum CSVAmountMapping: Equatable, Sendable {
+public enum CSVAmountMapping: Codable, Equatable, Sendable {
     case singleSignedAmount(columnIndex: Int)
     case debitCredit(debitColumnIndex: Int, creditColumnIndex: Int)
 }
