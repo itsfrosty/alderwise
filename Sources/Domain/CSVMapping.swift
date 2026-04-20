@@ -34,6 +34,7 @@ public struct CSVMappingInference: Sendable {
             matching: [
                 "date",
                 "posted date",
+                "posting date",
                 "transaction date",
                 "trans date",
             ]

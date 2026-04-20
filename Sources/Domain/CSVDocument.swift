@@ -61,7 +61,8 @@ public struct CSVParser: Sendable {
         }
 
         let rows = try records.dropFirst().map { record in
-            guard record.fields.count == headers.count else {
+            let fields = record.fields.trimmingEmptySuffix(toCount: headers.count)
+            guard fields.count == headers.count else {
                 throw CSVParsingError.wrongColumnCount(
                     line: record.lineNumber,
                     expected: headers.count,
@@ -71,7 +72,7 @@ public struct CSVParser: Sendable {
 
             return CSVRow(
                 sourceLineNumber: record.lineNumber,
-                cells: record.fields.enumerated().map { index, value in
+                cells: fields.enumerated().map { index, value in
                     CSVCell(value: value, columnIndex: index)
                 }
             )
@@ -132,7 +133,7 @@ public struct CSVParser: Sendable {
                     field.append(character)
                 }
 
-                if character == "\n" {
+                if character.isCSVLineBreak {
                     lineNumber += 1
                     columnNumber = 0
                 }
@@ -153,13 +154,11 @@ public struct CSVParser: Sendable {
             case ",":
                 appendField()
                 hasRecordContent = true
-            case "\n":
+            case _ where character.isCSVLineBreak:
                 appendRecordIfNeeded()
                 lineNumber += 1
                 columnNumber = 0
                 recordStartLine = lineNumber
-            case "\r":
-                break
             default:
                 if justClosedQuote, !character.isWhitespace {
                     throw CSVParsingError.unexpectedQuote(line: lineNumber, column: columnNumber)
@@ -184,4 +183,25 @@ public struct CSVParser: Sendable {
 private struct CSVRecord {
     var lineNumber: Int
     var fields: [String]
+}
+
+private extension Array where Element == String {
+    func trimmingEmptySuffix(toCount count: Int) -> [String] {
+        guard self.count > count else {
+            return self
+        }
+
+        let extraFields = suffix(self.count - count)
+        guard extraFields.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            return self
+        }
+
+        return Array(prefix(count))
+    }
+}
+
+private extension Character {
+    var isCSVLineBreak: Bool {
+        self == "\n" || self == "\r" || self == "\r\n"
+    }
 }
