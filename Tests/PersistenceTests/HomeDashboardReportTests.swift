@@ -98,6 +98,20 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
 }
 
 @Test
+func monthlyReportLeavesDriversEmptyWhenNoPriorComparisonExists() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
+
+    #expect(report.currentMonthAcceptedSpend == 0)
+    #expect(report.lastMonthAcceptedSpend == 0)
+    #expect(report.drivers.isEmpty)
+    #expect(report.biggestShift == nil)
+}
+
+@Test
 func monthlyReportBuildsDriversWhenCurrentMonthOnlyHasAcceptedSpend() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

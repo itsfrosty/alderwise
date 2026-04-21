@@ -77,6 +77,31 @@ func homeDashboardUsesMonthlyReportPendingReviewCountAsReviewSourceOfTruth() {
 }
 
 @Test
+func homeDashboardUsesNeutralHeroWhenNoTargetsExist() {
+    let report = homeDashboardReport(
+        pendingReviewCount: 0,
+        targets: [],
+        currentMonthAcceptedSpend: 40,
+        lastMonthAcceptedSpend: 25,
+        hasActiveTargets: false,
+        totalMonthlyTargetLimit: 0,
+        expectedPaceSpend: 0,
+        paceDelta: 0,
+        drivers: [],
+        biggestShift: nil
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 10, reviewCount: 0, targetCount: 0),
+        monthlyReport: report
+    )
+
+    #expect(dashboard.hero.status == .onPace)
+    #expect(dashboard.hero.amount == Decimal(40))
+    #expect(dashboard.primaryAction == nil)
+}
+
+@Test
 func homeDashboardPrioritizesOverLimitTargetsWhenReviewBacklogIsEmpty() {
     let report = homeDashboardReport(
         pendingReviewCount: 0,
