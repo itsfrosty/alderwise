@@ -55,12 +55,17 @@ final class WorkspaceShellModel: ObservableObject {
         reload()
     }
 
-    static func makeDefault() -> WorkspaceShellModel {
+    convenience init(services: AppServices) {
+        self.init(
+            store: services.store,
+            service: services.workspaceService,
+            csvImportPreviewService: services.csvImportPreviewService
+        )
+    }
+
+    static func makeDefault(services makeServices: () throws -> AppServices) -> WorkspaceShellModel {
         do {
-            let store = try WorkspaceStore.live()
-            try store.bootstrap()
-            let service = WorkspaceService(store: store)
-            return WorkspaceShellModel(store: store, service: service)
+            return WorkspaceShellModel(services: try makeServices())
         } catch {
             return WorkspaceShellModel(store: nil, service: nil, initialError: error.localizedDescription)
         }

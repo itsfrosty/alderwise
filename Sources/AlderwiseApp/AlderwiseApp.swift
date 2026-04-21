@@ -1,15 +1,13 @@
-import Application
-import Domain
-import Persistence
 import SwiftUI
 
 @main
 struct AlderwiseApp: App {
     @NSApplicationDelegateAdaptor(AppActivationDelegate.self) private var appDelegate
-    @StateObject private var model = WorkspaceShellModel.makeDefault()
+    @StateObject private var model: WorkspaceShellModel
 
     init() {
         NavigationSplitViewStateRepair.clearInvalidSidebarFrames()
+        _model = StateObject(wrappedValue: WorkspaceShellModel.makeDefault(services: AppServices.live))
     }
 
     var body: some Scene {
