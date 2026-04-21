@@ -77,6 +77,16 @@ struct ReviewQueueView: View {
             }
             selectedReviewItemID = items.first?.id
         }
+        .onMoveCommand { direction in
+            switch direction {
+            case .down:
+                selectNextItem(after: selectedItem?.id)
+            case .up:
+                selectPreviousItem(before: selectedItem?.id)
+            default:
+                break
+            }
+        }
     }
 
     private var emptyStateMessage: String {
@@ -87,8 +97,9 @@ struct ReviewQueueView: View {
         }
     }
 
-    private func selectNextItem(after id: UUID) {
-        guard let index = snapshot.pendingReviewItems.firstIndex(where: { $0.id == id }) else {
+    private func selectNextItem(after id: UUID?) {
+        guard let id,
+              let index = snapshot.pendingReviewItems.firstIndex(where: { $0.id == id }) else {
             selectedReviewItemID = snapshot.pendingReviewItems.first?.id
             return
         }
@@ -97,6 +108,19 @@ struct ReviewQueueView: View {
             selectedReviewItemID = snapshot.pendingReviewItems[nextIndex].id
         } else {
             selectedReviewItemID = snapshot.pendingReviewItems.first?.id
+        }
+    }
+
+    private func selectPreviousItem(before id: UUID?) {
+        guard let id,
+              let index = snapshot.pendingReviewItems.firstIndex(where: { $0.id == id }) else {
+            selectedReviewItemID = snapshot.pendingReviewItems.first?.id
+            return
+        }
+        if index > snapshot.pendingReviewItems.startIndex {
+            selectedReviewItemID = snapshot.pendingReviewItems[snapshot.pendingReviewItems.index(before: index)].id
+        } else {
+            selectedReviewItemID = snapshot.pendingReviewItems.last?.id
         }
     }
 }
@@ -175,6 +199,7 @@ private struct ReviewQueueDetail: View {
                                 onKeepBoth(item)
                             }
                             .buttonStyle(.borderedProminent)
+                            .keyboardShortcut(.return, modifiers: [.command])
                         case .conflictingRuleOutcome, .malformedRow, .recurringHint:
                             Text("This review type is not editable in this build.")
                                 .foregroundStyle(.secondary)
@@ -229,6 +254,7 @@ private struct ReviewQueueDetail: View {
                 )
             }
             .buttonStyle(.borderedProminent)
+            .keyboardShortcut(.return, modifiers: [.command])
             .disabled(selectedCategoryID == nil)
         }
     }

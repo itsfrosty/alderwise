@@ -32,14 +32,7 @@ struct WorkspaceRootView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(selection: selectedSectionBinding) {
-                ForEach(AppSection.allCases) { section in
-                    Label(section.title, systemImage: section.systemImage)
-                        .tag(section)
-                }
-            }
-            .listStyle(.sidebar)
-            .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+            sidebar
         } detail: {
             detailView(for: selectedSection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -47,18 +40,7 @@ struct WorkspaceRootView: View {
         .environmentObject(model)
         .toolbar {
             ToolbarItemGroup {
-                Button("Review Queue") {
-                    selectedSectionRawValue = AppSection.review.rawValue
-                }
-                .keyboardShortcut("r", modifiers: [.command])
-                Button("Import CSV") {
-                    model.beginCSVImport()
-                }
-                    .keyboardShortcut("i", modifiers: [.command])
-                Button("Create Account") {
-                    model.isPresentingAccountSheet = true
-                }
-                .keyboardShortcut("n", modifiers: [.command])
+                toolbarActions
             }
         }
         .sheet(isPresented: $model.isPresentingAccountSheet) {
@@ -69,6 +51,18 @@ struct WorkspaceRootView: View {
                     institutionName: institutionName
                 )
             }
+        }
+        .sheet(isPresented: $model.isPresentingTargetSheet) {
+            TargetCreationSheet(
+                categories: model.snapshot.categories,
+                categoryGroups: model.snapshot.categoryGroups,
+                onCancel: {
+                    model.isPresentingTargetSheet = false
+                },
+                onCreate: { draft in
+                    model.createMonthlyTarget(draft)
+                }
+            )
         }
         .fileImporter(
             isPresented: $model.isPresentingFileImporter,
@@ -181,6 +175,40 @@ struct WorkspaceRootView: View {
             Text(model.reviewErrorMessage ?? "")
         }
         .alert(
+            "Target Not Created",
+            isPresented: Binding(
+                get: { model.targetErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        model.targetErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                model.targetErrorMessage = nil
+            }
+        } message: {
+            Text(model.targetErrorMessage ?? "")
+        }
+        .alert(
+            "Sample Data",
+            isPresented: Binding(
+                get: { model.sampleDataMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        model.sampleDataMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                model.sampleDataMessage = nil
+            }
+        } message: {
+            Text(model.sampleDataMessage ?? "")
+        }
+        .alert(
             "Workspace Updated",
             isPresented: Binding(
                 get: { model.workspaceMaintenanceMessage != nil },
@@ -216,6 +244,17 @@ struct WorkspaceRootView: View {
         }
     }
 
+    private var sidebar: some View {
+        List(selection: selectedSectionBinding) {
+            ForEach(AppSection.allCases) { section in
+                Label(section.title, systemImage: section.systemImage)
+                    .tag(section)
+            }
+        }
+        .listStyle(.sidebar)
+        .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+    }
+
     private func selectedFileURL(from result: Result<[URL], Error>) -> Result<URL, Error> {
         do {
             let urls = try result.get()
@@ -229,14 +268,76 @@ struct WorkspaceRootView: View {
     }
 
     @ViewBuilder
+    private var toolbarActions: some View {
+        Button {
+            selectedSectionRawValue = AppSection.review.rawValue
+        } label: {
+            Label("Review", systemImage: "checklist")
+        }
+        .keyboardShortcut("r", modifiers: [.command])
+
+        switch selectedSection {
+        case .home, .transactions, .review:
+            Button {
+                model.beginCSVImport()
+            } label: {
+                Label("Import CSV", systemImage: "square.and.arrow.down")
+            }
+            .keyboardShortcut("i", modifiers: [.command])
+        case .targets:
+            Button {
+                model.beginTargetCreation()
+            } label: {
+                Label("Create Target", systemImage: "plus")
+            }
+            .keyboardShortcut("t", modifiers: [.command])
+        case .accounts:
+            Button {
+                model.isPresentingAccountSheet = true
+            } label: {
+                Label("Create Account", systemImage: "plus")
+            }
+            .keyboardShortcut("n", modifiers: [.command])
+        case .settings:
+            Button {
+                model.createWorkspaceBackup()
+            } label: {
+                Label("Back Up", systemImage: "externaldrive.badge.plus")
+            }
+        }
+    }
+
+    @ViewBuilder
     private func detailView(for section: AppSection) -> some View {
         switch model.state {
         case .failed(let message):
-            ContentUnavailableView(
-                "Workspace Unavailable",
-                systemImage: "externaldrive.badge.exclamationmark",
-                description: Text(message)
-            )
+            VStack(spacing: 16) {
+                ContentUnavailableView(
+                    "Workspace Unavailable",
+                    systemImage: "externaldrive.badge.exclamationmark",
+                    description: Text("Alderwise could not open the local workspace. You can restore a backup or try again after checking file access.")
+                )
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 560)
+                HStack(spacing: 12) {
+                    Button {
+                        model.reload()
+                    } label: {
+                        Label("Try Again", systemImage: "arrow.clockwise")
+                    }
+                    Button {
+                        model.beginWorkspaceRestore()
+                    } label: {
+                        Label("Restore Backup", systemImage: "externaldrive.badge.arrowtriangle.2.circlepath")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loading:
             ProgressView("Loading workspace…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)

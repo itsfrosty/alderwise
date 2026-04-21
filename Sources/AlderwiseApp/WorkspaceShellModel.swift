@@ -26,10 +26,13 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var isPresentingFileImporter = false
     @Published var fileImportRequest: FileImportRequest?
     @Published var isPresentingImportPreview = false
+    @Published var isPresentingTargetSheet = false
     @Published private(set) var csvImportPreview: CSVImportPreview?
     @Published private(set) var pendingCSVImport: PendingCSVImport?
     @Published var importErrorMessage: String?
     @Published var importResultMessage: String?
+    @Published var targetErrorMessage: String?
+    @Published var sampleDataMessage: String?
     @Published var transactionFilter = TransactionLedgerFilter.empty
     @Published var selectedTransactionID: UUID?
     @Published private(set) var selectedTransactionDetail: TransactionDetail?
@@ -206,6 +209,24 @@ final class WorkspaceShellModel: ObservableObject {
         }
     }
 
+    func beginTargetCreation() {
+        isPresentingTargetSheet = true
+    }
+
+    func createMonthlyTarget(_ draft: MonthlyTargetDraft) {
+        guard let service else {
+            return
+        }
+
+        do {
+            try service.createMonthlyTarget(draft)
+            isPresentingTargetSheet = false
+            reload()
+        } catch {
+            targetErrorMessage = error.localizedDescription
+        }
+    }
+
     @discardableResult
     func keepBothLikelyDuplicateReviewItem(id: UUID) -> Bool {
         guard let service else {
@@ -252,8 +273,11 @@ final class WorkspaceShellModel: ObservableObject {
         }
 
         do {
-            try service.seedSampleDataIfNeeded()
+            let didAddSampleData = try service.seedSampleDataIfNeeded()
             reload()
+            sampleDataMessage = didAddSampleData
+                ? "Sample accounts were added."
+                : "Sample data was skipped because this workspace already has accounts."
         } catch {
             state = .failed(error.localizedDescription)
         }

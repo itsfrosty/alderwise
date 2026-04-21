@@ -10,6 +10,7 @@ struct TransactionLedgerView: View {
     @State private var hasEndDate = false
     @State private var startDate = Date()
     @State private var endDate = Date()
+    @State private var isSearchPresented = false
 
     private var selectedIDBinding: Binding<UUID?> {
         Binding(
@@ -45,7 +46,7 @@ struct TransactionLedgerView: View {
             .frame(idealWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
         }
         .navigationTitle("Transactions")
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search transactions")
+        .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Search transactions")
         .onSubmit(of: .search) {
             applyFilters()
         }
@@ -72,6 +73,13 @@ struct TransactionLedgerView: View {
     private var filterBar: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
+                Button {
+                    isSearchPresented = true
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .keyboardShortcut("f", modifiers: [.command])
+
                 Picker("Account", selection: accountSelection) {
                     Text("All Accounts").tag(Optional<UUID>.none)
                     ForEach(snapshot.accounts) { account in
@@ -117,11 +125,13 @@ struct TransactionLedgerView: View {
                     .onChange(of: endDate) { _, _ in applyFilters() }
 
                 Spacer()
-                Button("Reset") {
+                Button {
                     searchText = ""
                     hasStartDate = false
                     hasEndDate = false
                     model.updateTransactionFilter(.empty)
+                } label: {
+                    Label("Reset", systemImage: "arrow.counterclockwise")
                 }
             }
         }
@@ -242,7 +252,7 @@ private struct TransactionDetailView: View {
                         }
                         TextField("Notes", text: $notes, axis: .vertical)
                             .lineLimit(3, reservesSpace: true)
-                        Button("Save Changes") {
+                        Button {
                             onSave(
                                 TransactionLedgerEditDraft(
                                     merchantName: merchantName,
@@ -250,7 +260,10 @@ private struct TransactionDetailView: View {
                                     notes: notes
                                 )
                             )
+                        } label: {
+                            Label("Save Changes", systemImage: "checkmark")
                         }
+                        .keyboardShortcut("s", modifiers: [.command])
                     }
 
                     Section("Explanation") {

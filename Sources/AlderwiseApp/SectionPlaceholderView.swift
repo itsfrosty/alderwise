@@ -18,7 +18,9 @@ struct SectionPlaceholderView: View {
                 firstRunActions
             }
 
-            if shouldShowEmptyState {
+            if section == .targets, snapshot.monthlyReport.targets.isEmpty {
+                targetsEmptyState
+            } else if shouldShowEmptyState {
                 ContentUnavailableView(
                     section.emptyStateTitle,
                     systemImage: section.systemImage,
@@ -90,22 +92,43 @@ struct SectionPlaceholderView: View {
         TargetProgressList(items: snapshot.monthlyReport.targets, currency: currency)
     }
 
+    private var targetsEmptyState: some View {
+        ContentUnavailableView {
+            Label("No Targets", systemImage: section.systemImage)
+        } description: {
+            Text("Create a monthly category target to track accepted spending.")
+        } actions: {
+            Button {
+                model.beginTargetCreation()
+            } label: {
+                Label("Create Target", systemImage: "plus")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+    }
+
     @ViewBuilder
     private var firstRunActions: some View {
         if snapshot.summary.accountCount == 0 {
             HStack(spacing: 12) {
-                Button("Import CSV") {
+                Button {
                     model.beginCSVImport()
+                } label: {
+                    Label("Import CSV", systemImage: "square.and.arrow.down")
                 }
-                    .buttonStyle(.borderedProminent)
+                .buttonStyle(.borderedProminent)
 
-                Button("Create Account") {
+                Button {
                     model.isPresentingAccountSheet = true
+                } label: {
+                    Label("Create Account", systemImage: "plus")
                 }
                 .buttonStyle(.bordered)
 
-                Button("Add Sample Data") {
+                Button {
                     model.addSampleAccount()
+                } label: {
+                    Label("Add Sample Data", systemImage: "sparkles")
                 }
                 .buttonStyle(.bordered)
             }

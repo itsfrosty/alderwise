@@ -170,10 +170,11 @@ public struct WorkspaceService: Sendable {
         )
     }
 
-    public func seedSampleDataIfNeeded() throws {
+    @discardableResult
+    public func seedSampleDataIfNeeded() throws -> Bool {
         let existingAccounts = try store.fetchAccounts()
         guard existingAccounts.isEmpty else {
-            return
+            return false
         }
 
         _ = try createAccount(
@@ -186,6 +187,7 @@ public struct WorkspaceService: Sendable {
             kind: .creditCard,
             institutionName: "Sample Card"
         )
+        return true
     }
 
     @discardableResult

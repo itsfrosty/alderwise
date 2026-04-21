@@ -55,7 +55,7 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
         case .accounts:
             "Create your first account to start importing CSVs"
         case .settings:
-            "Control how Alderwise behaves on this Mac"
+            "Workspace and Import Settings"
         }
     }
 
@@ -72,7 +72,7 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
         case .accounts:
             "Accounts define where imported CSV files should land in your workspace."
         case .settings:
-            "Settings for workspace location, suggestions, and backup will live here."
+            "Manage local suggestions, backups, and workspace recovery."
         }
     }
 }

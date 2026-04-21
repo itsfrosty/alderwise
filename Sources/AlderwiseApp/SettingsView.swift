@@ -43,13 +43,17 @@ struct SettingsView: View {
             }
 
             HStack(spacing: 12) {
-                Button("Create Backup") {
+                Button {
                     model.createWorkspaceBackup()
+                } label: {
+                    Label("Create Backup", systemImage: "externaldrive.badge.plus")
                 }
                 .buttonStyle(.borderedProminent)
 
-                Button("Restore Backup") {
+                Button {
                     model.beginWorkspaceRestore()
+                } label: {
+                    Label("Restore Backup", systemImage: "externaldrive.badge.arrowtriangle.2.circlepath")
                 }
                 .buttonStyle(.bordered)
             }
