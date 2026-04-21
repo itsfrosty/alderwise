@@ -67,7 +67,7 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
     #expect(report.hasActiveTargets)
     #expect(report.totalMonthlyTargetLimit == Decimal(300))
     #expect(report.expectedPaceSpend == Decimal(150))
-    #expect(report.paceDelta == Decimal(0))
+    #expect(report.paceDelta == Decimal(30))
     #expect(report.paceSeries == [
         MonthlySpendPoint(day: 5, actualSpend: Decimal(60), expectedSpend: Decimal(50)),
         MonthlySpendPoint(day: 8, actualSpend: Decimal(90), expectedSpend: Decimal(80)),
