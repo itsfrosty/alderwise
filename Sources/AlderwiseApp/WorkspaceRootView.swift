@@ -8,6 +8,17 @@ struct WorkspaceRootView: View {
 
     private static let sqliteWorkspaceType = UTType(filenameExtension: "sqlite") ?? .data
 
+    private var fileImporterContentTypes: [UTType] {
+        switch model.fileImportRequest {
+        case .csv:
+            [.commaSeparatedText, .plainText]
+        case .workspaceRestore:
+            [Self.sqliteWorkspaceType]
+        case nil:
+            [.data]
+        }
+    }
+
     private var selectedSection: AppSection {
         AppSection(rawValue: selectedSectionRawValue) ?? .home
     }
@@ -60,33 +71,21 @@ struct WorkspaceRootView: View {
             }
         }
         .fileImporter(
-            isPresented: $model.isPresentingCSVImporter,
-            allowedContentTypes: [.commaSeparatedText, .plainText],
+            isPresented: $model.isPresentingFileImporter,
+            allowedContentTypes: fileImporterContentTypes,
             allowsMultipleSelection: false
         ) { result in
-            do {
-                let urls = try result.get()
-                guard let url = urls.first else {
-                    throw CocoaError(.fileNoSuchFile)
-                }
-                model.importCSV(from: .success(url))
-            } catch {
-                model.importCSV(from: .failure(error))
-            }
-        }
-        .fileImporter(
-            isPresented: $model.isPresentingWorkspaceRestoreImporter,
-            allowedContentTypes: [Self.sqliteWorkspaceType],
-            allowsMultipleSelection: false
-        ) { result in
-            do {
-                let urls = try result.get()
-                guard let url = urls.first else {
-                    throw CocoaError(.fileNoSuchFile)
-                }
-                model.restoreWorkspace(from: .success(url))
-            } catch {
-                model.restoreWorkspace(from: .failure(error))
+            let request = model.fileImportRequest
+            model.fileImportRequest = nil
+            model.isPresentingFileImporter = false
+
+            switch request {
+            case .csv:
+                model.importCSV(from: selectedFileURL(from: result))
+            case .workspaceRestore:
+                model.restoreWorkspace(from: selectedFileURL(from: result))
+            case nil:
+                break
             }
         }
         .sheet(
@@ -197,6 +196,18 @@ struct WorkspaceRootView: View {
             }
         } message: {
             Text(model.workspaceMaintenanceErrorMessage ?? "")
+        }
+    }
+
+    private func selectedFileURL(from result: Result<[URL], Error>) -> Result<URL, Error> {
+        do {
+            let urls = try result.get()
+            guard let url = urls.first else {
+                throw CocoaError(.fileNoSuchFile)
+            }
+            return .success(url)
+        } catch {
+            return .failure(error)
         }
     }
 

@@ -16,9 +16,15 @@ final class WorkspaceShellModel: ObservableObject {
         case failed(String)
     }
 
+    enum FileImportRequest {
+        case csv
+        case workspaceRestore
+    }
+
     @Published private(set) var state: State = .loading
     @Published var isPresentingAccountSheet = false
-    @Published var isPresentingCSVImporter = false
+    @Published var isPresentingFileImporter = false
+    @Published var fileImportRequest: FileImportRequest?
     @Published var isPresentingImportPreview = false
     @Published private(set) var csvImportPreview: CSVImportPreview?
     @Published private(set) var pendingCSVImport: PendingCSVImport?
@@ -32,7 +38,6 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var workspacePreferences = WorkspacePreferences.default
     @Published var workspaceMaintenanceMessage: String?
     @Published var workspaceMaintenanceErrorMessage: String?
-    @Published var isPresentingWorkspaceRestoreImporter = false
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
@@ -126,7 +131,8 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func beginWorkspaceRestore() {
-        isPresentingWorkspaceRestoreImporter = true
+        fileImportRequest = .workspaceRestore
+        isPresentingFileImporter = true
     }
 
     func restoreWorkspace(from result: Result<URL, Error>) {
@@ -225,7 +231,8 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func beginCSVImport() {
-        isPresentingCSVImporter = true
+        fileImportRequest = .csv
+        isPresentingFileImporter = true
     }
 
     func importCSV(from result: Result<URL, Error>) {
