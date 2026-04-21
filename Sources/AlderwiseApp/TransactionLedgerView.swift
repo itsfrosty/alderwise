@@ -55,9 +55,13 @@ struct TransactionLedgerView: View {
             applyFilters()
         }
         .onAppear {
+            syncControlsFromFilter()
             if model.selectedTransactionID == nil {
                 model.selectTransaction(id: snapshot.transactions.first?.id)
             }
+        }
+        .onChange(of: model.transactionFilter) { _, _ in
+            syncControlsFromFilter()
         }
     }
 
@@ -95,6 +99,13 @@ struct TransactionLedgerView: View {
                     categoryGroups: snapshot.categoryGroups,
                     selection: categorySelection
                 )
+
+                Picker("Direction", selection: directionSelection) {
+                    Text("All Directions").tag(Optional<TransactionDirection>.none)
+                    ForEach(TransactionDirection.allCases, id: \.self) { direction in
+                        Text(direction.rawValue.capitalized).tag(Optional(direction))
+                    }
+                }
 
                 Picker("Review", selection: reviewSelection) {
                     Text("All Review States").tag(Optional<TransactionReviewStatus>.none)
@@ -172,6 +183,17 @@ struct TransactionLedgerView: View {
         )
     }
 
+    private var directionSelection: Binding<TransactionDirection?> {
+        Binding(
+            get: { model.transactionFilter.direction },
+            set: { newValue in
+                var filter = model.transactionFilter
+                filter.direction = newValue
+                model.updateTransactionFilter(filter)
+            }
+        )
+    }
+
     private var importSessionSelection: Binding<Int64?> {
         Binding(
             get: { model.transactionFilter.importSessionID },
@@ -193,6 +215,30 @@ struct TransactionLedgerView: View {
         filter.startDate = hasStartDate ? startDate : nil
         filter.endDate = hasEndDate ? endDate : nil
         model.updateTransactionFilter(filter)
+    }
+
+    private func syncControlsFromFilter() {
+        let filter = model.transactionFilter
+
+        if searchText != filter.searchText {
+            searchText = filter.searchText
+        }
+
+        let nextHasStartDate = filter.startDate != nil
+        if hasStartDate != nextHasStartDate {
+            hasStartDate = nextHasStartDate
+        }
+        if let filterStartDate = filter.startDate, startDate != filterStartDate {
+            startDate = filterStartDate
+        }
+
+        let nextHasEndDate = filter.endDate != nil
+        if hasEndDate != nextHasEndDate {
+            hasEndDate = nextHasEndDate
+        }
+        if let filterEndDate = filter.endDate, endDate != filterEndDate {
+            endDate = filterEndDate
+        }
     }
 }
 

@@ -342,7 +342,21 @@ struct WorkspaceRootView: View {
             ProgressView("Loading workspace…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loaded(let snapshot):
-            if section == .transactions {
+            if section == .home {
+                HomeDashboardView(
+                    snapshot: snapshot,
+                    openReview: {
+                        selectedSectionRawValue = AppSection.review.rawValue
+                    },
+                    openTargets: {
+                        selectedSectionRawValue = AppSection.targets.rawValue
+                    },
+                    openTransactions: { filter in
+                        selectedSectionRawValue = AppSection.transactions.rawValue
+                        model.updateTransactionFilter(filter)
+                    }
+                )
+            } else if section == .transactions {
                 TransactionLedgerView(snapshot: snapshot, model: model)
             } else if section == .review {
                 ReviewQueueView(snapshot: snapshot, model: model)
