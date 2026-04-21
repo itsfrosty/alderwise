@@ -157,7 +157,9 @@ func workspaceSnapshotIncludesComputedHomeDashboard() throws {
 
     let snapshot = try service.loadSnapshot()
 
+    #expect(snapshot.homeDashboard != nil)
     #expect(snapshot.homeDashboard?.hero.amount == Decimal(40))
+    #expect(snapshot.homeDashboard?.primaryAction != nil)
 }
 
 private func task15Service() throws -> WorkspaceService {

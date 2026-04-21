@@ -183,16 +183,17 @@ func homeDashboardPrioritizesBiggestDriverWhenReviewBacklogAndTargetPressureAreE
 }
 
 private func homeDashboardReport(
-    pendingReviewCount: Int,
-    targets: [TargetProgress],
-    currentMonthAcceptedSpend: Decimal,
-    lastMonthAcceptedSpend: Decimal,
-    hasActiveTargets: Bool,
-    totalMonthlyTargetLimit: Decimal,
-    expectedPaceSpend: Decimal,
-    paceDelta: Decimal,
-    drivers: [MonthlySpendingDriver],
-    biggestShift: MonthlySpendingDriver?
+    pendingReviewCount: Int = 0,
+    targets: [TargetProgress] = [],
+    currentMonthAcceptedSpend: Decimal = 0,
+    lastMonthAcceptedSpend: Decimal = 0,
+    hasActiveTargets: Bool = false,
+    totalMonthlyTargetLimit: Decimal = 0,
+    expectedPaceSpend: Decimal = 0,
+    paceDelta: Decimal = 0,
+    paceSeries: [MonthlySpendPoint] = [MonthlySpendPoint(day: 1, actualSpend: Decimal(20), expectedSpend: Decimal(3.2))],
+    drivers: [MonthlySpendingDriver] = [],
+    biggestShift: MonthlySpendingDriver? = nil
 ) -> MonthlyReport {
     MonthlyReport(
         monthStart: Date(timeIntervalSince1970: 1_775_084_800),
@@ -204,9 +205,7 @@ private func homeDashboardReport(
         totalMonthlyTargetLimit: totalMonthlyTargetLimit,
         expectedPaceSpend: expectedPaceSpend,
         paceDelta: paceDelta,
-        paceSeries: [
-            MonthlySpendPoint(day: 1, actualSpend: Decimal(20), expectedSpend: Decimal(3.2)),
-        ],
+        paceSeries: paceSeries,
         drivers: drivers,
         biggestShift: biggestShift
     )
