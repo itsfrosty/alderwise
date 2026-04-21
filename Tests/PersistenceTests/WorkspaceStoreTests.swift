@@ -864,16 +864,22 @@ func fetchTransactionLedgerFiltersByDirectionAndCategoryGroup() throws {
 
     let checking = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
     let food = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
+    let travel = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
     let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000211")!
-    let incomeGroup = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
-    let salary = UUID(uuidString: "00000000-0000-0000-0000-000000000212")!
+    let parking = UUID(uuidString: "00000000-0000-0000-0000-000000000212")!
+    let incomeGroup = UUID(uuidString: "00000000-0000-0000-0000-000000000203")!
+    let salary = UUID(uuidString: "00000000-0000-0000-0000-000000000213")!
     try insertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try insertCategoryGroup(databaseURL: databaseURL, id: travel, name: "Travel")
     try insertCategoryGroup(databaseURL: databaseURL, id: incomeGroup, name: "Income Group")
     try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try insertCategory(databaseURL: databaseURL, id: parking, name: "Parking", kind: "expense", categoryGroupID: travel)
     try insertCategory(databaseURL: databaseURL, id: salary, name: "Salary", kind: "income", categoryGroupID: incomeGroup)
 
     let groceryID = UUID(uuidString: "00000000-0000-0000-0000-000000000401")!
     let paycheckID = UUID(uuidString: "00000000-0000-0000-0000-000000000402")!
+    let parkingID = UUID(uuidString: "00000000-0000-0000-0000-000000000403")!
+    let bonusID = UUID(uuidString: "00000000-0000-0000-0000-000000000404")!
     try insertLedgerTransaction(
         databaseURL: databaseURL,
         id: groceryID,
@@ -895,6 +901,31 @@ func fetchTransactionLedgerFiltersByDirectionAndCategoryGroup() throws {
         rawDescription: "Payroll",
         normalizedMerchantName: "payroll",
         amount: Decimal(1800),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        direction: "income"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: parkingID,
+        accountID: checking.id,
+        categoryID: parking,
+        importSessionID: nil,
+        rawDescription: "Parking",
+        normalizedMerchantName: "parking",
+        amount: Decimal(-12),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: bonusID,
+        accountID: checking.id,
+        categoryID: salary,
+        importSessionID: nil,
+        rawDescription: "Bonus",
+        normalizedMerchantName: "bonus",
+        amount: Decimal(200),
         transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
         reviewStatus: "accepted",
         direction: "income"

@@ -87,6 +87,55 @@ func homeDashboardPrioritizesOverLimitTargetsWhenReviewBacklogIsEmpty() {
 }
 
 @Test
+func homeDashboardPrefersOverLimitTargetsEvenWhenADriverIsAlsoPresent() {
+    let foodGroupID = homeDashboardID("00000000-0000-0000-0000-000000000201")
+    let report = homeDashboardReport(
+        pendingReviewCount: 0,
+        targets: [
+            homeDashboardTarget(
+                id: "00000000-0000-0000-0000-000000000402",
+                name: "Food",
+                scope: .categoryGroup(foodGroupID),
+                monthlyLimit: 100,
+                spent: 120,
+                remaining: -20,
+                paceDelta: 20
+            ),
+        ],
+        currentMonthAcceptedSpend: 120,
+        lastMonthAcceptedSpend: 90,
+        hasActiveTargets: true,
+        totalMonthlyTargetLimit: 100,
+        expectedPaceSpend: 100,
+        paceDelta: 20,
+        drivers: [
+            homeDashboardDriver(
+                title: "Food",
+                scope: .categoryGroup(foodGroupID),
+                currentPeriodSpend: 120,
+                comparisonPeriodSpend: 90,
+                delta: 30
+            ),
+        ],
+        biggestShift: homeDashboardDriver(
+            title: "Food",
+            scope: .categoryGroup(foodGroupID),
+            currentPeriodSpend: 120,
+            comparisonPeriodSpend: 90,
+            delta: 30
+        )
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 10, reviewCount: 0, targetCount: 1),
+        monthlyReport: report
+    )
+
+    #expect(dashboard.primaryAction?.destination == .targets)
+    #expect(dashboard.primaryAction?.title == "Review Food target")
+}
+
+@Test
 func homeDashboardPrioritizesBiggestDriverWhenReviewBacklogAndTargetPressureAreEmpty() {
     let foodGroupID = homeDashboardID("00000000-0000-0000-0000-000000000201")
     let report = homeDashboardReport(
