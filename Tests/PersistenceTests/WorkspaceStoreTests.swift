@@ -94,6 +94,7 @@ func bootstrapSeedsDefaultBudgetCategories() throws {
             "Personal Care",
             "Pets",
             "Fun Money",
+            "Donations",
         ],
     ])
     #expect(categories.filter { $0.kind == .income }.map(\.name) == [
@@ -104,6 +105,7 @@ func bootstrapSeedsDefaultBudgetCategories() throws {
     ])
     #expect(categories.first { $0.name == "Taxes" }?.kind == .expense)
     #expect(categories.first { $0.name == "Fees & Bank Charges" }?.kind == .expense)
+    #expect(categories.first { $0.name == "Donations" }?.kind == .expense)
 }
 
 @Test
@@ -120,7 +122,7 @@ func bootstrapPreservesCustomCategoriesWhileMaintainingDefaultTaxonomy() throws 
 
     #expect(categories.contains { $0.name == "Custom Food" && $0.kind == .expense })
     #expect(categories.contains { $0.name == "Housing & Utilities" } == false)
-    #expect(categories.filter { $0.name != "Custom Food" }.count == 23)
+    #expect(categories.filter { $0.name != "Custom Food" }.count == 24)
     #expect(categories.filter { $0.kind == .income }.map(\.name) == ["Income"])
     #expect(categories.filter { $0.kind == .transfer }.map(\.name) == ["Transfers"])
 }

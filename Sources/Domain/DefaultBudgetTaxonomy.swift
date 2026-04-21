@@ -51,6 +51,7 @@ public enum DefaultBudgetTaxonomy {
         public static let personalCare = UUID(uuidString: "20000000-0000-0000-0000-000000000039")!
         public static let pets = UUID(uuidString: "20000000-0000-0000-0000-000000000050")!
         public static let funMoney = UUID(uuidString: "20000000-0000-0000-0000-000000000051")!
+        public static let donations = UUID(uuidString: "20000000-0000-0000-0000-000000000053")!
         public static let medicalAndPharmacy = UUID(uuidString: "20000000-0000-0000-0000-000000000027")!
         public static let fitnessAndGym = UUID(uuidString: "20000000-0000-0000-0000-000000000030")!
         public static let childcareAndKidsActivities = UUID(uuidString: "20000000-0000-0000-0000-000000000052")!
@@ -87,6 +88,7 @@ public enum DefaultBudgetTaxonomy {
         DefaultBudgetCategoryDefinition(id: CategoryID.personalCare, name: "Personal Care", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
         DefaultBudgetCategoryDefinition(id: CategoryID.pets, name: "Pets", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
         DefaultBudgetCategoryDefinition(id: CategoryID.funMoney, name: "Fun Money", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
+        DefaultBudgetCategoryDefinition(id: CategoryID.donations, name: "Donations", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
         DefaultBudgetCategoryDefinition(id: CategoryID.medicalAndPharmacy, name: "Medical & Pharmacy", kind: .expense, groupID: CategoryGroupID.healthAndWellness),
         DefaultBudgetCategoryDefinition(id: CategoryID.fitnessAndGym, name: "Fitness & Gym", kind: .expense, groupID: CategoryGroupID.healthAndWellness),
         DefaultBudgetCategoryDefinition(id: CategoryID.childcareAndKidsActivities, name: "Childcare & Kids' Activities", kind: .expense, groupID: CategoryGroupID.familyAndHousehold),

@@ -2269,6 +2269,7 @@ private let defaultBudgetCategories: [DefaultBudgetCategory] = [
     DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000039")!, name: "Personal Care", kind: .expense, groupID: DefaultCategoryGroupID.lifestyleAndDiscretionary),
     DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000050")!, name: "Pets", kind: .expense, groupID: DefaultCategoryGroupID.lifestyleAndDiscretionary),
     DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000051")!, name: "Fun Money", kind: .expense, groupID: DefaultCategoryGroupID.lifestyleAndDiscretionary),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000053")!, name: "Donations", kind: .expense, groupID: DefaultCategoryGroupID.lifestyleAndDiscretionary),
     DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000027")!, name: "Medical & Pharmacy", kind: .expense, groupID: DefaultCategoryGroupID.healthAndWellness),
     DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000030")!, name: "Fitness & Gym", kind: .expense, groupID: DefaultCategoryGroupID.healthAndWellness),
     DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000052")!, name: "Childcare & Kids' Activities", kind: .expense, groupID: DefaultCategoryGroupID.familyAndHousehold),
