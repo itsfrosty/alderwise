@@ -46,6 +46,7 @@ struct ReviewQueueView: View {
             ReviewQueueDetail(
                 item: selectedItem,
                 categories: snapshot.categories,
+                categoryGroups: snapshot.categoryGroups,
                 onApproveClassification: { item, assignment, createRule in
                     let didResolve = model.approveClassificationReviewItem(
                         id: item.id,
@@ -170,6 +171,7 @@ private struct ReviewQueueRow: View {
 private struct ReviewQueueDetail: View {
     let item: PendingReviewItem?
     let categories: [BudgetCategory]
+    let categoryGroups: [BudgetCategoryGroup]
     var onApproveClassification: (PendingReviewItem, ClassificationAssignment, Bool) -> Void
     var onKeepBoth: (PendingReviewItem) -> Void
     @State private var selectedCategoryID: UUID?
@@ -233,12 +235,13 @@ private struct ReviewQueueDetail: View {
     private func classificationControls(for item: PendingReviewItem) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             TextField("Merchant", text: $merchantName)
-            Picker("Category", selection: $selectedCategoryID) {
-                Text("Choose Category").tag(Optional<UUID>.none)
-                ForEach(categories) { category in
-                    Text(category.name).tag(Optional(category.id))
-                }
-            }
+            GroupedCategoryPicker(
+                title: "Category",
+                prompt: "Choose Category",
+                categories: categories,
+                categoryGroups: categoryGroups,
+                selection: $selectedCategoryID
+            )
             Toggle("Learn this merchant rule", isOn: $createRule)
             Button("Approve Category") {
                 guard let selectedCategoryID else {

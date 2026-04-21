@@ -53,12 +53,13 @@ struct TargetCreationSheet: View {
                 .pickerStyle(.segmented)
 
                 if selectedScopeKind == .category {
-                    Picker("Category", selection: $selectedCategoryID) {
-                        Text("Choose Category").tag(Optional<UUID>.none)
-                        ForEach(expenseCategories) { category in
-                            Text(category.name).tag(Optional(category.id))
-                        }
-                    }
+                    GroupedCategoryPicker(
+                        title: "Category",
+                        prompt: "Choose Category",
+                        categories: expenseCategories,
+                        categoryGroups: categoryGroups,
+                        selection: $selectedCategoryID
+                    )
                 } else {
                     Picker("Group", selection: $selectedCategoryGroupID) {
                         Text("Choose Group").tag(Optional<UUID>.none)

@@ -46,73 +46,68 @@ func bootstrapSeedsDefaultBudgetCategories() throws {
     try store.bootstrap()
 
     let categories = try store.fetchCategories()
+    let groups = try store.fetchCategoryGroups()
 
-    #expect(categories.map(\.name) == [
-        "Account Transfer",
-        "Auto Insurance",
-        "Auto Maintenance",
-        "Cash Withdrawal",
-        "Clothing",
-        "Coffee & Snacks",
-        "Credit Card Payment",
-        "Dental",
-        "Education",
-        "Electricity",
-        "Electronics",
-        "Fees",
-        "Fitness",
-        "Flights",
-        "Games",
-        "Gas",
-        "Gas Utility",
-        "General Shopping",
-        "Gifts & Donations",
-        "Groceries",
-        "Hobbies",
-        "Home Goods",
-        "Home Insurance",
-        "Home Maintenance",
-        "Hotels",
-        "Interest",
-        "Internet",
-        "Medical",
-        "Movies & Events",
-        "Other Expense",
-        "Other Income",
-        "Parking & Tolls",
-        "Paycheck",
-        "Personal Care",
-        "Pharmacy",
-        "Phone",
-        "Property Tax",
-        "Public Transit",
-        "Refunds",
-        "Rent or Mortgage",
-        "Rental Cars",
-        "Restaurants",
-        "Savings Transfer",
-        "Streaming",
-        "Subscriptions",
-        "Taxes",
-        "Travel Meals",
-        "Uncategorized",
-        "Water",
+    #expect(groups.map(\.name) == [
+        "Housing & Utilities",
+        "Food & Drink",
+        "Auto & Transit",
+        "Lifestyle & Discretionary",
+        "Health & Wellness",
+        "Family & Household",
+        "Financial",
+    ])
+    #expect(categoryNamesByGroup(categories: categories, groups: groups) == [
+        "Auto & Transit": [
+            "Gas & Charging",
+            "Public Transit & Ride Share",
+            "Auto Maintenance & Insurance",
+        ],
+        "Family & Household": [
+            "Childcare & Kids' Activities",
+            "Education & Student Loans",
+        ],
+        "Financial": [
+            "Income",
+            "Transfers",
+            "Taxes",
+            "Fees & Bank Charges",
+        ],
+        "Food & Drink": [
+            "Groceries",
+            "Restaurants & Bars",
+            "Coffee Shops",
+        ],
+        "Health & Wellness": [
+            "Medical & Pharmacy",
+            "Fitness & Gym",
+        ],
+        "Housing & Utilities": [
+            "Rent & Mortgage",
+            "Utilities",
+            "Internet & Phone",
+            "Home Maintenance & Supplies",
+        ],
+        "Lifestyle & Discretionary": [
+            "Shopping & Clothing",
+            "Subscriptions & Entertainment",
+            "Personal Care",
+            "Pets",
+            "Fun Money",
+        ],
     ])
     #expect(categories.filter { $0.kind == .income }.map(\.name) == [
-        "Interest",
-        "Other Income",
-        "Paycheck",
-        "Refunds",
+        "Income",
     ])
     #expect(categories.filter { $0.kind == .transfer }.map(\.name) == [
-        "Account Transfer",
-        "Credit Card Payment",
-        "Savings Transfer",
+        "Transfers",
     ])
+    #expect(categories.first { $0.name == "Taxes" }?.kind == .expense)
+    #expect(categories.first { $0.name == "Fees & Bank Charges" }?.kind == .expense)
 }
 
 @Test
-func bootstrapDoesNotSeedDefaultBudgetCategoriesOverExistingCategories() throws {
+func bootstrapPreservesCustomCategoriesWhileMaintainingDefaultTaxonomy() throws {
     let databaseURL = try temporaryDatabaseURL()
     var store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
@@ -123,8 +118,33 @@ func bootstrapDoesNotSeedDefaultBudgetCategoriesOverExistingCategories() throws 
 
     let categories = try store.fetchCategories()
 
-    #expect(categories.map(\.name) == ["Custom Food"])
-    #expect(categories.map(\.kind) == [.expense])
+    #expect(categories.contains { $0.name == "Custom Food" && $0.kind == .expense })
+    #expect(categories.contains { $0.name == "Housing & Utilities" } == false)
+    #expect(categories.filter { $0.name != "Custom Food" }.count == 23)
+    #expect(categories.filter { $0.kind == .income }.map(\.name) == ["Income"])
+    #expect(categories.filter { $0.kind == .transfer }.map(\.name) == ["Transfers"])
+}
+
+@Test
+func bootstrapPrunesUnreferencedObsoleteDefaultCategories() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    var store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let obsoleteDefaultCategoryID = UUID(uuidString: "20000000-0000-0000-0000-000000000024")!
+    let lifestyleGroupID = try #require(try store.fetchCategoryGroups().first { $0.name == "Lifestyle & Discretionary" }?.id)
+    try insertCategory(
+        databaseURL: databaseURL,
+        id: obsoleteDefaultCategoryID,
+        name: "Clothing",
+        kind: "expense",
+        categoryGroupID: lifestyleGroupID
+    )
+
+    store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    #expect(try store.fetchCategories().contains { $0.id == obsoleteDefaultCategoryID } == false)
 }
 
 @Test
@@ -1950,6 +1970,24 @@ private func insertRule(
                 createdAt,
             ]
         )
+    }
+}
+
+private func categoryNamesByGroup(
+    categories: [BudgetCategory],
+    groups: [BudgetCategoryGroup]
+) -> [String: [String]] {
+    let groupNameByID = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.name) })
+    let pairs = categories.compactMap { category -> (String, String)? in
+        guard let groupID = category.groupID,
+              let groupName = groupNameByID[groupID]
+        else {
+            return nil
+        }
+        return (groupName, category.name)
+    }
+    return Dictionary(grouping: pairs, by: \.0).mapValues { pairs in
+        pairs.map(\.1)
     }
 }
 

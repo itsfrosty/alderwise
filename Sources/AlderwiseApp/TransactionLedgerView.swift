@@ -41,6 +41,7 @@ struct TransactionLedgerView: View {
             TransactionDetailView(
                 detail: model.selectedTransactionDetail,
                 categories: snapshot.categories,
+                categoryGroups: snapshot.categoryGroups,
                 onSave: model.updateSelectedTransaction(draft:)
             )
             .frame(idealWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
@@ -87,12 +88,13 @@ struct TransactionLedgerView: View {
                     }
                 }
 
-                Picker("Category", selection: categorySelection) {
-                    Text("All Categories").tag(Optional<UUID>.none)
-                    ForEach(snapshot.categories) { category in
-                        Text(category.name).tag(Optional(category.id))
-                    }
-                }
+                GroupedCategoryPicker(
+                    title: "Category",
+                    prompt: "All Categories",
+                    categories: snapshot.categories,
+                    categoryGroups: snapshot.categoryGroups,
+                    selection: categorySelection
+                )
 
                 Picker("Review", selection: reviewSelection) {
                     Text("All Review States").tag(Optional<TransactionReviewStatus>.none)
@@ -233,6 +235,7 @@ private struct TransactionLedgerRowView: View {
 private struct TransactionDetailView: View {
     let detail: TransactionDetail?
     let categories: [BudgetCategory]
+    let categoryGroups: [BudgetCategoryGroup]
     var onSave: (TransactionLedgerEditDraft) -> Void
     @State private var merchantName = ""
     @State private var categoryID: UUID?
@@ -244,12 +247,13 @@ private struct TransactionDetailView: View {
                 Form {
                     Section("Editable Fields") {
                         TextField("Merchant", text: $merchantName)
-                        Picker("Category", selection: $categoryID) {
-                            Text("Uncategorized").tag(Optional<UUID>.none)
-                            ForEach(categories) { category in
-                                Text(category.name).tag(Optional(category.id))
-                            }
-                        }
+                        GroupedCategoryPicker(
+                            title: "Category",
+                            prompt: "Uncategorized",
+                            categories: categories,
+                            categoryGroups: categoryGroups,
+                            selection: $categoryID
+                        )
                         TextField("Notes", text: $notes, axis: .vertical)
                             .lineLimit(3, reservesSpace: true)
                         Button {

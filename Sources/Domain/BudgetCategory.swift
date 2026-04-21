@@ -10,11 +10,13 @@ public struct BudgetCategory: Identifiable, Equatable, Sendable {
     public var id: UUID
     public var name: String
     public var kind: BudgetCategoryKind
+    public var groupID: UUID?
 
-    public init(id: UUID, name: String, kind: BudgetCategoryKind) {
+    public init(id: UUID, name: String, kind: BudgetCategoryKind, groupID: UUID? = nil) {
         self.id = id
         self.name = name
         self.kind = kind
+        self.groupID = groupID
     }
 }
 
