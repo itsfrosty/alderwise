@@ -14,6 +14,18 @@ func workspaceLocationProvidesDecodedDatabasePath() {
 }
 
 @Test
+func liveWorkspaceLocationCreatesAlderwiseDirectoryInsideApplicationSupport() throws {
+    let applicationSupportDirectory = try temporaryDirectoryURL().appending(path: "Application Support", directoryHint: .isDirectory)
+
+    let location = try WorkspaceLocation.live(applicationSupportDirectory: applicationSupportDirectory)
+
+    #expect(location.databaseURL == applicationSupportDirectory.appending(path: "Alderwise/workspace.sqlite"))
+    #expect(location.databasePath.contains("Application Support/Alderwise/workspace.sqlite"))
+    #expect(!location.databasePath.contains("%20"))
+    #expect(FileManager.default.fileExists(atPath: location.databaseURL.deletingLastPathComponent().path))
+}
+
+@Test
 func bootstrapCreatesSchemaAndReturnsEmptySummary() throws {
     let store = try WorkspaceStore.inMemory()
 
@@ -1313,10 +1325,15 @@ func likelyDuplicateTransactionsMatchNearbyDateAmountAndMerchant() throws {
 }
 
 private func temporaryDatabaseURL() throws -> URL {
+    let directory = try temporaryDirectoryURL()
+    return directory.appending(path: "workspace.sqlite")
+}
+
+private func temporaryDirectoryURL() throws -> URL {
     let directory = FileManager.default.temporaryDirectory
         .appending(path: "AlderwisePersistenceTests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    return directory.appending(path: "workspace.sqlite")
+    return directory
 }
 
 private func fetchReviewItemStatus(databaseURL: URL, reviewItemID: UUID) throws -> ReviewItemStatus? {

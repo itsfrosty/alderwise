@@ -18,8 +18,15 @@ public struct WorkspaceLocation {
             appropriateFor: nil,
             create: true
         )
+        return try live(applicationSupportDirectory: supportDirectory)
+    }
+
+    public static func live(
+        applicationSupportDirectory supportDirectory: URL,
+        fileManager: FileManager = .default
+    ) throws -> WorkspaceLocation {
         let directory = supportDirectory.appendingPathComponent("Alderwise", isDirectory: true)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         return WorkspaceLocation(databaseURL: directory.appendingPathComponent("workspace.sqlite"))
     }
 }
