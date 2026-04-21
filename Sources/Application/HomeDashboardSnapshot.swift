@@ -125,3 +125,23 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
     }
 }
+
+private extension SpendingDriverScope {
+    var categoryID: UUID? {
+        switch self {
+        case .category(let id):
+            return id
+        case .categoryGroup:
+            return nil
+        }
+    }
+
+    var categoryGroupID: UUID? {
+        switch self {
+        case .category:
+            return nil
+        case .categoryGroup(let id):
+            return id
+        }
+    }
+}
