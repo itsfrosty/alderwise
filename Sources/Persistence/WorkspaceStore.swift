@@ -1059,6 +1059,9 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         let lastMonthStart = Calendar.alderwiseUTC.date(byAdding: .month, value: -1, to: interval.start) ?? interval.start
         let lastMonthInterval = DateInterval(start: lastMonthStart, end: interval.start)
         let paceRatio = monthElapsedRatio(referenceDate: referenceDate, interval: interval)
+        let comparisonInterval = elapsedComparisonInterval(for: referenceDate, monthInterval: interval)
+        let calendar = Calendar.alderwiseUTC
+        let totalDays = calendar.range(of: .day, in: .month, for: interval.start)?.count ?? 30
 
         return try databaseQueue.read { db in
             let currentSpend = try acceptedExpenseSpend(db: db, interval: interval)
@@ -1087,13 +1090,37 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             let targets = try targetRows.map { row in
                 try targetProgress(from: row, db: db, interval: interval, paceRatio: paceRatio)
             }
+            let totalMonthlyTargetLimit = targets.reduce(Decimal.zero) { $0 + $1.monthlyLimit }
+            let hasActiveTargets = targets.isEmpty == false
+            let expectedPaceSpend = hasActiveTargets ? totalMonthlyTargetLimit * paceRatio : .zero
+            let paceDelta = hasActiveTargets ? currentSpend - expectedPaceSpend : .zero
+            let expectedDailySpend = hasActiveTargets
+                ? totalMonthlyTargetLimit / Decimal(totalDays)
+                : .zero
+            let paceSeries = try monthlySpendSeries(
+                db: db,
+                interval: interval,
+                expectedDailySpend: expectedDailySpend
+            )
+            let drivers = try spendingDrivers(
+                db: db,
+                currentInterval: interval,
+                comparisonInterval: comparisonInterval
+            )
 
             return MonthlyReport(
                 monthStart: interval.start,
                 currentMonthAcceptedSpend: currentSpend,
                 lastMonthAcceptedSpend: lastMonthSpend,
                 pendingReviewCount: pendingReviewCount,
-                targets: targets
+                targets: targets,
+                hasActiveTargets: hasActiveTargets,
+                totalMonthlyTargetLimit: totalMonthlyTargetLimit,
+                expectedPaceSpend: expectedPaceSpend,
+                paceDelta: paceDelta,
+                paceSeries: paceSeries,
+                drivers: drivers,
+                biggestShift: drivers.first
             )
         }
     }
@@ -1866,6 +1893,18 @@ private func monthElapsedRatio(referenceDate: Date, interval: DateInterval) -> D
     return Decimal(elapsedDay) / Decimal(totalDays)
 }
 
+private func elapsedComparisonInterval(for referenceDate: Date, monthInterval: DateInterval) -> DateInterval {
+    let calendar = Calendar.alderwiseUTC
+    let lastMonthStart = calendar.date(byAdding: .month, value: -1, to: monthInterval.start) ?? monthInterval.start
+    let lastMonthEnd = monthInterval.start
+    let day = min(
+        calendar.component(.day, from: referenceDate),
+        calendar.range(of: .day, in: .month, for: lastMonthStart)?.count ?? 28
+    )
+    let comparisonEnd = calendar.date(byAdding: .day, value: day, to: lastMonthStart) ?? lastMonthEnd
+    return DateInterval(start: lastMonthStart, end: min(comparisonEnd, lastMonthEnd))
+}
+
 private func acceptedExpenseSpend(
     db: Database,
     interval: DateInterval,
@@ -1907,6 +1946,159 @@ private func acceptedExpenseSpend(
         arguments: arguments
     ) ?? 0
     return Decimal(sum)
+}
+
+private func monthlySpendSeries(
+    db: Database,
+    interval: DateInterval,
+    expectedDailySpend: Decimal
+) throws -> [MonthlySpendPoint] {
+    let rows = try Row.fetchAll(
+        db,
+        sql: """
+        SELECT
+            CAST(STRFTIME('%d', transactions.transaction_date) AS INTEGER) AS day,
+            COALESCE(SUM(-transactions.amount), 0) AS spend
+        FROM transactions
+        WHERE transactions.review_status = ?
+            AND transactions.direction = ?
+            AND transactions.amount < 0
+            AND transactions.transaction_date >= ?
+            AND transactions.transaction_date < ?
+        GROUP BY day
+        ORDER BY day ASC
+        """,
+        arguments: [
+            TransactionReviewStatus.accepted.rawValue,
+            TransactionDirection.expense.rawValue,
+            interval.start,
+            interval.end,
+        ]
+    )
+
+    var runningSpend = Decimal.zero
+    return rows.map { row in
+        let day: Int = row["day"]
+        let spend = Decimal(row["spend"] as Double)
+        runningSpend += spend
+        return MonthlySpendPoint(
+            day: day,
+            actualSpend: runningSpend,
+            expectedSpend: expectedDailySpend * Decimal(day)
+        )
+    }
+}
+
+private func spendingDrivers(
+    db: Database,
+    currentInterval: DateInterval,
+    comparisonInterval: DateInterval
+) throws -> [MonthlySpendingDriver] {
+    typealias DriverKey = UUID
+
+    let currentRows = try Row.fetchAll(
+        db,
+        sql: """
+        SELECT
+            categories.id AS category_id,
+            categories.name AS category_name,
+            COALESCE(SUM(-transactions.amount), 0) AS spend
+        FROM transactions
+        JOIN categories ON categories.id = transactions.category_id
+        WHERE transactions.review_status = ?
+            AND transactions.direction = ?
+            AND transactions.amount < 0
+            AND transactions.transaction_date >= ?
+            AND transactions.transaction_date < ?
+        GROUP BY categories.id, categories.name
+        """,
+        arguments: [
+            TransactionReviewStatus.accepted.rawValue,
+            TransactionDirection.expense.rawValue,
+            currentInterval.start,
+            currentInterval.end,
+        ]
+    )
+    let comparisonRows = try Row.fetchAll(
+        db,
+        sql: """
+        SELECT
+            categories.id AS category_id,
+            categories.name AS category_name,
+            COALESCE(SUM(-transactions.amount), 0) AS spend
+        FROM transactions
+        JOIN categories ON categories.id = transactions.category_id
+        WHERE transactions.review_status = ?
+            AND transactions.direction = ?
+            AND transactions.amount < 0
+            AND transactions.transaction_date >= ?
+            AND transactions.transaction_date < ?
+        GROUP BY categories.id, categories.name
+        """,
+        arguments: [
+            TransactionReviewStatus.accepted.rawValue,
+            TransactionDirection.expense.rawValue,
+            comparisonInterval.start,
+            comparisonInterval.end,
+        ]
+    )
+
+    guard comparisonRows.isEmpty == false else {
+        return []
+    }
+
+    var currentSpendByCategory: [DriverKey: DriverSpendSnapshot] = [:]
+    for row in currentRows {
+        let categoryIDText: String = row["category_id"]
+        guard let categoryID = UUID(uuidString: categoryIDText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: categoryIDText)
+        }
+        currentSpendByCategory[categoryID] = DriverSpendSnapshot(
+            title: (row["category_name"] as String?) ?? "Uncategorized",
+            spend: Decimal(row["spend"] as Double)
+        )
+    }
+
+    var comparisonSpendByCategory: [DriverKey: DriverSpendSnapshot] = [:]
+    for row in comparisonRows {
+        let categoryIDText: String = row["category_id"]
+        guard let categoryID = UUID(uuidString: categoryIDText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: categoryIDText)
+        }
+        comparisonSpendByCategory[categoryID] = DriverSpendSnapshot(
+            title: (row["category_name"] as String?) ?? "Uncategorized",
+            spend: Decimal(row["spend"] as Double)
+        )
+    }
+
+    let categoryIDs = Set(currentSpendByCategory.keys).union(comparisonSpendByCategory.keys)
+    return categoryIDs
+        .map { categoryID in
+            let currentSnapshot = currentSpendByCategory[categoryID]
+            let comparisonSnapshot = comparisonSpendByCategory[categoryID]
+            let title = currentSnapshot?.title ?? comparisonSnapshot?.title ?? "Uncategorized"
+            let currentPeriodSpend = currentSnapshot?.spend ?? .zero
+            let comparisonPeriodSpend = comparisonSnapshot?.spend ?? .zero
+            let delta = currentPeriodSpend - comparisonPeriodSpend
+            return MonthlySpendingDriver(
+                title: title,
+                scope: .category(categoryID),
+                currentPeriodSpend: currentPeriodSpend,
+                comparisonPeriodSpend: comparisonPeriodSpend,
+                delta: delta
+            )
+        }
+        .sorted {
+            let lhsMagnitude = NSDecimalNumber(decimal: $0.delta).doubleValue.magnitude
+            let rhsMagnitude = NSDecimalNumber(decimal: $1.delta).doubleValue.magnitude
+            if lhsMagnitude != rhsMagnitude {
+                return lhsMagnitude > rhsMagnitude
+            }
+            if $0.delta != $1.delta {
+                return $0.delta > $1.delta
+            }
+            return $0.title.localizedCompare($1.title) == .orderedAscending
+        }
 }
 
 private func targetProgress(
@@ -2394,4 +2586,9 @@ private extension Calendar {
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
         return calendar
     }
+}
+
+private struct DriverSpendSnapshot {
+    let title: String
+    let spend: Decimal
 }
