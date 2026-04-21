@@ -1994,23 +1994,28 @@ private func spendingDrivers(
     currentInterval: DateInterval,
     comparisonInterval: DateInterval
 ) throws -> [MonthlySpendingDriver] {
-    typealias DriverKey = UUID
-
     let currentRows = try Row.fetchAll(
         db,
         sql: """
         SELECT
             categories.id AS category_id,
             categories.name AS category_name,
+            category_groups.id AS category_group_id,
+            category_groups.name AS category_group_name,
             COALESCE(SUM(-transactions.amount), 0) AS spend
         FROM transactions
         JOIN categories ON categories.id = transactions.category_id
+        LEFT JOIN category_groups ON category_groups.id = categories.category_group_id
         WHERE transactions.review_status = ?
             AND transactions.direction = ?
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
             AND transactions.transaction_date < ?
-        GROUP BY categories.id, categories.name
+        GROUP BY
+            categories.id,
+            categories.name,
+            category_groups.id,
+            category_groups.name
         """,
         arguments: [
             TransactionReviewStatus.accepted.rawValue,
@@ -2025,15 +2030,22 @@ private func spendingDrivers(
         SELECT
             categories.id AS category_id,
             categories.name AS category_name,
+            category_groups.id AS category_group_id,
+            category_groups.name AS category_group_name,
             COALESCE(SUM(-transactions.amount), 0) AS spend
         FROM transactions
         JOIN categories ON categories.id = transactions.category_id
+        LEFT JOIN category_groups ON category_groups.id = categories.category_group_id
         WHERE transactions.review_status = ?
             AND transactions.direction = ?
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
             AND transactions.transaction_date < ?
-        GROUP BY categories.id, categories.name
+        GROUP BY
+            categories.id,
+            categories.name,
+            category_groups.id,
+            category_groups.name
         """,
         arguments: [
             TransactionReviewStatus.accepted.rawValue,
@@ -2043,62 +2055,85 @@ private func spendingDrivers(
         ]
     )
 
-    guard comparisonRows.isEmpty == false else {
-        return []
-    }
+    let currentSpendByRollup = try spendingDriverBuckets(from: currentRows)
+    let comparisonSpendByRollup = try spendingDriverBuckets(from: comparisonRows)
+    let rollups = Set(currentSpendByRollup.keys).union(comparisonSpendByRollup.keys)
 
-    var currentSpendByCategory: [DriverKey: DriverSpendSnapshot] = [:]
-    for row in currentRows {
-        let categoryIDText: String = row["category_id"]
-        guard let categoryID = UUID(uuidString: categoryIDText) else {
-            throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: categoryIDText)
-        }
-        currentSpendByCategory[categoryID] = DriverSpendSnapshot(
-            title: (row["category_name"] as String?) ?? "Uncategorized",
-            spend: Decimal(row["spend"] as Double)
-        )
-    }
-
-    var comparisonSpendByCategory: [DriverKey: DriverSpendSnapshot] = [:]
-    for row in comparisonRows {
-        let categoryIDText: String = row["category_id"]
-        guard let categoryID = UUID(uuidString: categoryIDText) else {
-            throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: categoryIDText)
-        }
-        comparisonSpendByCategory[categoryID] = DriverSpendSnapshot(
-            title: (row["category_name"] as String?) ?? "Uncategorized",
-            spend: Decimal(row["spend"] as Double)
-        )
-    }
-
-    let categoryIDs = Set(currentSpendByCategory.keys).union(comparisonSpendByCategory.keys)
-    return categoryIDs
-        .map { categoryID in
-            let currentSnapshot = currentSpendByCategory[categoryID]
-            let comparisonSnapshot = comparisonSpendByCategory[categoryID]
-            let title = currentSnapshot?.title ?? comparisonSnapshot?.title ?? "Uncategorized"
-            let currentPeriodSpend = currentSnapshot?.spend ?? .zero
-            let comparisonPeriodSpend = comparisonSnapshot?.spend ?? .zero
+    return rollups
+        .map { rollup in
+            let currentPeriodSpend = currentSpendByRollup[rollup] ?? .zero
+            let comparisonPeriodSpend = comparisonSpendByRollup[rollup] ?? .zero
             let delta = currentPeriodSpend - comparisonPeriodSpend
             return MonthlySpendingDriver(
-                title: title,
-                scope: .category(categoryID),
+                title: rollup.title,
+                scope: rollup.scope,
                 currentPeriodSpend: currentPeriodSpend,
                 comparisonPeriodSpend: comparisonPeriodSpend,
                 delta: delta
             )
         }
-        .sorted {
-            let lhsMagnitude = NSDecimalNumber(decimal: $0.delta).doubleValue.magnitude
-            let rhsMagnitude = NSDecimalNumber(decimal: $1.delta).doubleValue.magnitude
-            if lhsMagnitude != rhsMagnitude {
-                return lhsMagnitude > rhsMagnitude
-            }
-            if $0.delta != $1.delta {
-                return $0.delta > $1.delta
-            }
-            return $0.title.localizedCompare($1.title) == .orderedAscending
+        .sorted(by: compareMonthlySpendingDrivers)
+}
+
+private func spendingDriverBuckets(from rows: [Row]) throws -> DriverBuckets {
+    var buckets: DriverBuckets = [:]
+    for row in rows {
+        let rollup = try spendingDriverRollup(from: row)
+        let spend = Decimal(row["spend"] as Double)
+        buckets[rollup, default: .zero] += spend
+    }
+    return buckets
+}
+
+private func spendingDriverRollup(from row: Row) throws -> SpendingDriverRollup {
+    if let categoryGroupIDText = row["category_group_id"] as String? {
+        guard let categoryGroupID = UUID(uuidString: categoryGroupIDText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(field: "category_groups.id", value: categoryGroupIDText)
         }
+        return SpendingDriverRollup(
+            title: (row["category_group_name"] as String?) ?? "Category Group",
+            scope: .categoryGroup(categoryGroupID)
+        )
+    }
+
+    let categoryIDText: String = row["category_id"]
+    guard let categoryID = UUID(uuidString: categoryIDText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: categoryIDText)
+    }
+    return SpendingDriverRollup(
+        title: (row["category_name"] as String?) ?? "Uncategorized",
+        scope: .category(categoryID)
+    )
+}
+
+private func compareMonthlySpendingDrivers(_ lhs: MonthlySpendingDriver, _ rhs: MonthlySpendingDriver) -> Bool {
+    let lhsMagnitude = NSDecimalNumber(decimal: lhs.delta).doubleValue.magnitude
+    let rhsMagnitude = NSDecimalNumber(decimal: rhs.delta).doubleValue.magnitude
+    if lhsMagnitude != rhsMagnitude {
+        return lhsMagnitude > rhsMagnitude
+    }
+    if lhs.delta != rhs.delta {
+        return lhs.delta > rhs.delta
+    }
+    if lhs.currentPeriodSpend != rhs.currentPeriodSpend {
+        return lhs.currentPeriodSpend > rhs.currentPeriodSpend
+    }
+    if lhs.comparisonPeriodSpend != rhs.comparisonPeriodSpend {
+        return lhs.comparisonPeriodSpend > rhs.comparisonPeriodSpend
+    }
+    if lhs.title != rhs.title {
+        return lhs.title < rhs.title
+    }
+    return spendingDriverScopeSortKey(lhs.scope) < spendingDriverScopeSortKey(rhs.scope)
+}
+
+private func spendingDriverScopeSortKey(_ scope: SpendingDriverScope) -> String {
+    switch scope {
+    case .category(let id):
+        return "category:\(id.uuidString)"
+    case .categoryGroup(let id):
+        return "categoryGroup:\(id.uuidString)"
+    }
 }
 
 private func targetProgress(
@@ -2588,7 +2623,9 @@ private extension Calendar {
     }
 }
 
-private struct DriverSpendSnapshot {
+private struct SpendingDriverRollup: Hashable {
     let title: String
-    let spend: Decimal
+    let scope: SpendingDriverScope
 }
+
+private typealias DriverBuckets = [SpendingDriverRollup: Decimal]
