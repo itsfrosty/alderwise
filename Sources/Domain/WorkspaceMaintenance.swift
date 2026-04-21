@@ -63,7 +63,7 @@ public struct WorkspacePreferences: Equatable, Sendable {
 
     public init(
         suggestionsEnabled: Bool = true,
-        seededHeuristicAutoAcceptEnabled: Bool = true
+        seededHeuristicAutoAcceptEnabled: Bool = false
     ) {
         self.suggestionsEnabled = suggestionsEnabled
         self.seededHeuristicAutoAcceptEnabled = seededHeuristicAutoAcceptEnabled

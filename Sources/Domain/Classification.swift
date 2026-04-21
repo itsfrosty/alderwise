@@ -112,13 +112,7 @@ public enum ReviewRuleLearningOption: Hashable, Codable, Equatable, Sendable {
     }
 
     public static func defaultOption(forNormalizedMerchantName normalizedMerchantName: String) -> ReviewRuleLearningOption? {
-        let options = options(forNormalizedMerchantName: normalizedMerchantName)
-        return options.first(where: {
-            if case .prefixNormalizedMerchant = $0 {
-                return true
-            }
-            return false
-        }) ?? options.first
+        options(forNormalizedMerchantName: normalizedMerchantName).first
     }
 
     private static func suggestedPrefixPattern(forNormalizedMerchantName normalizedMerchantName: String) -> String? {
@@ -261,7 +255,7 @@ public struct ClassificationEngine: Sendable {
 
     public func appendingExplicitRules(_ rules: [ClassificationRule]) -> ClassificationEngine {
         ClassificationEngine(
-            explicitRules: rules + explicitRules,
+            explicitRules: orderedExplicitRules(rules) + explicitRules,
             heuristics: heuristics,
             suggestionProvider: suggestionProvider,
             suggestionsEnabled: suggestionsEnabled,
@@ -373,7 +367,31 @@ public struct ClassificationEngine: Sendable {
     }
 }
 
+private func orderedExplicitRules(_ rules: [ClassificationRule]) -> [ClassificationRule] {
+    rules.enumerated()
+        .sorted { lhs, rhs in
+            let lhsPriority = lhs.element.matchPriority
+            let rhsPriority = rhs.element.matchPriority
+            if lhsPriority != rhsPriority {
+                return lhsPriority < rhsPriority
+            }
+            return lhs.offset < rhs.offset
+        }
+        .map(\.element)
+}
+
 private extension ClassificationRule {
+    var matchPriority: Int {
+        switch matchKind {
+        case .exactNormalizedMerchant:
+            0
+        case .prefixNormalizedMerchant:
+            1
+        case .contains:
+            2
+        }
+    }
+
     func matches(_ candidate: NormalizedImportCandidate) -> Bool {
         let pattern = merchantPattern.normalizedClassificationPattern
         guard !pattern.isEmpty else {

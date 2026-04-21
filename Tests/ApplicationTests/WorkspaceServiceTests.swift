@@ -523,6 +523,10 @@ func stageCSVImportHonorsSeededHeuristicAutoAcceptPreference() throws {
     """
     let preview = try CSVImportPreviewService().makePreview(from: csv)
     let aggressiveStore = MutableWorkspaceStore(accounts: [account])
+    aggressiveStore.preferences = WorkspacePreferences(
+        suggestionsEnabled: true,
+        seededHeuristicAutoAcceptEnabled: true
+    )
     let aggressiveService = WorkspaceService(store: aggressiveStore, classifier: classifier)
 
     let aggressiveResult = try aggressiveService.stageCSVImport(

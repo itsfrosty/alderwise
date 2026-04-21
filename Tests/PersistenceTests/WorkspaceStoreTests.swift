@@ -245,7 +245,21 @@ func workspacePreferencesDefaultToSuggestionsEnabled() throws {
 
     #expect(preferences == WorkspacePreferences(
         suggestionsEnabled: true,
-        seededHeuristicAutoAcceptEnabled: true
+        seededHeuristicAutoAcceptEnabled: false
+    ))
+}
+
+@Test
+func workspacePreferencesUpgradeExistingWorkspaceWithoutSeededHeuristicAutoAcceptOptIn() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    #expect(try store.fetchWorkspacePreferences() == WorkspacePreferences(
+        suggestionsEnabled: true,
+        seededHeuristicAutoAcceptEnabled: false
     ))
 }
 
@@ -1670,6 +1684,43 @@ private func fetchReviewItemStatus(databaseURL: URL, reviewItemID: UUID) throws 
         }
 
         return ReviewItemStatus(rawValue: statusText)
+    }
+}
+
+private func createWorkspaceAfterWorkspacePreferencesMigration(at databaseURL: URL) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(sql: "PRAGMA foreign_keys = ON")
+        try db.execute(sql: "CREATE TABLE grdb_migrations (identifier TEXT NOT NULL PRIMARY KEY)")
+        for identifier in [
+            "create-v1-schema",
+            "expand-staged-import-schema",
+            "add-review-decision-events",
+            "add-classification-review-context",
+            "add-category-group-membership",
+            "repair-staged-import-ledger-materialization",
+            "add-workspace-preferences",
+        ] {
+            try db.execute(sql: "INSERT INTO grdb_migrations (identifier) VALUES (?)", arguments: [identifier])
+        }
+
+        try db.execute(sql: "CREATE TABLE accounts (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, institution_name TEXT, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE source_files (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, original_filename TEXT NOT NULL, content_hash TEXT NOT NULL, imported_at DATETIME NOT NULL, row_count INTEGER NOT NULL)")
+        try db.execute(sql: "CREATE TABLE source_rows (id INTEGER PRIMARY KEY AUTOINCREMENT, source_file_id INTEGER NOT NULL, row_hash TEXT NOT NULL, raw_payload TEXT NOT NULL, source_line_number INTEGER NOT NULL DEFAULT 0, validation_status TEXT NOT NULL DEFAULT 'valid', import_decision_kind TEXT NOT NULL DEFAULT 'imported', decision_reason TEXT NOT NULL DEFAULT 'New source row.', duplicate_transaction_id TEXT)")
+        try db.execute(sql: "CREATE TABLE import_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, source_file_id INTEGER, mapping_json TEXT NOT NULL, valid_row_count INTEGER NOT NULL, invalid_row_count INTEGER NOT NULL, status TEXT NOT NULL, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE transactions (id TEXT PRIMARY KEY, category_id TEXT)")
+        try db.execute(sql: "CREATE TABLE review_items (id TEXT PRIMARY KEY, transaction_id TEXT, source_row_id INTEGER, duplicate_transaction_id TEXT, type TEXT NOT NULL, status TEXT NOT NULL, reason TEXT, normalized_merchant_name TEXT, suggested_category_id TEXT, suggested_merchant_name TEXT, classification_source TEXT, classification_source_reference TEXT, classification_confidence DOUBLE, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, category_group_id TEXT)")
+        try db.execute(sql: "CREATE TABLE category_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
+        try db.execute(sql: "CREATE TABLE targets (id TEXT PRIMARY KEY, category_id TEXT, category_group_id TEXT, monthly_limit DOUBLE NOT NULL, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE rules (id TEXT PRIMARY KEY, pattern TEXT NOT NULL, category_id TEXT, merchant_name TEXT, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE review_decision_events (id TEXT PRIMARY KEY, review_item_id TEXT NOT NULL, source_row_id INTEGER NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE decision_events (id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL, source TEXT NOT NULL, details TEXT NOT NULL, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE workspace_preferences (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        try db.execute(
+            sql: "INSERT INTO workspace_preferences (key, value) VALUES (?, ?)",
+            arguments: ["suggestions_enabled", "true"]
+        )
     }
 }
 

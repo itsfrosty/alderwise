@@ -131,7 +131,7 @@ public enum SeededClassification {
         ClassificationEngine(
             explicitRules: deterministicRules,
             heuristics: heuristics,
-            seededHeuristicAutoAcceptEnabled: true
+            seededHeuristicAutoAcceptEnabled: false
         )
     }
 

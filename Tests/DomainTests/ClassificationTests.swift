@@ -251,7 +251,7 @@ func patternLikeMerchantsOfferExactAndPrefixLearningOptions() {
     ])
     #expect(
         ReviewRuleLearningOption.defaultOption(forNormalizedMerchantName: "99pledg onir baweja")
-            == .prefixNormalizedMerchant(pattern: "99pledg")
+            == .exactNormalizedMerchant(pattern: "99pledg onir baweja")
     )
 }
 
@@ -295,6 +295,41 @@ func appendedRulesTakePrecedenceOverSeededRules() {
 
     #expect(decision.assignment?.categoryID == learnedCategoryID)
     #expect(decision.assignment?.merchantName == "Learned Coffee")
+}
+
+@Test
+func exactLearnedRulesTakePrecedenceOverBroaderPrefixRules() {
+    let prefixCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let exactCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let engine = ClassificationEngine()
+        .appendingExplicitRules([
+            ClassificationRule(
+                merchantPattern: "99pledg",
+                categoryID: prefixCategoryID,
+                merchantName: "Pledge Family",
+                matchKind: .prefixNormalizedMerchant
+            ),
+            ClassificationRule(
+                merchantPattern: "99pledg onir baweja",
+                categoryID: exactCategoryID,
+                merchantName: "Onir Baweja",
+                matchKind: .exactNormalizedMerchant
+            ),
+        ])
+
+    let decision = engine.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "row-1",
+            sourceLineNumber: 2,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+            rawDescription: "99PLEDG*ONIR BAWEJA",
+            normalizedMerchantName: "99pledg onir baweja",
+            amount: Decimal(-25)
+        )
+    )
+
+    #expect(decision.assignment?.categoryID == exactCategoryID)
+    #expect(decision.assignment?.merchantName == "Onir Baweja")
 }
 
 @Test
@@ -431,25 +466,25 @@ private struct FixedSuggestionProvider: SuggestionProvider {
 @Test
 func seededClassifierMatchesRepresentativeSampleMerchants() {
     let classifier = SeededClassification.liveClassifier()
-    let cases: [(String, UUID)] = [
-        ("VENMO            PAYMENT    1049657853223   WEB ID: 3264681992", DefaultBudgetTaxonomy.CategoryID.transfers),
-        ("CONNECTYOURCARE  OPTUMCLAIM                 PPD ID: 7261274092", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy),
-        ("IRS              USATAXPYMT 240650542279973 WEB ID: 3387702000", DefaultBudgetTaxonomy.CategoryID.taxes),
-        ("PGANDE           WEB ONLINE 69773024032626  WEB ID: 5940742640", DefaultBudgetTaxonomy.CategoryID.utilities),
-        ("DISHDASH 408-7741889 CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
-        ("AUTOPAY 999990000061865RAUTOPAY AUTO-PMT", DefaultBudgetTaxonomy.CategoryID.transfers),
-        ("KHANS KARAHI KABOB (WA 165-06819470 CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
-        ("MERIT VEGAN RESTAURANT Sunnyvale CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
-        ("HAPPY SUSHI SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
-        ("SQ *TOBANG KOREAN BBQ SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
-        ("SRI ANANDABHAVAN SUNNYVALE CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
-        ("WALMART.COM WALMART.COM AR", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing),
-        ("FLAGSTAR BANK TROY MI", DefaultBudgetTaxonomy.CategoryID.rentAndMortgage),
-        ("TAJ MAHAL SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
-        ("PAMF 2441 MISSION CO M SANTA CLARA CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy),
-        ("CHAVEZ SUPERMARKET SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.groceries),
-        ("FRANCHISE TAX BO PAYMENTS   129035404    PM WEB ID: 1282532045", DefaultBudgetTaxonomy.CategoryID.taxes),
-        ("BITES* CHAAT BHAVAN EX WWW.DELIVERYCCA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
+    let cases: [(description: String, categoryID: UUID, autoAccepted: Bool)] = [
+        ("VENMO            PAYMENT    1049657853223   WEB ID: 3264681992", DefaultBudgetTaxonomy.CategoryID.transfers, true),
+        ("CONNECTYOURCARE  OPTUMCLAIM                 PPD ID: 7261274092", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy, true),
+        ("IRS              USATAXPYMT 240650542279973 WEB ID: 3387702000", DefaultBudgetTaxonomy.CategoryID.taxes, true),
+        ("PGANDE           WEB ONLINE 69773024032626  WEB ID: 5940742640", DefaultBudgetTaxonomy.CategoryID.utilities, true),
+        ("DISHDASH 408-7741889 CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
+        ("AUTOPAY 999990000061865RAUTOPAY AUTO-PMT", DefaultBudgetTaxonomy.CategoryID.transfers, true),
+        ("KHANS KARAHI KABOB (WA 165-06819470 CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
+        ("MERIT VEGAN RESTAURANT Sunnyvale CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
+        ("HAPPY SUSHI SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
+        ("SQ *TOBANG KOREAN BBQ SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
+        ("SRI ANANDABHAVAN SUNNYVALE CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
+        ("WALMART.COM WALMART.COM AR", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, true),
+        ("FLAGSTAR BANK TROY MI", DefaultBudgetTaxonomy.CategoryID.rentAndMortgage, true),
+        ("TAJ MAHAL SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
+        ("PAMF 2441 MISSION CO M SANTA CLARA CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy, true),
+        ("CHAVEZ SUPERMARKET SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.groceries, true),
+        ("FRANCHISE TAX BO PAYMENTS   129035404    PM WEB ID: 1282532045", DefaultBudgetTaxonomy.CategoryID.taxes, true),
+        ("BITES* CHAAT BHAVAN EX WWW.DELIVERYCCA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, false),
     ]
 
     for (index, testCase) in cases.enumerated() {
@@ -458,14 +493,14 @@ func seededClassifierMatchesRepresentativeSampleMerchants() {
                 rowHash: "sample-\(index)",
                 sourceLineNumber: index + 2,
                 transactionDate: Date(timeIntervalSince1970: 1_775_171_200 + Double(index)),
-                rawDescription: testCase.0,
-                normalizedMerchantName: MerchantNormalizer().normalize(testCase.0),
+                rawDescription: testCase.description,
+                normalizedMerchantName: MerchantNormalizer().normalize(testCase.description),
                 amount: Decimal(-10)
             )
         )
 
-        #expect(decision.isAutoAccepted)
-        #expect(decision.assignment?.categoryID == testCase.1)
+        #expect(decision.isAutoAccepted == testCase.autoAccepted)
+        #expect(decision.assignment?.categoryID == testCase.categoryID)
     }
 }
 
