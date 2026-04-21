@@ -857,6 +857,59 @@ func fetchTransactionImportOriginsIsIndependentOfCurrentLedgerFilters() throws {
 }
 
 @Test
+func fetchTransactionLedgerFiltersByDirectionAndCategoryGroup() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let checking = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000211")!
+    let incomeGroup = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+    let salary = UUID(uuidString: "00000000-0000-0000-0000-000000000212")!
+    try insertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try insertCategoryGroup(databaseURL: databaseURL, id: incomeGroup, name: "Income Group")
+    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try insertCategory(databaseURL: databaseURL, id: salary, name: "Salary", kind: "income", categoryGroupID: incomeGroup)
+
+    let groceryID = UUID(uuidString: "00000000-0000-0000-0000-000000000401")!
+    let paycheckID = UUID(uuidString: "00000000-0000-0000-0000-000000000402")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: groceryID,
+        accountID: checking.id,
+        categoryID: groceries,
+        importSessionID: nil,
+        rawDescription: "Groceries",
+        normalizedMerchantName: "groceries",
+        amount: Decimal(-48),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: paycheckID,
+        accountID: checking.id,
+        categoryID: salary,
+        importSessionID: nil,
+        rawDescription: "Payroll",
+        normalizedMerchantName: "payroll",
+        amount: Decimal(1800),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted"
+    )
+
+    let rows = try store.fetchTransactionLedger(
+        filter: TransactionLedgerFilter(
+            categoryGroupID: food,
+            direction: .expense
+        )
+    )
+
+    #expect(rows.map(\.id) == [groceryID])
+}
+
+@Test
 func transactionDetailIncludesExplanationFieldsAndEditableValuesRoundTrip() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
