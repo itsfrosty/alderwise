@@ -81,6 +81,30 @@ func createMonthlyCategoryGroupTargetAppearsInMonthlyReport() throws {
     #expect(report.targets.map(\.remaining) == [Decimal(75)])
 }
 
+@Test
+func createMonthlyTargetRejectsNonPositiveLimits() throws {
+    let databaseURL = try targetTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+
+    #expect(throws: (any Error).self) {
+        try store.createMonthlyTarget(
+            MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(0)),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+        )
+    }
+    #expect(throws: (any Error).self) {
+        try store.createMonthlyTarget(
+            MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(-25)),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+        )
+    }
+    #expect(try targetCount(databaseURL: databaseURL) == 0)
+}
+
 private func targetTemporaryDatabaseURL() throws -> URL {
     try targetTemporaryDirectoryURL().appending(path: "workspace.sqlite")
 }
@@ -159,5 +183,12 @@ private func targetInsertLedgerTransaction(
                 "none",
             ]
         )
+    }
+}
+
+private func targetCount(databaseURL: URL) throws -> Int {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    return try queue.read { db in
+        try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM targets") ?? 0
     }
 }

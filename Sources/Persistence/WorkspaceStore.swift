@@ -1088,6 +1088,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
     }
 
     public func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
+        guard draft.monthlyLimit > 0 else {
+            throw WorkspaceStoreError.invalidMonthlyTargetLimit(draft.monthlyLimit)
+        }
+
         let id = UUID()
         let categoryID: UUID?
         let categoryGroupID: UUID?
@@ -2309,10 +2313,22 @@ private enum WorkspaceStoreError: Error {
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
     case invalidStoredReviewItem(field: String, value: String)
+    case invalidMonthlyTargetLimit(Decimal)
     case reviewItemNotFound(UUID)
     case reviewItemNotPending(UUID)
     case transactionNotFound(UUID)
     case unsupportedReviewItemType(String)
+}
+
+extension WorkspaceStoreError: LocalizedError {
+    var errorDescription: String? {
+        switch self {
+        case .invalidMonthlyTargetLimit:
+            "Monthly targets must be greater than zero."
+        default:
+            nil
+        }
+    }
 }
 
 private extension String {

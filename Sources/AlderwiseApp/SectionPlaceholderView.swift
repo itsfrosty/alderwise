@@ -197,17 +197,12 @@ private struct TargetProgressRows: View {
     let items: [TargetProgress]
     let currency: (Decimal) -> String
 
-    var body: AnyView {
-        guard let target = items.first else {
-            return AnyView(EmptyView())
-        }
-
-        return AnyView(
-            VStack(alignment: .leading, spacing: 0) {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(items) { target in
                 TargetProgressRow(target: target, currency: currency)
-                TargetProgressRows(items: Swift.Array(items.dropFirst()), currency: currency)
             }
-        )
+        }
     }
 }
 
