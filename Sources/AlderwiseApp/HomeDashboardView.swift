@@ -87,8 +87,10 @@ struct HomeDashboardView: View {
                     .foregroundStyle(.secondary)
             }
 
-            PaceMiniChart(points: snapshot.monthlyReport.paceSeries)
-                .frame(height: 92)
+            if snapshot.monthlyReport.hasActiveTargets {
+                PaceMiniChart(points: snapshot.monthlyReport.paceSeries)
+                    .frame(height: 92)
+            }
 
             if let primaryAction = dashboard?.primaryAction {
                 Button {
@@ -479,10 +481,12 @@ private struct PaceMiniChart: View {
         let maxValue = max(allValues.max() ?? 1, 1)
         let width = max(size.width, 1)
         let height = max(size.height, 1)
-        let step = points.count > 1 ? width / CGFloat(points.count - 1) : 0
+        let minDay = points.map(\.day).min() ?? 1
+        let maxDay = points.map(\.day).max() ?? minDay
+        let daySpan = max(maxDay - minDay, 1)
 
-        return points.enumerated().map { index, point in
-            let x = CGFloat(index) * step
+        return points.map { point in
+            let x = CGFloat(point.day - minDay) / CGFloat(daySpan) * width
             let actualY = height - (CGFloat(NSDecimalNumber(decimal: point.actualSpend).doubleValue / maxValue) * (height - 12)) - 6
             let expectedY = height - (CGFloat(NSDecimalNumber(decimal: point.expectedSpend).doubleValue / maxValue) * (height - 12)) - 6
             return (

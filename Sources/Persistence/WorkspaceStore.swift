@@ -1061,6 +1061,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         let paceRatio = monthElapsedRatio(referenceDate: referenceDate, interval: interval)
         let comparisonInterval = elapsedComparisonInterval(for: referenceDate, monthInterval: interval)
         let calendar = Calendar.alderwiseUTC
+        let elapsedDay = calendar.component(.day, from: referenceDate)
         let totalDays = calendar.range(of: .day, in: .month, for: interval.start)?.count ?? 30
 
         return try databaseQueue.read { db in
@@ -1100,6 +1101,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             let paceSeries = try monthlySpendSeries(
                 db: db,
                 interval: interval,
+                elapsedDay: elapsedDay,
                 expectedDailySpend: expectedDailySpend
             )
             let drivers = try spendingDrivers(
@@ -1959,8 +1961,13 @@ private func acceptedExpenseSpend(
 private func monthlySpendSeries(
     db: Database,
     interval: DateInterval,
+    elapsedDay: Int,
     expectedDailySpend: Decimal
 ) throws -> [MonthlySpendPoint] {
+    guard elapsedDay > 0 else {
+        return []
+    }
+
     let rows = try Row.fetchAll(
         db,
         sql: """
@@ -1984,11 +1991,14 @@ private func monthlySpendSeries(
         ]
     )
 
-    var runningSpend = Decimal.zero
-    return rows.map { row in
+    let spendByDay = rows.reduce(into: [Int: Decimal]()) { partialResult, row in
         let day: Int = row["day"]
-        let spend = Decimal(row["spend"] as Double)
-        runningSpend += spend
+        partialResult[day] = Decimal(row["spend"] as Double)
+    }
+
+    var runningSpend = Decimal.zero
+    return (1 ... elapsedDay).map { day in
+        runningSpend += spendByDay[day] ?? .zero
         return MonthlySpendPoint(
             day: day,
             actualSpend: runningSpend,

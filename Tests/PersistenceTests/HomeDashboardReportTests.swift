@@ -69,9 +69,21 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
     #expect(report.expectedPaceSpend == Decimal(150))
     #expect(report.paceDelta == Decimal(30))
     #expect(report.paceSeries == [
+        MonthlySpendPoint(day: 1, actualSpend: Decimal(0), expectedSpend: Decimal(10)),
+        MonthlySpendPoint(day: 2, actualSpend: Decimal(0), expectedSpend: Decimal(20)),
+        MonthlySpendPoint(day: 3, actualSpend: Decimal(0), expectedSpend: Decimal(30)),
+        MonthlySpendPoint(day: 4, actualSpend: Decimal(0), expectedSpend: Decimal(40)),
         MonthlySpendPoint(day: 5, actualSpend: Decimal(60), expectedSpend: Decimal(50)),
+        MonthlySpendPoint(day: 6, actualSpend: Decimal(60), expectedSpend: Decimal(60)),
+        MonthlySpendPoint(day: 7, actualSpend: Decimal(60), expectedSpend: Decimal(70)),
         MonthlySpendPoint(day: 8, actualSpend: Decimal(90), expectedSpend: Decimal(80)),
+        MonthlySpendPoint(day: 9, actualSpend: Decimal(90), expectedSpend: Decimal(90)),
         MonthlySpendPoint(day: 10, actualSpend: Decimal(180), expectedSpend: Decimal(100)),
+        MonthlySpendPoint(day: 11, actualSpend: Decimal(180), expectedSpend: Decimal(110)),
+        MonthlySpendPoint(day: 12, actualSpend: Decimal(180), expectedSpend: Decimal(120)),
+        MonthlySpendPoint(day: 13, actualSpend: Decimal(180), expectedSpend: Decimal(130)),
+        MonthlySpendPoint(day: 14, actualSpend: Decimal(180), expectedSpend: Decimal(140)),
+        MonthlySpendPoint(day: 15, actualSpend: Decimal(180), expectedSpend: Decimal(150)),
     ])
     #expect(report.drivers.count == 2)
     #expect(report.drivers.contains {
