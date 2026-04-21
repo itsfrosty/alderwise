@@ -14,6 +14,10 @@ struct HomeDashboardView: View {
         snapshot.homeDashboard
     }
 
+    private var driverRows: [DriverPresentation] {
+        Array(snapshot.monthlyReport.drivers.prefix(3)).map(DriverPresentation.init)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -71,7 +75,7 @@ struct HomeDashboardView: View {
                 .font(.headline)
                 .foregroundStyle(heroTint)
 
-            Text(currency(snapshot.monthlyReport.currentMonthAcceptedSpend))
+            Text(currency(dashboard?.hero.amount ?? snapshot.monthlyReport.currentMonthAcceptedSpend))
                 .font(.system(size: 34, weight: .semibold))
 
             Text(heroSubtitle)
@@ -121,14 +125,14 @@ struct HomeDashboardView: View {
                 )
             }
 
-            if snapshot.monthlyReport.drivers.isEmpty == false {
+            if driverRows.isEmpty == false {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Top Drivers")
                         .font(.headline)
 
-                    ForEach(Array(snapshot.monthlyReport.drivers.prefix(3)), id: \.title) { driver in
-                        DriverRow(driver: driver, action: {
-                            openTransactions(driverFilter(for: driver))
+                    ForEach(driverRows) { driver in
+                        DriverRow(driver: driver.driver, action: {
+                            openTransactions(transactionFilter(for: driver.driver))
                         }, currency: currency)
                     }
                 }
@@ -179,7 +183,7 @@ struct HomeDashboardView: View {
             Text("Month-over-Month Drivers")
                 .font(.headline)
 
-            if snapshot.monthlyReport.drivers.isEmpty {
+            if driverRows.isEmpty {
                 Text("More history needed for month-over-month changes")
                     .foregroundStyle(.secondary)
                     .padding(16)
@@ -187,9 +191,9 @@ struct HomeDashboardView: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(snapshot.monthlyReport.drivers.prefix(3)), id: \.title) { driver in
-                        DriverRow(driver: driver, action: {
-                            openTransactions(driverFilter(for: driver))
+                    ForEach(driverRows) { driver in
+                        DriverRow(driver: driver.driver, action: {
+                            openTransactions(transactionFilter(for: driver.driver))
                         }, currency: currency)
                     }
                 }
@@ -293,7 +297,7 @@ struct HomeDashboardView: View {
         }
     }
 
-    private func driverFilter(for driver: MonthlySpendingDriver) -> TransactionLedgerFilter {
+    private func transactionFilter(for driver: MonthlySpendingDriver) -> TransactionLedgerFilter {
         TransactionLedgerFilter(
             startDate: snapshot.monthlyReport.monthStart,
             endDate: endOfMonth(for: snapshot.monthlyReport.monthStart),
@@ -377,6 +381,25 @@ private struct DriverRow: View {
         }
         let trend = driver.delta > 0 ? "Up" : "Down"
         return "\(trend) \(currency(abs(driver.delta)))"
+    }
+}
+
+private struct DriverPresentation: Identifiable {
+    let driver: MonthlySpendingDriver
+    let id: String
+
+    init(driver: MonthlySpendingDriver) {
+        self.driver = driver
+        self.id = Self.makeID(for: driver)
+    }
+
+    private static func makeID(for driver: MonthlySpendingDriver) -> String {
+        switch driver.scope {
+        case .category(let id):
+            return "category:\(id.uuidString):\(driver.title)"
+        case .categoryGroup(let id):
+            return "group:\(id.uuidString):\(driver.title)"
+        }
     }
 }
 

@@ -122,6 +122,26 @@ struct TransactionLedgerView: View {
                 }
             }
 
+            if let categoryGroupFilterName {
+                HStack {
+                    Button {
+                        clearCategoryGroupFilter()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Label("Group: \(categoryGroupFilterName)", systemImage: "line.3.horizontal.decrease.circle.fill")
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.regularMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
+                }
+            }
+
             HStack {
                 Toggle("From", isOn: $hasStartDate)
                     .onChange(of: hasStartDate) { _, _ in applyFilters() }
@@ -167,6 +187,7 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.categoryID = newValue
+                filter.categoryGroupID = nil
                 model.updateTransactionFilter(filter)
             }
         )
@@ -209,6 +230,13 @@ struct TransactionLedgerView: View {
         snapshot.transactionImportOrigins
     }
 
+    private var categoryGroupFilterName: String? {
+        guard let categoryGroupID = model.transactionFilter.categoryGroupID else {
+            return nil
+        }
+        return snapshot.categoryGroups.first(where: { $0.id == categoryGroupID })?.name ?? "Filtered group"
+    }
+
     private func applyFilters() {
         var filter = model.transactionFilter
         filter.searchText = searchText
@@ -239,6 +267,12 @@ struct TransactionLedgerView: View {
         if let filterEndDate = filter.endDate, endDate != filterEndDate {
             endDate = filterEndDate
         }
+    }
+
+    private func clearCategoryGroupFilter() {
+        var filter = model.transactionFilter
+        filter.categoryGroupID = nil
+        model.updateTransactionFilter(filter)
     }
 }
 
