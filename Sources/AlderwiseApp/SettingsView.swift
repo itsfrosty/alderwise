@@ -57,11 +57,20 @@ struct SettingsView: View {
     }
 
     private var suggestionsSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text("Suggestions")
                 .font(.headline)
-            LabeledContent("Local suggestion layer", value: "Unavailable")
-            LabeledContent("Import behavior", value: "Rules and heuristics only")
+
+            Toggle(
+                "Allow local suggestions when available",
+                isOn: Binding(
+                    get: { model.workspacePreferences.suggestionsEnabled },
+                    set: { model.updateSuggestionsEnabled($0) }
+                )
+            )
+
+            LabeledContent("Local suggestion layer", value: model.workspacePreferences.suggestionsEnabled ? "Enabled" : "Disabled")
+            LabeledContent("Import behavior", value: model.workspacePreferences.suggestionsEnabled ? "Rules, heuristics, and suggestions" : "Rules and heuristics only")
         }
     }
 

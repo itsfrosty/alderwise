@@ -165,6 +165,17 @@ public struct ClassificationEngine: Sendable {
         )
     }
 
+    public func settingSuggestionsEnabled(_ enabled: Bool) -> ClassificationEngine {
+        ClassificationEngine(
+            explicitRules: explicitRules,
+            heuristics: heuristics,
+            suggestionProvider: suggestionProvider,
+            suggestionsEnabled: enabled,
+            priorAcceptedMerchantNames: priorAcceptedMerchantNames,
+            suggestionAutoAcceptThreshold: suggestionAutoAcceptThreshold
+        )
+    }
+
     public func classify(
         candidate: NormalizedImportCandidate,
         hasDuplicateConcern: Bool = false

@@ -2,7 +2,9 @@ import Domain
 import Foundation
 import GRDB
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, WorkspaceMaintenanceManaging {
+private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
+
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -293,6 +295,24 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             }
 
             try backfillLedgerTransactionsForLegacyStagedImports(db: db)
+        }
+        migrator.registerMigration("add-workspace-preferences") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            if try !db.tableExists("workspace_preferences") {
+                try db.create(table: "workspace_preferences") { table in
+                    table.column("key", .text).primaryKey()
+                    table.column("value", .text).notNull()
+                }
+            }
+
+            try db.execute(
+                sql: """
+                INSERT OR IGNORE INTO workspace_preferences (key, value)
+                VALUES (?, ?)
+                """,
+                arguments: [workspacePreferenceSuggestionsEnabledKey, "true"]
+            )
         }
 
         try migrator.migrate(databaseQueue)
@@ -832,6 +852,38 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             databaseSizeBytes: (attributes?[.size] as? NSNumber)?.int64Value ?? 0,
             modifiedAt: attributes?[.modificationDate] as? Date
         )
+    }
+
+    public func fetchWorkspacePreferences() throws -> WorkspacePreferences {
+        try databaseQueue.read { db in
+            let rawValue = try String.fetchOne(
+                db,
+                sql: """
+                SELECT value
+                FROM workspace_preferences
+                WHERE key = ?
+                """,
+                arguments: [workspacePreferenceSuggestionsEnabledKey]
+            ) ?? "true"
+
+            return WorkspacePreferences(suggestionsEnabled: rawValue == "true")
+        }
+    }
+
+    public func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {
+        try databaseQueue.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO workspace_preferences (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                arguments: [
+                    workspacePreferenceSuggestionsEnabledKey,
+                    preferences.suggestionsEnabled ? "true" : "false",
+                ]
+            )
+        }
     }
 
     public func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup {

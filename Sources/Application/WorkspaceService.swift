@@ -105,6 +105,14 @@ public struct WorkspaceService: Sendable {
         try workspaceMaintenanceManager().restoreWorkspaceBackup(from: backupURL)
     }
 
+    public func loadWorkspacePreferences() throws -> WorkspacePreferences {
+        try workspacePreferencesManager().fetchWorkspacePreferences()
+    }
+
+    public func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {
+        try workspacePreferencesManager().updateWorkspacePreferences(preferences)
+    }
+
     @discardableResult
     public func createAccount(
         named: String,
@@ -308,11 +316,17 @@ public struct WorkspaceService: Sendable {
     }
 
     private func effectiveClassifier() throws -> ClassificationEngine {
+        var effectiveClassifier = classifier
+        if let preferencesReader = store as? any WorkspacePreferencesManaging {
+            effectiveClassifier = try effectiveClassifier.settingSuggestionsEnabled(
+                preferencesReader.fetchWorkspacePreferences().suggestionsEnabled
+            )
+        }
         guard let ruleReader = store as? any ClassificationRuleReading else {
-            return classifier
+            return effectiveClassifier
         }
 
-        return try classifier.appendingExplicitRules(ruleReader.fetchClassificationRules())
+        return try effectiveClassifier.appendingExplicitRules(ruleReader.fetchClassificationRules())
     }
 
     private func transactionLedgerReader() throws -> any TransactionLedgerReading {
@@ -324,6 +338,13 @@ public struct WorkspaceService: Sendable {
 
     private func workspaceMaintenanceManager() throws -> any WorkspaceMaintenanceManaging {
         guard let manager = store as? any WorkspaceMaintenanceManaging else {
+            throw WorkspaceServiceError.workspaceMaintenanceUnavailable
+        }
+        return manager
+    }
+
+    private func workspacePreferencesManager() throws -> any WorkspacePreferencesManaging {
+        guard let manager = store as? any WorkspacePreferencesManaging else {
             throw WorkspaceServiceError.workspaceMaintenanceUnavailable
         }
         return manager

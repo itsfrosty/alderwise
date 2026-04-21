@@ -71,13 +71,14 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ClassificationRuleReading, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ClassificationRuleReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var stagedImportDrafts: [StagedImportSessionDraft] = []
     var likelyDuplicateCandidates: [LikelyDuplicateCandidate] = []
     var existingSourceRowHashes: Set<String> = []
     var classificationRules: [ClassificationRule] = []
+    var preferences = WorkspacePreferences()
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -167,6 +168,14 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
 
     func fetchClassificationRules() throws -> [ClassificationRule] {
         classificationRules
+    }
+
+    func fetchWorkspacePreferences() throws -> WorkspacePreferences {
+        preferences
+    }
+
+    func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {
+        self.preferences = preferences
     }
 }
 
@@ -366,6 +375,45 @@ func stageCSVImportUsesPersistedClassificationRulesToAvoidReview() throws {
     #expect(result.classifications[0].decision.isAutoAccepted)
     #expect(result.classifications[0].decision.source == .rule)
     #expect(try #require(store.stagedImportDrafts.first).rows.first?.classification?.isAutoAccepted == true)
+}
+
+@Test
+func stageCSVImportHonorsPersistedSuggestionPreference() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let store = MutableWorkspaceStore(accounts: [account])
+    store.preferences = WorkspacePreferences(suggestionsEnabled: false)
+    let classifier = ClassificationEngine(
+        suggestionProvider: FixedSuggestionProvider(
+            suggestion: ClassificationSuggestion(
+                assignment: ClassificationAssignment(categoryID: categoryID, merchantName: "Coffee Shop"),
+                confidence: 0.80,
+                sourceReference: "fixture"
+            )
+        )
+    )
+    let service = WorkspaceService(store: store, classifier: classifier)
+    let csv = """
+    Date,Description,Amount
+    2026-04-02,SQ *Coffee Shop,-5.25
+    """
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-april.csv",
+        csvText: csv
+    )
+
+    #expect(result.classifications.count == 1)
+    #expect(result.classifications[0].decision.source == nil)
+    #expect(result.classifications[0].decision.assignment == nil)
 }
 
 @Test
@@ -681,4 +729,12 @@ func previewWithoutConfirmationDoesNotCreateStagedRecords() throws {
     _ = try CSVImportPreviewService().makePreview(from: csv)
 
     #expect(store.stagedImportDrafts.isEmpty)
+}
+
+private struct FixedSuggestionProvider: SuggestionProvider {
+    var suggestion: ClassificationSuggestion?
+
+    func suggestion(for candidate: NormalizedImportCandidate) -> ClassificationSuggestion? {
+        suggestion
+    }
 }

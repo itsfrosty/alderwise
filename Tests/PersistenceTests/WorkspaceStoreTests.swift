@@ -113,6 +113,34 @@ func restoreWorkspaceBackupRejectsNonAlderwiseFiles() throws {
 }
 
 @Test
+func workspacePreferencesDefaultToSuggestionsEnabled() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let preferences = try store.fetchWorkspacePreferences()
+
+    #expect(preferences == WorkspacePreferences(suggestionsEnabled: true))
+}
+
+@Test
+func workspacePreferencesRoundTripThroughSQLite() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    try store.updateWorkspacePreferences(WorkspacePreferences(suggestionsEnabled: false))
+    #expect(try store.fetchWorkspacePreferences() == WorkspacePreferences(suggestionsEnabled: false))
+
+    let reopenedStore = try WorkspaceStore.at(databaseURL: databaseURL)
+    try reopenedStore.bootstrap()
+    #expect(try reopenedStore.fetchWorkspacePreferences() == WorkspacePreferences(suggestionsEnabled: false))
+
+    try reopenedStore.updateWorkspacePreferences(WorkspacePreferences(suggestionsEnabled: true))
+    #expect(try store.fetchWorkspacePreferences() == WorkspacePreferences(suggestionsEnabled: true))
+}
+
+@Test
 func stagedImportRecordsRoundTripThroughOnDiskWorkspace() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

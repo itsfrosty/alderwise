@@ -29,6 +29,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var selectedTransactionDetail: TransactionDetail?
     @Published var transactionDetailErrorMessage: String?
     @Published private(set) var workspaceMetadata: WorkspaceMetadata?
+    @Published private(set) var workspacePreferences = WorkspacePreferences.default
     @Published var workspaceMaintenanceMessage: String?
     @Published var workspaceMaintenanceErrorMessage: String?
     @Published var isPresentingWorkspaceRestoreImporter = false
@@ -82,6 +83,7 @@ final class WorkspaceShellModel: ObservableObject {
             let snapshot = try service.loadSnapshot(filter: transactionFilter)
             state = .loaded(snapshot)
             workspaceMetadata = try? service.loadWorkspaceMetadata()
+            workspacePreferences = (try? service.loadWorkspacePreferences()) ?? .default
             let transactionID = if let selectedTransactionID,
                                    snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
                 selectedTransactionID
@@ -92,6 +94,20 @@ final class WorkspaceShellModel: ObservableObject {
             loadSelectedTransactionDetail(id: transactionID)
         } catch {
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    func updateSuggestionsEnabled(_ isEnabled: Bool) {
+        guard let service else {
+            return
+        }
+
+        do {
+            let preferences = WorkspacePreferences(suggestionsEnabled: isEnabled)
+            try service.updateWorkspacePreferences(preferences)
+            workspacePreferences = preferences
+        } catch {
+            workspaceMaintenanceErrorMessage = error.localizedDescription
         }
     }
 

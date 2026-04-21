@@ -57,6 +57,21 @@ public protocol WorkspaceMaintenanceManaging: Sendable {
     ) throws -> WorkspaceRestoreResult
 }
 
+public struct WorkspacePreferences: Equatable, Sendable {
+    public var suggestionsEnabled: Bool
+
+    public init(suggestionsEnabled: Bool = true) {
+        self.suggestionsEnabled = suggestionsEnabled
+    }
+
+    public static let `default` = WorkspacePreferences()
+}
+
+public protocol WorkspacePreferencesManaging: Sendable {
+    func fetchWorkspacePreferences() throws -> WorkspacePreferences
+    func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws
+}
+
 public extension WorkspaceMaintenanceManaging {
     func createWorkspaceBackup(in directory: URL? = nil, now: Date = .now) throws -> WorkspaceBackup {
         try createWorkspaceBackup(in: directory, now: now)
