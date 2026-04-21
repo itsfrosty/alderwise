@@ -1752,6 +1752,14 @@ private func transactionLedgerQuery(
         predicates.append("transactions.category_id = ?")
         appendArgument(categoryID.uuidString, to: &arguments)
     }
+    if let categoryGroupID = filter.categoryGroupID {
+        predicates.append("categories.category_group_id = ?")
+        appendArgument(categoryGroupID.uuidString, to: &arguments)
+    }
+    if let direction = filter.direction {
+        predicates.append("transactions.direction = ?")
+        appendArgument(direction.rawValue, to: &arguments)
+    }
     if let reviewStatus = filter.reviewStatus {
         predicates.append("transactions.review_status = ?")
         appendArgument(reviewStatus.rawValue, to: &arguments)

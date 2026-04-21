@@ -79,15 +79,18 @@ public struct WorkspaceService: Sendable {
         let ledgerReader = store as? any TransactionLedgerReading
         let reportingReader = store as? any ReportingReading
         let reviewReader = store as? any ReviewQueueReading
+        let summary = try store.fetchSummary()
+        let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: .now) ?? .empty
         return WorkspaceSnapshot(
-            summary: try store.fetchSummary(),
+            summary: summary,
             accounts: try store.fetchAccounts(),
             categories: try store.fetchCategories(),
             categoryGroups: try store.fetchCategoryGroups(),
             pendingReviewItems: try reviewReader?.fetchPendingReviewItems() ?? [],
             transactions: try ledgerReader?.fetchTransactionLedger(filter: filter) ?? [],
             transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
-            monthlyReport: try reportingReader?.fetchMonthlyReport(referenceDate: .now) ?? .empty
+            monthlyReport: monthlyReport,
+            homeDashboard: HomeDashboardSnapshot.make(summary: summary, monthlyReport: monthlyReport)
         )
     }
 

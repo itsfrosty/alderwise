@@ -9,6 +9,7 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
     public var transactions: [TransactionLedgerRow]
     public var transactionImportOrigins: [TransactionImportOrigin]
     public var monthlyReport: MonthlyReport
+    public var homeDashboard: HomeDashboardSnapshot?
 
     public init(
         summary: WorkspaceSummary,
@@ -18,7 +19,8 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
         pendingReviewItems: [PendingReviewItem] = [],
         transactions: [TransactionLedgerRow] = [],
         transactionImportOrigins: [TransactionImportOrigin] = [],
-        monthlyReport: MonthlyReport = .empty
+        monthlyReport: MonthlyReport = .empty,
+        homeDashboard: HomeDashboardSnapshot? = nil
     ) {
         self.summary = summary
         self.accounts = accounts
@@ -28,5 +30,6 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
         self.transactions = transactions
         self.transactionImportOrigins = transactionImportOrigins
         self.monthlyReport = monthlyReport
+        self.homeDashboard = homeDashboard
     }
 }

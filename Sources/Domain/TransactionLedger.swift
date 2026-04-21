@@ -30,6 +30,8 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
     public var endDate: Date?
     public var accountID: UUID?
     public var categoryID: UUID?
+    public var categoryGroupID: UUID?
+    public var direction: TransactionDirection?
     public var reviewStatus: TransactionReviewStatus?
     public var importSessionID: Int64?
 
@@ -39,6 +41,8 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         endDate: Date? = nil,
         accountID: UUID? = nil,
         categoryID: UUID? = nil,
+        categoryGroupID: UUID? = nil,
+        direction: TransactionDirection? = nil,
         reviewStatus: TransactionReviewStatus? = nil,
         importSessionID: Int64? = nil
     ) {
@@ -47,6 +51,8 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         self.endDate = endDate
         self.accountID = accountID
         self.categoryID = categoryID
+        self.categoryGroupID = categoryGroupID
+        self.direction = direction
         self.reviewStatus = reviewStatus
         self.importSessionID = importSessionID
     }

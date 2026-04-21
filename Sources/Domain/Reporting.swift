@@ -76,6 +76,24 @@ public struct MonthlySpendPoint: Equatable, Sendable {
 public enum SpendingDriverScope: Hashable, Sendable {
     case category(UUID)
     case categoryGroup(UUID)
+
+    public var categoryID: UUID? {
+        switch self {
+        case .category(let id):
+            return id
+        case .categoryGroup:
+            return nil
+        }
+    }
+
+    public var categoryGroupID: UUID? {
+        switch self {
+        case .category:
+            return nil
+        case .categoryGroup(let id):
+            return id
+        }
+    }
 }
 
 public struct MonthlySpendingDriver: Equatable, Sendable {
