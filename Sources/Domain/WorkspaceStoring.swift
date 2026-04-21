@@ -4,6 +4,7 @@ public protocol WorkspaceReading: Sendable {
     func fetchSummary() throws -> WorkspaceSummary
     func fetchAccounts() throws -> [Account]
     func fetchCategories() throws -> [BudgetCategory]
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup]
 }
 
 public protocol AccountWriting: Sendable {
@@ -57,6 +58,10 @@ public protocol TransactionLedgerReading: Sendable {
 
 public protocol ReportingReading: Sendable {
     func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport
+}
+
+public protocol TargetWriting: Sendable {
+    func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget
 }
 
 public protocol TransactionLedgerWriting: Sendable {

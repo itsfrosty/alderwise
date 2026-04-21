@@ -35,6 +35,30 @@ public enum TargetScope: Equatable, Sendable {
     case categoryGroup(UUID)
 }
 
+public struct MonthlyTargetDraft: Equatable, Sendable {
+    public var scope: TargetScope
+    public var monthlyLimit: Decimal
+
+    public init(scope: TargetScope, monthlyLimit: Decimal) {
+        self.scope = scope
+        self.monthlyLimit = monthlyLimit
+    }
+}
+
+public struct MonthlyTarget: Identifiable, Equatable, Sendable {
+    public var id: UUID
+    public var scope: TargetScope
+    public var monthlyLimit: Decimal
+    public var createdAt: Date
+
+    public init(id: UUID, scope: TargetScope, monthlyLimit: Decimal, createdAt: Date) {
+        self.id = id
+        self.scope = scope
+        self.monthlyLimit = monthlyLimit
+        self.createdAt = createdAt
+    }
+}
+
 public struct TargetProgress: Identifiable, Equatable, Sendable {
     public var id: UUID
     public var name: String

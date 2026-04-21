@@ -20,6 +20,10 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
         []
     }
 
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] {
+        []
+    }
+
     func fetchPendingReviewItems() throws -> [PendingReviewItem] {
         pendingReviewItems
     }
@@ -76,14 +80,18 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, TargetWriting, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
+    var categories: [BudgetCategory] = []
+    var categoryGroups: [BudgetCategoryGroup] = []
     var pendingReviewItems: [PendingReviewItem] = []
     var stagedImportDrafts: [StagedImportSessionDraft] = []
     var likelyDuplicateCandidates: [LikelyDuplicateCandidate] = []
     var existingSourceRowHashes: Set<String> = []
     var classificationRules: [ClassificationRule] = []
+    var createdTargets: [MonthlyTarget] = []
+    var monthlyReport = MonthlyReport.empty
     var preferences = WorkspacePreferences()
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
@@ -100,7 +108,11 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     }
 
     func fetchCategories() throws -> [BudgetCategory] {
-        []
+        categories.sorted { $0.name < $1.name }
+    }
+
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] {
+        categoryGroups.sorted { $0.name < $1.name }
     }
 
     func fetchPendingReviewItems() throws -> [PendingReviewItem] {
@@ -187,6 +199,28 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {
         self.preferences = preferences
     }
+
+    func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
+        let target = MonthlyTarget(id: UUID(), scope: draft.scope, monthlyLimit: draft.monthlyLimit, createdAt: createdAt)
+        createdTargets.append(target)
+        summary.targetCount = createdTargets.count
+        monthlyReport.targets.append(
+            TargetProgress(
+                id: target.id,
+                name: "Groceries",
+                scope: target.scope,
+                monthlyLimit: target.monthlyLimit,
+                spent: Decimal(40),
+                remaining: target.monthlyLimit - Decimal(40),
+                paceDelta: Decimal(0)
+            )
+        )
+        return target
+    }
+
+    func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {
+        monthlyReport
+    }
 }
 
 @Test
@@ -260,6 +294,25 @@ func seedSampleDataCreatesStarterAccountsOnlyOnce() throws {
 
     #expect(snapshot.summary.accountCount == 2)
     #expect(snapshot.accounts.map(\.name) == ["Checking", "Daily Card"])
+}
+
+@Test
+func createMonthlyTargetReturnsTargetAndReloadsSnapshot() throws {
+    let store = MutableWorkspaceStore()
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    store.categories = [BudgetCategory(id: categoryID, name: "Groceries", kind: .expense)]
+    let service = WorkspaceService(store: store)
+
+    let target = try service.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(categoryID), monthlyLimit: Decimal(125)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+    let snapshot = try service.loadSnapshot()
+
+    #expect(target.scope == .category(categoryID))
+    #expect(snapshot.summary.targetCount == 1)
+    #expect(snapshot.monthlyReport.targets.map(\.id) == [target.id])
+    #expect(snapshot.monthlyReport.targets.map(\.remaining) == [Decimal(85)])
 }
 
 @Test

@@ -8,6 +8,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case importPreviewCouldNotNormalizeRow(line: Int)
     case transactionLedgerUnavailable
     case reviewQueueUnavailable
+    case targetWritingUnavailable
     case workspaceMaintenanceUnavailable
 }
 
@@ -24,6 +25,8 @@ extension WorkspaceServiceError: LocalizedError {
             "The transaction ledger is unavailable for this workspace."
         case .reviewQueueUnavailable:
             "The review queue is unavailable for this workspace."
+        case .targetWritingUnavailable:
+            "Monthly targets are unavailable for this workspace."
         case .workspaceMaintenanceUnavailable:
             "Workspace maintenance is unavailable for this workspace."
         }
@@ -80,6 +83,7 @@ public struct WorkspaceService: Sendable {
             summary: try store.fetchSummary(),
             accounts: try store.fetchAccounts(),
             categories: try store.fetchCategories(),
+            categoryGroups: try store.fetchCategoryGroups(),
             pendingReviewItems: try reviewReader?.fetchPendingReviewItems() ?? [],
             transactions: try ledgerReader?.fetchTransactionLedger(filter: filter) ?? [],
             transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
@@ -120,6 +124,17 @@ public struct WorkspaceService: Sendable {
             createRule: createRule,
             resolvedAt: resolvedAt
         )
+    }
+
+    @discardableResult
+    public func createMonthlyTarget(
+        _ draft: MonthlyTargetDraft,
+        createdAt: Date = Date()
+    ) throws -> MonthlyTarget {
+        guard let writer = store as? any TargetWriting else {
+            throw WorkspaceServiceError.targetWritingUnavailable
+        }
+        return try writer.createMonthlyTarget(draft, createdAt: createdAt)
     }
 
     public func loadWorkspaceMetadata() throws -> WorkspaceMetadata {

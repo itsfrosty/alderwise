@@ -4,7 +4,7 @@ import GRDB
 
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetWriting, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -412,6 +412,27 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.kind", value: kindText)
                 }
                 return BudgetCategory(id: id, name: row["name"], kind: kind)
+            }
+        }
+    }
+
+    public func fetchCategoryGroups() throws -> [BudgetCategoryGroup] {
+        try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT id, name
+                FROM category_groups
+                ORDER BY name ASC
+                """
+            )
+
+            return try rows.map { row in
+                let idText: String = row["id"]
+                guard let id = UUID(uuidString: idText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "category_groups.id", value: idText)
+                }
+                return BudgetCategoryGroup(id: id, name: row["name"])
             }
         }
     }
@@ -1064,6 +1085,43 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 targets: targets
             )
         }
+    }
+
+    public func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
+        let id = UUID()
+        let categoryID: UUID?
+        let categoryGroupID: UUID?
+        switch draft.scope {
+        case .category(let id):
+            categoryID = id
+            categoryGroupID = nil
+        case .categoryGroup(let id):
+            categoryID = nil
+            categoryGroupID = id
+        }
+
+        try databaseQueue.write { db in
+            try db.execute(
+                sql: """
+                INSERT INTO targets (id, category_id, category_group_id, monthly_limit, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    id.uuidString,
+                    categoryID?.uuidString,
+                    categoryGroupID?.uuidString,
+                    NSDecimalNumber(decimal: draft.monthlyLimit).doubleValue,
+                    createdAt,
+                ]
+            )
+        }
+
+        return MonthlyTarget(
+            id: id,
+            scope: draft.scope,
+            monthlyLimit: draft.monthlyLimit,
+            createdAt: createdAt
+        )
     }
 
     public func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
