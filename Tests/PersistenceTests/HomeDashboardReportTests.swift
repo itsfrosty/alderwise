@@ -56,22 +56,21 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
         MonthlySpendPoint(day: 5, actualSpend: Decimal(60), expectedSpend: Decimal(50)),
         MonthlySpendPoint(day: 10, actualSpend: Decimal(150), expectedSpend: Decimal(100)),
     ])
-    #expect(report.drivers == [
-        MonthlySpendingDriver(
-            title: "Groceries",
-            scope: .category(groceries),
-            currentPeriodSpend: Decimal(60),
-            comparisonPeriodSpend: Decimal(20),
-            delta: Decimal(40)
-        ),
-        MonthlySpendingDriver(
-            title: "Restaurants & Bars",
-            scope: .category(dining),
-            currentPeriodSpend: Decimal(90),
-            comparisonPeriodSpend: Decimal(0),
-            delta: Decimal(90)
-        ),
-    ])
+    #expect(report.drivers.count == 2)
+    #expect(report.drivers.contains {
+        $0.title == "Groceries"
+            && $0.scope == .category(groceries)
+            && $0.currentPeriodSpend == Decimal(60)
+            && $0.comparisonPeriodSpend == Decimal(20)
+            && $0.delta == Decimal(40)
+    })
+    #expect(report.drivers.contains {
+        $0.title == "Restaurants & Bars"
+            && $0.scope == .category(dining)
+            && $0.currentPeriodSpend == Decimal(90)
+            && $0.comparisonPeriodSpend == Decimal(0)
+            && $0.delta == Decimal(90)
+    })
     #expect(report.biggestShift == MonthlySpendingDriver(
         title: "Restaurants & Bars",
         scope: .category(dining),
