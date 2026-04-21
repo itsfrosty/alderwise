@@ -6,19 +6,40 @@ public struct MonthlyReport: Equatable, Sendable {
     public var lastMonthAcceptedSpend: Decimal
     public var pendingReviewCount: Int
     public var targets: [TargetProgress]
+    public var hasActiveTargets: Bool
+    public var totalMonthlyTargetLimit: Decimal
+    public var expectedPaceSpend: Decimal
+    public var paceDelta: Decimal
+    public var paceSeries: [MonthlySpendPoint]
+    public var drivers: [MonthlySpendingDriver]
+    public var biggestShift: MonthlySpendingDriver?
 
     public init(
         monthStart: Date,
         currentMonthAcceptedSpend: Decimal,
         lastMonthAcceptedSpend: Decimal,
         pendingReviewCount: Int,
-        targets: [TargetProgress]
+        targets: [TargetProgress],
+        hasActiveTargets: Bool,
+        totalMonthlyTargetLimit: Decimal,
+        expectedPaceSpend: Decimal,
+        paceDelta: Decimal,
+        paceSeries: [MonthlySpendPoint],
+        drivers: [MonthlySpendingDriver],
+        biggestShift: MonthlySpendingDriver?
     ) {
         self.monthStart = monthStart
         self.currentMonthAcceptedSpend = currentMonthAcceptedSpend
         self.lastMonthAcceptedSpend = lastMonthAcceptedSpend
         self.pendingReviewCount = pendingReviewCount
         self.targets = targets
+        self.hasActiveTargets = hasActiveTargets
+        self.totalMonthlyTargetLimit = totalMonthlyTargetLimit
+        self.expectedPaceSpend = expectedPaceSpend
+        self.paceDelta = paceDelta
+        self.paceSeries = paceSeries
+        self.drivers = drivers
+        self.biggestShift = biggestShift
     }
 
     public static let empty = MonthlyReport(
@@ -26,8 +47,57 @@ public struct MonthlyReport: Equatable, Sendable {
         currentMonthAcceptedSpend: 0,
         lastMonthAcceptedSpend: 0,
         pendingReviewCount: 0,
-        targets: []
+        targets: [],
+        hasActiveTargets: false,
+        totalMonthlyTargetLimit: 0,
+        expectedPaceSpend: 0,
+        paceDelta: 0,
+        paceSeries: [],
+        drivers: [],
+        biggestShift: nil
     )
+}
+
+public struct MonthlySpendPoint: Equatable, Sendable {
+    public var day: Int
+    public var actualSpend: Decimal
+    public var expectedSpend: Decimal
+
+    public init(day: Int, actualSpend: Decimal, expectedSpend: Decimal) {
+        self.day = day
+        self.actualSpend = actualSpend
+        self.expectedSpend = expectedSpend
+    }
+}
+
+/// Reporting emits driver rows at the category-group level when possible for readability.
+/// Categories without a group remain category-scoped so every accepted expense can still
+/// participate in driver analysis without downstream re-aggregation.
+public enum SpendingDriverScope: Hashable, Sendable {
+    case category(UUID)
+    case categoryGroup(UUID)
+}
+
+public struct MonthlySpendingDriver: Equatable, Sendable {
+    public var title: String
+    public var scope: SpendingDriverScope
+    public var currentPeriodSpend: Decimal
+    public var comparisonPeriodSpend: Decimal
+    public var delta: Decimal
+
+    public init(
+        title: String,
+        scope: SpendingDriverScope,
+        currentPeriodSpend: Decimal,
+        comparisonPeriodSpend: Decimal,
+        delta: Decimal
+    ) {
+        self.title = title
+        self.scope = scope
+        self.currentPeriodSpend = currentPeriodSpend
+        self.comparisonPeriodSpend = comparisonPeriodSpend
+        self.delta = delta
+    }
 }
 
 public enum TargetScope: Equatable, Sendable {

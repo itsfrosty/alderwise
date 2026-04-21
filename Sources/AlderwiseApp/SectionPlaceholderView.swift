@@ -12,12 +12,6 @@ struct SectionPlaceholderView: View {
             Text(section.title)
                 .font(.largeTitle.bold())
 
-            if section == .home {
-                summaryGrid
-                monthlySnapshot
-                firstRunActions
-            }
-
             if section == .targets, snapshot.monthlyReport.targets.isEmpty {
                 targetsEmptyState
             } else if shouldShowEmptyState {
@@ -40,35 +34,6 @@ struct SectionPlaceholderView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var summaryGrid: some View {
-        HStack(spacing: 16) {
-            SummaryCard(title: "Accounts", value: "\(snapshot.summary.accountCount)")
-            SummaryCard(title: "Transactions", value: "\(snapshot.summary.transactionCount)")
-            SummaryCard(title: "To Review", value: "\(snapshot.summary.reviewCount)")
-            SummaryCard(title: "Targets", value: "\(snapshot.summary.targetCount)")
-        }
-    }
-
-    private var monthlySnapshot: some View {
-        HStack(spacing: 16) {
-            SummaryCard(
-                title: "This Month",
-                value: currency(snapshot.monthlyReport.currentMonthAcceptedSpend),
-                detail: "Accepted expenses"
-            )
-            SummaryCard(
-                title: "Last Month",
-                value: currency(snapshot.monthlyReport.lastMonthAcceptedSpend),
-                detail: "Same accepted-spend basis"
-            )
-            SummaryCard(
-                title: "Remaining Targets",
-                value: currency(snapshot.monthlyReport.targets.reduce(Decimal(0)) { $0 + max($1.remaining, Decimal(0)) }),
-                detail: "\(snapshot.monthlyReport.targets.count) active"
-            )
-        }
     }
 
     private var accountList: some View {
@@ -107,38 +72,10 @@ struct SectionPlaceholderView: View {
         }
     }
 
-    @ViewBuilder
-    private var firstRunActions: some View {
-        if snapshot.summary.accountCount == 0 {
-            HStack(spacing: 12) {
-                Button {
-                    model.beginCSVImport()
-                } label: {
-                    Label("Import CSV", systemImage: "square.and.arrow.down")
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button {
-                    model.isPresentingAccountSheet = true
-                } label: {
-                    Label("Create Account", systemImage: "plus")
-                }
-                .buttonStyle(.bordered)
-
-                Button {
-                    model.addSampleAccount()
-                } label: {
-                    Label("Add Sample Data", systemImage: "sparkles")
-                }
-                .buttonStyle(.bordered)
-            }
-        }
-    }
-
     private var shouldShowEmptyState: Bool {
         switch section {
         case .home:
-            snapshot.summary.transactionCount == 0
+            false
         case .targets:
             snapshot.monthlyReport.targets.isEmpty
         case .accounts:
@@ -153,29 +90,6 @@ struct SectionPlaceholderView: View {
         formatter.numberStyle = .currency
         formatter.currencyCode = Locale.current.currency?.identifier ?? "USD"
         return formatter.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
-    }
-}
-
-private struct SummaryCard: View {
-    let title: String
-    let value: String
-    var detail: String? = nil
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.headline)
-            Text(value)
-                .font(.system(size: 28, weight: .semibold))
-            if let detail {
-                Text(detail)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

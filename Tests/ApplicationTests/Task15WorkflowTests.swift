@@ -135,6 +135,33 @@ func targetCreationWorkflowUpdatesSnapshotAndAcceptedExpenseProgress() throws {
     #expect(snapshot.monthlyReport.targets.map(\.remaining) == [Decimal(60)])
 }
 
+func workspaceSnapshotIncludesComputedHomeDashboard() throws {
+    let service = try task15Service()
+    let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let category = try #require(try service.loadSnapshot().categories.first { $0.kind == .expense })
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,Market,-40.00
+    """
+    _ = try task15Stage(csv: csv, account: account, service: service)
+    let transaction = try #require(try service.loadSnapshot().transactions.first)
+    try service.updateTransactionLedgerFields(
+        id: transaction.id,
+        draft: TransactionLedgerEditDraft(
+            merchantName: "Market",
+            categoryID: category.id,
+            notes: nil
+        )
+    )
+
+    let snapshot = try service.loadSnapshot()
+
+    #expect(snapshot.homeDashboard != nil)
+    #expect(snapshot.homeDashboard?.hero.amount == Decimal(40))
+    #expect(snapshot.homeDashboard?.primaryAction?.title == "Finish 1 items in Review")
+    #expect(snapshot.homeDashboard?.primaryAction?.destination == .review)
+}
+
 @Test
 func importResultMessageReportsDistinctImportedSkippedReviewAndDuplicateCounts() {
     let summary = StagedImportDecisionSummary(

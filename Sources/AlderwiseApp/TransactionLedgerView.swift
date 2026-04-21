@@ -11,6 +11,7 @@ struct TransactionLedgerView: View {
     @State private var startDate = Date()
     @State private var endDate = Date()
     @State private var isSearchPresented = false
+    @State private var isSyncingControls = false
 
     private var selectedIDBinding: Binding<UUID?> {
         Binding(
@@ -55,9 +56,13 @@ struct TransactionLedgerView: View {
             applyFilters()
         }
         .onAppear {
+            syncControlsFromFilter()
             if model.selectedTransactionID == nil {
                 model.selectTransaction(id: snapshot.transactions.first?.id)
             }
+        }
+        .onChange(of: model.transactionFilter) { _, _ in
+            syncControlsFromFilter()
         }
     }
 
@@ -96,6 +101,13 @@ struct TransactionLedgerView: View {
                     selection: categorySelection
                 )
 
+                Picker("Direction", selection: directionSelection) {
+                    Text("All Directions").tag(Optional<TransactionDirection>.none)
+                    ForEach(TransactionDirection.allCases, id: \.self) { direction in
+                        Text(direction.rawValue.capitalized).tag(Optional(direction))
+                    }
+                }
+
                 Picker("Review", selection: reviewSelection) {
                     Text("All Review States").tag(Optional<TransactionReviewStatus>.none)
                     ForEach(TransactionReviewStatus.allCases, id: \.self) { status in
@@ -108,6 +120,26 @@ struct TransactionLedgerView: View {
                     ForEach(importOrigins, id: \.id) { origin in
                         Text(origin.originalFilename).tag(Optional(origin.id))
                     }
+                }
+            }
+
+            if let categoryGroupFilterName {
+                HStack {
+                    Button {
+                        clearCategoryGroupFilter()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Label("Group: \(categoryGroupFilterName)", systemImage: "line.3.horizontal.decrease.circle.fill")
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.caption)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.regularMaterial, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    Spacer()
                 }
             }
 
@@ -156,6 +188,7 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.categoryID = newValue
+                filter.categoryGroupID = nil
                 model.updateTransactionFilter(filter)
             }
         )
@@ -167,6 +200,17 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.reviewStatus = newValue
+                model.updateTransactionFilter(filter)
+            }
+        )
+    }
+
+    private var directionSelection: Binding<TransactionDirection?> {
+        Binding(
+            get: { model.transactionFilter.direction },
+            set: { newValue in
+                var filter = model.transactionFilter
+                filter.direction = newValue
                 model.updateTransactionFilter(filter)
             }
         )
@@ -187,11 +231,58 @@ struct TransactionLedgerView: View {
         snapshot.transactionImportOrigins
     }
 
+    private var categoryGroupFilterName: String? {
+        guard let categoryGroupID = model.transactionFilter.categoryGroupID else {
+            return nil
+        }
+        return snapshot.categoryGroups.first(where: { $0.id == categoryGroupID })?.name ?? "Filtered group"
+    }
+
     private func applyFilters() {
+        guard !isSyncingControls else {
+            return
+        }
         var filter = model.transactionFilter
         filter.searchText = searchText
         filter.startDate = hasStartDate ? startDate : nil
         filter.endDate = hasEndDate ? endDate : nil
+        model.updateTransactionFilter(filter)
+    }
+
+    private func syncControlsFromFilter() {
+        isSyncingControls = true
+        defer {
+            Task { @MainActor in
+                isSyncingControls = false
+            }
+        }
+
+        let filter = model.transactionFilter
+
+        let nextHasStartDate = filter.startDate != nil
+        if hasStartDate != nextHasStartDate {
+            hasStartDate = nextHasStartDate
+        }
+        if let filterStartDate = filter.startDate, startDate != filterStartDate {
+            startDate = filterStartDate
+        }
+
+        let nextHasEndDate = filter.endDate != nil
+        if hasEndDate != nextHasEndDate {
+            hasEndDate = nextHasEndDate
+        }
+        if let filterEndDate = filter.endDate, endDate != filterEndDate {
+            endDate = filterEndDate
+        }
+
+        if searchText != filter.searchText {
+            searchText = filter.searchText
+        }
+    }
+
+    private func clearCategoryGroupFilter() {
+        var filter = model.transactionFilter
+        filter.categoryGroupID = nil
         model.updateTransactionFilter(filter)
     }
 }

@@ -113,16 +113,19 @@ func bootstrapPreservesCustomCategoriesWhileMaintainingDefaultTaxonomy() throws 
     let databaseURL = try temporaryDatabaseURL()
     var store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
+    let baselineCategoryNames = Set(try store.fetchCategories().map(\.name))
     try replaceSeededCategoriesWithCustomCategory(databaseURL: databaseURL)
 
     store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
 
     let categories = try store.fetchCategories()
+    let preservedDefaultNames = baselineCategoryNames.subtracting(["Housing & Utilities"])
 
     #expect(categories.contains { $0.name == "Custom Food" && $0.kind == .expense })
     #expect(categories.contains { $0.name == "Housing & Utilities" } == false)
     #expect(categories.filter { $0.name != "Custom Food" }.count == 24)
+    #expect(Set(categories.filter { $0.name != "Custom Food" }.map(\.name)) == preservedDefaultNames)
     #expect(categories.filter { $0.kind == .income }.map(\.name) == ["Income"])
     #expect(categories.filter { $0.kind == .transfer }.map(\.name) == ["Transfers"])
 }
@@ -892,6 +895,91 @@ func fetchTransactionImportOriginsIsIndependentOfCurrentLedgerFilters() throws {
     #expect(aprilRows.map(\.importOrigin?.id) == [aprilSession.id])
     #expect(origins.map(\.id) == [maySession.id, aprilSession.id])
     #expect(origins.map(\.originalFilename) == ["checking-may.csv", "checking-april.csv"])
+}
+
+@Test
+func fetchTransactionLedgerFiltersByDirectionAndCategoryGroup() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let checking = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
+    let travel = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000211")!
+    let parking = UUID(uuidString: "00000000-0000-0000-0000-000000000212")!
+    let incomeGroup = UUID(uuidString: "00000000-0000-0000-0000-000000000203")!
+    let salary = UUID(uuidString: "00000000-0000-0000-0000-000000000213")!
+    try insertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try insertCategoryGroup(databaseURL: databaseURL, id: travel, name: "Travel")
+    try insertCategoryGroup(databaseURL: databaseURL, id: incomeGroup, name: "Income Group")
+    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try insertCategory(databaseURL: databaseURL, id: parking, name: "Parking", kind: "expense", categoryGroupID: travel)
+    try insertCategory(databaseURL: databaseURL, id: salary, name: "Salary", kind: "income", categoryGroupID: incomeGroup)
+
+    let groceryID = UUID(uuidString: "00000000-0000-0000-0000-000000000401")!
+    let paycheckID = UUID(uuidString: "00000000-0000-0000-0000-000000000402")!
+    let parkingID = UUID(uuidString: "00000000-0000-0000-0000-000000000403")!
+    let bonusID = UUID(uuidString: "00000000-0000-0000-0000-000000000404")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: groceryID,
+        accountID: checking.id,
+        categoryID: groceries,
+        importSessionID: nil,
+        rawDescription: "Groceries",
+        normalizedMerchantName: "groceries",
+        amount: Decimal(-48),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: paycheckID,
+        accountID: checking.id,
+        categoryID: salary,
+        importSessionID: nil,
+        rawDescription: "Payroll",
+        normalizedMerchantName: "payroll",
+        amount: Decimal(1800),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        direction: "income"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: parkingID,
+        accountID: checking.id,
+        categoryID: parking,
+        importSessionID: nil,
+        rawDescription: "Parking",
+        normalizedMerchantName: "parking",
+        amount: Decimal(-12),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: bonusID,
+        accountID: checking.id,
+        categoryID: salary,
+        importSessionID: nil,
+        rawDescription: "Bonus",
+        normalizedMerchantName: "bonus",
+        amount: Decimal(200),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        direction: "income"
+    )
+
+    let rows = try store.fetchTransactionLedger(
+        filter: TransactionLedgerFilter(
+            categoryGroupID: food,
+            direction: .expense
+        )
+    )
+
+    #expect(rows.map(\.id) == [groceryID])
 }
 
 @Test
@@ -1995,6 +2083,7 @@ private func insertLedgerTransaction(
     amount: Decimal,
     transactionDate: Date,
     reviewStatus: String,
+    direction: String = "expense",
     decisionSource: String = "heuristic",
     decisionSourceReference: String? = nil,
     confidence: Double? = nil,
@@ -2032,7 +2121,7 @@ private func insertLedgerTransaction(
                 normalizedMerchantName,
                 NSDecimalNumber(decimal: amount).doubleValue,
                 transactionDate,
-                "expense",
+                direction,
                 decisionSource,
                 decisionSourceReference,
                 confidence,
