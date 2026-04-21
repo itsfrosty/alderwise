@@ -28,6 +28,10 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var selectedTransactionID: UUID?
     @Published private(set) var selectedTransactionDetail: TransactionDetail?
     @Published var transactionDetailErrorMessage: String?
+    @Published private(set) var workspaceMetadata: WorkspaceMetadata?
+    @Published var workspaceMaintenanceMessage: String?
+    @Published var workspaceMaintenanceErrorMessage: String?
+    @Published var isPresentingWorkspaceRestoreImporter = false
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
@@ -77,6 +81,7 @@ final class WorkspaceShellModel: ObservableObject {
         do {
             let snapshot = try service.loadSnapshot(filter: transactionFilter)
             state = .loaded(snapshot)
+            workspaceMetadata = try? service.loadWorkspaceMetadata()
             let transactionID = if let selectedTransactionID,
                                    snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
                 selectedTransactionID
@@ -87,6 +92,50 @@ final class WorkspaceShellModel: ObservableObject {
             loadSelectedTransactionDetail(id: transactionID)
         } catch {
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    func createWorkspaceBackup() {
+        guard let service else {
+            return
+        }
+
+        do {
+            let backup = try service.createWorkspaceBackup()
+            workspaceMaintenanceMessage = "Backup created at \(backup.fileURL.path)"
+            workspaceMetadata = try? service.loadWorkspaceMetadata()
+        } catch {
+            workspaceMaintenanceErrorMessage = error.localizedDescription
+        }
+    }
+
+    func beginWorkspaceRestore() {
+        isPresentingWorkspaceRestoreImporter = true
+    }
+
+    func restoreWorkspace(from result: Result<URL, Error>) {
+        guard let service else {
+            return
+        }
+
+        do {
+            let url = try result.get()
+            let didAccessScopedResource = url.startAccessingSecurityScopedResource()
+            defer {
+                if didAccessScopedResource {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let restoreResult = try service.restoreWorkspaceBackup(from: url)
+            reload()
+            if let safetyBackup = restoreResult.safetyBackup {
+                workspaceMaintenanceMessage = "Workspace restored. Safety backup saved at \(safetyBackup.fileURL.path)"
+            } else {
+                workspaceMaintenanceMessage = "Workspace restored."
+            }
+        } catch {
+            workspaceMaintenanceErrorMessage = error.localizedDescription
         }
     }
 

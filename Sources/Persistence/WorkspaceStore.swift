@@ -2,11 +2,13 @@ import Domain
 import Foundation
 import GRDB
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, WorkspaceMaintenanceManaging {
     private let databaseQueue: DatabaseQueue
+    private let databaseURL: URL?
 
-    public init(databaseQueue: DatabaseQueue) {
+    public init(databaseQueue: DatabaseQueue, databaseURL: URL? = nil) {
         self.databaseQueue = databaseQueue
+        self.databaseURL = databaseURL
     }
 
     public static func inMemory() throws -> WorkspaceStore {
@@ -14,12 +16,12 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
     }
 
     public static func at(databaseURL: URL) throws -> WorkspaceStore {
-        WorkspaceStore(databaseQueue: try DatabaseQueue(path: databaseURL.path))
+        WorkspaceStore(databaseQueue: try DatabaseQueue(path: databaseURL.path), databaseURL: databaseURL)
     }
 
     public static func live() throws -> WorkspaceStore {
         let location = try WorkspaceLocation.live()
-        return WorkspaceStore(databaseQueue: try DatabaseQueue(path: location.databasePath))
+        return WorkspaceStore(databaseQueue: try DatabaseQueue(path: location.databasePath), databaseURL: location.databaseURL)
     }
 
     public func bootstrap() throws {
@@ -816,6 +818,68 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 throw WorkspaceStoreError.transactionNotFound(id)
             }
         }
+    }
+
+    public func fetchWorkspaceMetadata() throws -> WorkspaceMetadata {
+        guard let databaseURL else {
+            throw WorkspaceMaintenanceError.onDiskWorkspaceRequired
+        }
+
+        let attributes = try? FileManager.default.attributesOfItem(atPath: databaseURL.path)
+        return WorkspaceMetadata(
+            databaseURL: databaseURL,
+            databaseExists: FileManager.default.fileExists(atPath: databaseURL.path),
+            databaseSizeBytes: (attributes?[.size] as? NSNumber)?.int64Value ?? 0,
+            modifiedAt: attributes?[.modificationDate] as? Date
+        )
+    }
+
+    public func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup {
+        guard let databaseURL else {
+            throw WorkspaceMaintenanceError.onDiskWorkspaceRequired
+        }
+
+        let backupDirectory = directory ?? databaseURL
+            .deletingLastPathComponent()
+            .appending(path: "Backups", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+        let backupURL = backupDirectory.appending(path: backupFilename(for: now))
+        if FileManager.default.fileExists(atPath: backupURL.path) {
+            try FileManager.default.removeItem(at: backupURL)
+        }
+
+        let destination = try DatabaseQueue(path: backupURL.path)
+        try databaseQueue.backup(to: destination)
+        let attributes = try FileManager.default.attributesOfItem(atPath: backupURL.path)
+        return WorkspaceBackup(
+            fileURL: backupURL,
+            createdAt: now,
+            sizeBytes: (attributes[.size] as? NSNumber)?.int64Value ?? 0
+        )
+    }
+
+    public func restoreWorkspaceBackup(
+        from backupURL: URL,
+        safetyBackupDirectory: URL?,
+        now: Date
+    ) throws -> WorkspaceRestoreResult {
+        guard let databaseURL else {
+            throw WorkspaceMaintenanceError.onDiskWorkspaceRequired
+        }
+        guard backupURL.standardizedFileURL != databaseURL.standardizedFileURL else {
+            throw WorkspaceMaintenanceError.restoreSourceIsCurrentWorkspace
+        }
+
+        try validateWorkspaceBackup(at: backupURL)
+        let safetyBackup = try createWorkspaceBackup(in: safetyBackupDirectory, now: now)
+        let source = try DatabaseQueue(path: backupURL.path)
+        try source.backup(to: databaseQueue)
+        try bootstrap()
+        return WorkspaceRestoreResult(
+            restoredFromURL: backupURL,
+            safetyBackup: safetyBackup,
+            restoredAt: now
+        )
     }
 
     public func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {
@@ -1788,6 +1852,46 @@ private func backfillLedgerTransactionsForLegacyStagedImports(db: Database) thro
                 "none",
             ]
         )
+    }
+}
+
+private func backupFilename(for date: Date) -> String {
+    "Alderwise Backup \(backupFilenameDateFormatter.string(from: date)).sqlite"
+}
+
+private let backupFilenameDateFormatter: DateFormatter = {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyy-MM-dd HHmmss"
+    return formatter
+}()
+
+private func validateWorkspaceBackup(at url: URL) throws {
+    do {
+        let source = try DatabaseQueue(path: url.path)
+        try source.read { db in
+            let requiredTables = [
+                "accounts",
+                "source_files",
+                "source_rows",
+                "import_sessions",
+                "transactions",
+                "review_items",
+                "targets",
+                "grdb_migrations",
+            ]
+            for table in requiredTables {
+                guard try db.tableExists(table) else {
+                    throw WorkspaceMaintenanceError.invalidRestoreCandidate("Missing required table '\(table)'.")
+                }
+            }
+        }
+    } catch let error as WorkspaceMaintenanceError {
+        throw error
+    } catch {
+        throw WorkspaceMaintenanceError.invalidRestoreCandidate(error.localizedDescription)
     }
 }
 

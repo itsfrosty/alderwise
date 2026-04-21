@@ -42,6 +42,77 @@ func createdAccountsAppearInSummaryAndFetchResults() throws {
 }
 
 @Test
+func workspaceMetadataReportsOnDiskLocationAndSize() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    let metadata = try store.fetchWorkspaceMetadata()
+
+    #expect(metadata.databaseURL == databaseURL)
+    #expect(metadata.databaseExists)
+    #expect(metadata.databaseSizeBytes > 0)
+    #expect(metadata.modifiedAt != nil)
+}
+
+@Test
+func createWorkspaceBackupWritesReadableSQLiteCopy() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let backupDirectory = databaseURL.deletingLastPathComponent().appending(path: "Backups", directoryHint: .isDirectory)
+
+    let backup = try store.createWorkspaceBackup(
+        in: backupDirectory,
+        now: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+    let backupStore = try WorkspaceStore.at(databaseURL: backup.fileURL)
+
+    #expect(backup.fileURL.lastPathComponent == "Alderwise Backup 2026-04-02 230640.sqlite")
+    #expect(backup.sizeBytes > 0)
+    #expect(try backupStore.fetchSummary().accountCount == 1)
+}
+
+@Test
+func restoreWorkspaceBackupRestoresValidBackupAndKeepsSafetyBackup() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let backupDirectory = databaseURL.deletingLastPathComponent().appending(path: "Backups", directoryHint: .isDirectory)
+    let backup = try store.createWorkspaceBackup(
+        in: backupDirectory,
+        now: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+    _ = try store.createAccount(named: "Credit Card", kind: .creditCard, institutionName: "Local Bank")
+
+    let result = try store.restoreWorkspaceBackup(
+        from: backup.fileURL,
+        safetyBackupDirectory: backupDirectory,
+        now: Date(timeIntervalSince1970: 1_775_257_600)
+    )
+
+    #expect(result.restoredFromURL == backup.fileURL)
+    #expect(result.safetyBackup?.fileURL.lastPathComponent == "Alderwise Backup 2026-04-03 230640.sqlite")
+    #expect(try store.fetchSummary().accountCount == 1)
+}
+
+@Test
+func restoreWorkspaceBackupRejectsNonAlderwiseFiles() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    let invalidURL = databaseURL.deletingLastPathComponent().appending(path: "not-a-workspace.sqlite")
+    try Data("not sqlite".utf8).write(to: invalidURL)
+
+    #expect(throws: WorkspaceMaintenanceError.self) {
+        try store.restoreWorkspaceBackup(from: invalidURL)
+    }
+}
+
+@Test
 func stagedImportRecordsRoundTripThroughOnDiskWorkspace() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

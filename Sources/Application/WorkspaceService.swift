@@ -7,6 +7,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case importPreviewSourceRowsUnavailable
     case importPreviewCouldNotNormalizeRow(line: Int)
     case transactionLedgerUnavailable
+    case workspaceMaintenanceUnavailable
 }
 
 extension WorkspaceServiceError: LocalizedError {
@@ -20,6 +21,8 @@ extension WorkspaceServiceError: LocalizedError {
             "CSV row \(line) could not be normalized for import."
         case .transactionLedgerUnavailable:
             "The transaction ledger is unavailable for this workspace."
+        case .workspaceMaintenanceUnavailable:
+            "Workspace maintenance is unavailable for this workspace."
         }
     }
 }
@@ -88,6 +91,18 @@ public struct WorkspaceService: Sendable {
             throw WorkspaceServiceError.transactionLedgerUnavailable
         }
         try writer.updateTransactionLedgerFields(id: id, draft: draft)
+    }
+
+    public func loadWorkspaceMetadata() throws -> WorkspaceMetadata {
+        try workspaceMaintenanceManager().fetchWorkspaceMetadata()
+    }
+
+    public func createWorkspaceBackup() throws -> WorkspaceBackup {
+        try workspaceMaintenanceManager().createWorkspaceBackup()
+    }
+
+    public func restoreWorkspaceBackup(from backupURL: URL) throws -> WorkspaceRestoreResult {
+        try workspaceMaintenanceManager().restoreWorkspaceBackup(from: backupURL)
     }
 
     @discardableResult
@@ -305,6 +320,13 @@ public struct WorkspaceService: Sendable {
             throw WorkspaceServiceError.transactionLedgerUnavailable
         }
         return reader
+    }
+
+    private func workspaceMaintenanceManager() throws -> any WorkspaceMaintenanceManaging {
+        guard let manager = store as? any WorkspaceMaintenanceManaging else {
+            throw WorkspaceServiceError.workspaceMaintenanceUnavailable
+        }
+        return manager
     }
 
     private static func rawPayload(for row: CSVRow) throws -> String {

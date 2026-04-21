@@ -6,6 +6,8 @@ struct WorkspaceRootView: View {
     @ObservedObject var model: WorkspaceShellModel
     @AppStorage("selectedSidebarSection") private var selectedSectionRawValue = AppSection.home.rawValue
 
+    private static let sqliteWorkspaceType = UTType(filenameExtension: "sqlite") ?? .data
+
     private var selectedSection: AppSection {
         AppSection(rawValue: selectedSectionRawValue) ?? .home
     }
@@ -70,6 +72,21 @@ struct WorkspaceRootView: View {
                 model.importCSV(from: .success(url))
             } catch {
                 model.importCSV(from: .failure(error))
+            }
+        }
+        .fileImporter(
+            isPresented: $model.isPresentingWorkspaceRestoreImporter,
+            allowedContentTypes: [Self.sqliteWorkspaceType],
+            allowsMultipleSelection: false
+        ) { result in
+            do {
+                let urls = try result.get()
+                guard let url = urls.first else {
+                    throw CocoaError(.fileNoSuchFile)
+                }
+                model.restoreWorkspace(from: .success(url))
+            } catch {
+                model.restoreWorkspace(from: .failure(error))
             }
         }
         .sheet(
@@ -147,6 +164,40 @@ struct WorkspaceRootView: View {
         } message: {
             Text(model.transactionDetailErrorMessage ?? "")
         }
+        .alert(
+            "Workspace Updated",
+            isPresented: Binding(
+                get: { model.workspaceMaintenanceMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        model.workspaceMaintenanceMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                model.workspaceMaintenanceMessage = nil
+            }
+        } message: {
+            Text(model.workspaceMaintenanceMessage ?? "")
+        }
+        .alert(
+            "Workspace Maintenance Failed",
+            isPresented: Binding(
+                get: { model.workspaceMaintenanceErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        model.workspaceMaintenanceErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                model.workspaceMaintenanceErrorMessage = nil
+            }
+        } message: {
+            Text(model.workspaceMaintenanceErrorMessage ?? "")
+        }
     }
 
     @ViewBuilder
@@ -164,6 +215,8 @@ struct WorkspaceRootView: View {
         case .loaded(let snapshot):
             if section == .transactions {
                 TransactionLedgerView(snapshot: snapshot, model: model)
+            } else if section == .settings {
+                SettingsView(model: model)
             } else {
                 SectionPlaceholderView(section: section, snapshot: snapshot)
             }
