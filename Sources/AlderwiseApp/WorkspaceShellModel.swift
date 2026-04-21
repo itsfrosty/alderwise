@@ -341,12 +341,7 @@ final class WorkspaceShellModel: ObservableObject {
             )
             dismissCSVImportPreview()
             reload()
-            switch result.outcome {
-            case .staged:
-                importResultMessage = "\(result.summary.importedRowCount) rows staged. \(result.summary.flaggedDuplicateRowCount) likely duplicates flagged."
-            case .exactReimportNoOp:
-                importResultMessage = "\(result.summary.skippedRowCount) rows already imported. No changes made."
-            }
+            importResultMessage = ImportResultMessage.make(for: result.outcome, summary: result.summary)
         } catch {
             dismissCSVImportPreview()
             importErrorMessage = error.localizedDescription

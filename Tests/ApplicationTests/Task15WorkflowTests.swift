@@ -135,6 +135,25 @@ func targetCreationWorkflowUpdatesSnapshotAndAcceptedExpenseProgress() throws {
     #expect(snapshot.monthlyReport.targets.map(\.remaining) == [Decimal(60)])
 }
 
+@Test
+func importResultMessageReportsDistinctImportedSkippedReviewAndDuplicateCounts() {
+    let summary = StagedImportDecisionSummary(
+        importedRowCount: 1,
+        skippedRowCount: 2,
+        pendingClassificationReviewRowCount: 3,
+        flaggedDuplicateRowCount: 4
+    )
+
+    #expect(
+        ImportResultMessage.make(for: .staged, summary: summary)
+            == "1 imported to Transactions, 2 skipped, 3 sent to Review, 4 likely duplicates waiting in Review."
+    )
+    #expect(
+        ImportResultMessage.make(for: .exactReimportNoOp, summary: summary)
+            == "2 rows already imported. No changes made."
+    )
+}
+
 private func task15Service() throws -> WorkspaceService {
     let store = try WorkspaceStore.at(databaseURL: task15TemporaryDatabaseURL())
     try store.bootstrap()

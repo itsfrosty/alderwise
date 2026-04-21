@@ -618,8 +618,15 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     review_items.type,
                     review_items.status,
                     review_items.duplicate_transaction_id,
-                    review_items.source_row_id
+                    review_items.source_row_id,
+                    source_rows.raw_payload,
+                    source_files.account_id,
+                    import_sessions.id AS import_session_id,
+                    import_sessions.mapping_json
                 FROM review_items
+                JOIN source_rows ON source_rows.id = review_items.source_row_id
+                JOIN source_files ON source_files.id = source_rows.source_file_id
+                JOIN import_sessions ON import_sessions.source_file_id = source_files.id
                 WHERE review_items.id = ?
                 """,
                 arguments: [id.uuidString]
@@ -649,6 +656,26 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             }
 
             let sourceRowID: Int64 = row["source_row_id"]
+            let accountIDText: String = try requireString(
+                row["account_id"],
+                field: "source_files.account_id"
+            )
+            guard let accountID = UUID(uuidString: accountIDText) else {
+                throw WorkspaceStoreError.invalidStoredReviewItem(
+                    field: "source_files.account_id",
+                    value: accountIDText
+                )
+            }
+            let importSessionID: Int64 = row["import_session_id"]
+            let rawPayload: String = try requireString(
+                row["raw_payload"],
+                field: "source_rows.raw_payload"
+            )
+            let mappingJSON: String = try requireString(
+                row["mapping_json"],
+                field: "import_sessions.mapping_json"
+            )
+            let transaction = try stagedTransactionDraft(rawPayload: rawPayload, mappingJSON: mappingJSON)
             let details = "User kept both the staged row and existing transaction after duplicate review."
             let event = ReviewDecisionEvent(
                 id: UUID(),
@@ -657,6 +684,15 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 action: .keepBoth,
                 details: details,
                 createdAt: resolvedAt
+            )
+
+            try insertTransaction(
+                id: UUID(),
+                accountID: accountID,
+                importSessionID: importSessionID,
+                transaction: transaction,
+                classification: nil,
+                db: db
             )
 
             try db.execute(
@@ -1676,6 +1712,38 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             ]
         )
     }
+}
+
+private func stagedTransactionDraft(rawPayload: String, mappingJSON: String) throws -> StagedTransactionDraft {
+    let decoder = JSONDecoder()
+    let values: [String]
+    do {
+        values = try decoder.decode([String].self, from: Data(rawPayload.utf8))
+    } catch {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "source_rows.raw_payload", value: rawPayload)
+    }
+
+    let mapping: CSVColumnMapping
+    do {
+        mapping = try decoder.decode(CSVColumnMapping.self, from: Data(mappingJSON.utf8))
+    } catch {
+        throw WorkspaceStoreError.invalidStoredMapping(error)
+    }
+
+    guard
+        let transactionDate = legacyDateValue(in: values, at: mapping.dateColumnIndex),
+        let rawDescription = legacyStringValue(in: values, at: mapping.descriptionColumnIndex),
+        let amount = legacyAmountValue(in: values, mapping: mapping)
+    else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "source_rows.raw_payload", value: rawPayload)
+    }
+
+    return StagedTransactionDraft(
+        transactionDate: transactionDate,
+        rawDescription: rawDescription,
+        normalizedMerchantName: MerchantNormalizer().normalize(rawDescription),
+        amount: amount
+    )
 }
 
 private func columnNames(in table: String, db: Database) throws -> Set<String> {
