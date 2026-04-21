@@ -45,7 +45,7 @@ public struct PendingReviewSourceRow: Equatable, Sendable {
     }
 }
 
-public struct PendingReviewItem: Equatable, Sendable {
+public struct PendingReviewItem: Identifiable, Equatable, Sendable {
     public var id: UUID
     public var type: ReviewItemType
     public var status: ReviewItemStatus

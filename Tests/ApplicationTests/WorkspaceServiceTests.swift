@@ -3,9 +3,10 @@ import Domain
 import Foundation
 import Testing
 
-private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading {
+private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading {
     var summary: WorkspaceSummary
     var accounts: [Account]
+    var pendingReviewItems: [PendingReviewItem] = []
 
     func fetchSummary() throws -> WorkspaceSummary {
         summary
@@ -17,6 +18,10 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
 
     func fetchCategories() throws -> [BudgetCategory] {
         []
+    }
+
+    func fetchPendingReviewItems() throws -> [PendingReviewItem] {
+        pendingReviewItems
     }
 
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
@@ -71,9 +76,10 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ClassificationRuleReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
+    var pendingReviewItems: [PendingReviewItem] = []
     var stagedImportDrafts: [StagedImportSessionDraft] = []
     var likelyDuplicateCandidates: [LikelyDuplicateCandidate] = []
     var existingSourceRowHashes: Set<String> = []
@@ -95,6 +101,10 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
 
     func fetchCategories() throws -> [BudgetCategory] {
         []
+    }
+
+    func fetchPendingReviewItems() throws -> [PendingReviewItem] {
+        pendingReviewItems
     }
 
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
@@ -181,6 +191,24 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
 
 @Test
 func loadSnapshotReturnsSummaryAndAccountsFromStore() throws {
+    let reviewItem = PendingReviewItem(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000222")!,
+        type: .lowConfidenceCategory,
+        status: .pending,
+        reason: "Needs a category.",
+        createdAt: Date(timeIntervalSince1970: 1_775_000_000),
+        sourceFile: PendingReviewSourceFile(
+            accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+            originalFilename: "checking.csv"
+        ),
+        sourceRow: PendingReviewSourceRow(
+            id: 1,
+            sourceLineNumber: 2,
+            rowHash: "row-hash",
+            rawPayload: "[\"2026-04-01\",\"Coffee Shop\",\"-4.75\"]"
+        ),
+        duplicateTransactionID: nil
+    )
     let store = StubWorkspaceStore(
         summary: WorkspaceSummary(
             accountCount: 1,
@@ -190,7 +218,8 @@ func loadSnapshotReturnsSummaryAndAccountsFromStore() throws {
         ),
         accounts: [
             Account(name: "Checking", kind: .checking, institutionName: "Local Bank"),
-        ]
+        ],
+        pendingReviewItems: [reviewItem]
     )
 
     let service = WorkspaceService(store: store)
@@ -199,6 +228,7 @@ func loadSnapshotReturnsSummaryAndAccountsFromStore() throws {
     #expect(snapshot.summary.accountCount == 1)
     #expect(snapshot.summary.reviewCount == 3)
     #expect(snapshot.accounts.map(\.name) == ["Checking"])
+    #expect(snapshot.pendingReviewItems == [reviewItem])
 }
 
 @Test

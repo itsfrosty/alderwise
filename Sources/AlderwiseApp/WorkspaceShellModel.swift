@@ -34,6 +34,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var selectedTransactionID: UUID?
     @Published private(set) var selectedTransactionDetail: TransactionDetail?
     @Published var transactionDetailErrorMessage: String?
+    @Published var reviewErrorMessage: String?
     @Published private(set) var workspaceMetadata: WorkspaceMetadata?
     @Published private(set) var workspacePreferences = WorkspacePreferences.default
     @Published var workspaceMaintenanceMessage: String?
@@ -197,6 +198,46 @@ final class WorkspaceShellModel: ObservableObject {
             reload()
         } catch {
             state = .failed(error.localizedDescription)
+        }
+    }
+
+    @discardableResult
+    func keepBothLikelyDuplicateReviewItem(id: UUID) -> Bool {
+        guard let service else {
+            return false
+        }
+
+        do {
+            try service.keepBothLikelyDuplicateReviewItem(id: id)
+            reload()
+            return true
+        } catch {
+            reviewErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
+    func approveClassificationReviewItem(
+        id: UUID,
+        assignment: ClassificationAssignment,
+        createRule: Bool
+    ) -> Bool {
+        guard let service else {
+            return false
+        }
+
+        do {
+            try service.approveClassificationReviewItem(
+                id: id,
+                assignment: assignment,
+                createRule: createRule
+            )
+            reload()
+            return true
+        } catch {
+            reviewErrorMessage = error.localizedDescription
+            return false
         }
     }
 

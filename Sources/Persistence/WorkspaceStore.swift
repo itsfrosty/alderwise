@@ -316,6 +316,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         }
 
         try migrator.migrate(databaseQueue)
+        try seedDefaultBudgetTaxonomy()
     }
 
     public func fetchSummary() throws -> WorkspaceSummary {
@@ -378,6 +379,48 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.kind", value: kindText)
                 }
                 return BudgetCategory(id: id, name: row["name"], kind: kind)
+            }
+        }
+    }
+
+    private func seedDefaultBudgetTaxonomy() throws {
+        try databaseQueue.write { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+            guard try db.tableExists("categories"),
+                  try db.tableExists("category_groups"),
+                  try columnNames(in: "categories", db: db).contains("category_group_id")
+            else {
+                return
+            }
+
+            let existingCategoryCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM categories") ?? 0
+            guard existingCategoryCount == 0 else {
+                return
+            }
+
+            for group in defaultCategoryGroups {
+                try db.execute(
+                    sql: """
+                    INSERT OR IGNORE INTO category_groups (id, name)
+                    VALUES (?, ?)
+                    """,
+                    arguments: [group.id.uuidString, group.name]
+                )
+            }
+
+            for category in defaultBudgetCategories {
+                try db.execute(
+                    sql: """
+                    INSERT OR IGNORE INTO categories (id, name, kind, category_group_id)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    arguments: [
+                        category.id.uuidString,
+                        category.name,
+                        category.kind.rawValue,
+                        category.groupID.uuidString,
+                    ]
+                )
             }
         }
     }
@@ -1919,6 +1962,102 @@ private let backupFilenameDateFormatter: DateFormatter = {
     formatter.dateFormat = "yyyy-MM-dd HHmmss"
     return formatter
 }()
+
+private struct DefaultCategoryGroup: Sendable {
+    var id: UUID
+    var name: String
+}
+
+private struct DefaultBudgetCategory: Sendable {
+    var id: UUID
+    var name: String
+    var kind: BudgetCategoryKind
+    var groupID: UUID
+}
+
+private enum DefaultCategoryGroupID {
+    static let income = UUID(uuidString: "10000000-0000-0000-0000-000000000001")!
+    static let housing = UUID(uuidString: "10000000-0000-0000-0000-000000000002")!
+    static let food = UUID(uuidString: "10000000-0000-0000-0000-000000000003")!
+    static let transportation = UUID(uuidString: "10000000-0000-0000-0000-000000000004")!
+    static let billsAndUtilities = UUID(uuidString: "10000000-0000-0000-0000-000000000005")!
+    static let shopping = UUID(uuidString: "10000000-0000-0000-0000-000000000006")!
+    static let health = UUID(uuidString: "10000000-0000-0000-0000-000000000007")!
+    static let travel = UUID(uuidString: "10000000-0000-0000-0000-000000000008")!
+    static let entertainment = UUID(uuidString: "10000000-0000-0000-0000-000000000009")!
+    static let personal = UUID(uuidString: "10000000-0000-0000-0000-000000000010")!
+    static let financial = UUID(uuidString: "10000000-0000-0000-0000-000000000011")!
+    static let transfers = UUID(uuidString: "10000000-0000-0000-0000-000000000012")!
+    static let other = UUID(uuidString: "10000000-0000-0000-0000-000000000013")!
+}
+
+private let defaultCategoryGroups: [DefaultCategoryGroup] = [
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.income, name: "Income"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.housing, name: "Housing"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.food, name: "Food"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.transportation, name: "Transportation"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.billsAndUtilities, name: "Bills & Utilities"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.shopping, name: "Shopping"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.health, name: "Health"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.travel, name: "Travel"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.entertainment, name: "Entertainment"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.personal, name: "Personal"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.financial, name: "Financial"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.transfers, name: "Transfers"),
+    DefaultCategoryGroup(id: DefaultCategoryGroupID.other, name: "Other"),
+]
+
+private let defaultBudgetCategories: [DefaultBudgetCategory] = [
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000001")!, name: "Paycheck", kind: .income, groupID: DefaultCategoryGroupID.income),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000002")!, name: "Interest", kind: .income, groupID: DefaultCategoryGroupID.income),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000003")!, name: "Refunds", kind: .income, groupID: DefaultCategoryGroupID.income),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000004")!, name: "Other Income", kind: .income, groupID: DefaultCategoryGroupID.income),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000005")!, name: "Rent or Mortgage", kind: .expense, groupID: DefaultCategoryGroupID.housing),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000006")!, name: "Property Tax", kind: .expense, groupID: DefaultCategoryGroupID.housing),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000007")!, name: "Home Insurance", kind: .expense, groupID: DefaultCategoryGroupID.housing),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000008")!, name: "Home Maintenance", kind: .expense, groupID: DefaultCategoryGroupID.housing),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000009")!, name: "Groceries", kind: .expense, groupID: DefaultCategoryGroupID.food),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000010")!, name: "Restaurants", kind: .expense, groupID: DefaultCategoryGroupID.food),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000011")!, name: "Coffee & Snacks", kind: .expense, groupID: DefaultCategoryGroupID.food),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000012")!, name: "Gas", kind: .expense, groupID: DefaultCategoryGroupID.transportation),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000013")!, name: "Public Transit", kind: .expense, groupID: DefaultCategoryGroupID.transportation),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000014")!, name: "Parking & Tolls", kind: .expense, groupID: DefaultCategoryGroupID.transportation),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000015")!, name: "Auto Maintenance", kind: .expense, groupID: DefaultCategoryGroupID.transportation),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000016")!, name: "Auto Insurance", kind: .expense, groupID: DefaultCategoryGroupID.transportation),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000017")!, name: "Electricity", kind: .expense, groupID: DefaultCategoryGroupID.billsAndUtilities),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000018")!, name: "Gas Utility", kind: .expense, groupID: DefaultCategoryGroupID.billsAndUtilities),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000019")!, name: "Water", kind: .expense, groupID: DefaultCategoryGroupID.billsAndUtilities),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000020")!, name: "Internet", kind: .expense, groupID: DefaultCategoryGroupID.billsAndUtilities),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000021")!, name: "Phone", kind: .expense, groupID: DefaultCategoryGroupID.billsAndUtilities),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000022")!, name: "Subscriptions", kind: .expense, groupID: DefaultCategoryGroupID.billsAndUtilities),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000023")!, name: "General Shopping", kind: .expense, groupID: DefaultCategoryGroupID.shopping),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000024")!, name: "Clothing", kind: .expense, groupID: DefaultCategoryGroupID.shopping),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000025")!, name: "Electronics", kind: .expense, groupID: DefaultCategoryGroupID.shopping),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000026")!, name: "Home Goods", kind: .expense, groupID: DefaultCategoryGroupID.shopping),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000027")!, name: "Medical", kind: .expense, groupID: DefaultCategoryGroupID.health),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000028")!, name: "Pharmacy", kind: .expense, groupID: DefaultCategoryGroupID.health),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000029")!, name: "Dental", kind: .expense, groupID: DefaultCategoryGroupID.health),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000030")!, name: "Fitness", kind: .expense, groupID: DefaultCategoryGroupID.health),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000031")!, name: "Flights", kind: .expense, groupID: DefaultCategoryGroupID.travel),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000032")!, name: "Hotels", kind: .expense, groupID: DefaultCategoryGroupID.travel),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000033")!, name: "Rental Cars", kind: .expense, groupID: DefaultCategoryGroupID.travel),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000034")!, name: "Travel Meals", kind: .expense, groupID: DefaultCategoryGroupID.travel),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000035")!, name: "Movies & Events", kind: .expense, groupID: DefaultCategoryGroupID.entertainment),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000036")!, name: "Hobbies", kind: .expense, groupID: DefaultCategoryGroupID.entertainment),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000037")!, name: "Games", kind: .expense, groupID: DefaultCategoryGroupID.entertainment),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000038")!, name: "Streaming", kind: .expense, groupID: DefaultCategoryGroupID.entertainment),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000039")!, name: "Personal Care", kind: .expense, groupID: DefaultCategoryGroupID.personal),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000040")!, name: "Education", kind: .expense, groupID: DefaultCategoryGroupID.personal),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000041")!, name: "Gifts & Donations", kind: .expense, groupID: DefaultCategoryGroupID.personal),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000042")!, name: "Fees", kind: .expense, groupID: DefaultCategoryGroupID.financial),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000043")!, name: "Taxes", kind: .expense, groupID: DefaultCategoryGroupID.financial),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000044")!, name: "Cash Withdrawal", kind: .expense, groupID: DefaultCategoryGroupID.financial),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000045")!, name: "Credit Card Payment", kind: .transfer, groupID: DefaultCategoryGroupID.transfers),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000046")!, name: "Account Transfer", kind: .transfer, groupID: DefaultCategoryGroupID.transfers),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000047")!, name: "Savings Transfer", kind: .transfer, groupID: DefaultCategoryGroupID.transfers),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000048")!, name: "Uncategorized", kind: .expense, groupID: DefaultCategoryGroupID.other),
+    DefaultBudgetCategory(id: UUID(uuidString: "20000000-0000-0000-0000-000000000049")!, name: "Other Expense", kind: .expense, groupID: DefaultCategoryGroupID.other),
+]
 
 private func validateWorkspaceBackup(at url: URL) throws {
     do {

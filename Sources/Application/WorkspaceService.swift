@@ -7,6 +7,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case importPreviewSourceRowsUnavailable
     case importPreviewCouldNotNormalizeRow(line: Int)
     case transactionLedgerUnavailable
+    case reviewQueueUnavailable
     case workspaceMaintenanceUnavailable
 }
 
@@ -21,6 +22,8 @@ extension WorkspaceServiceError: LocalizedError {
             "CSV row \(line) could not be normalized for import."
         case .transactionLedgerUnavailable:
             "The transaction ledger is unavailable for this workspace."
+        case .reviewQueueUnavailable:
+            "The review queue is unavailable for this workspace."
         case .workspaceMaintenanceUnavailable:
             "Workspace maintenance is unavailable for this workspace."
         }
@@ -72,10 +75,12 @@ public struct WorkspaceService: Sendable {
     public func loadSnapshot(filter: TransactionLedgerFilter = .empty) throws -> WorkspaceSnapshot {
         let ledgerReader = store as? any TransactionLedgerReading
         let reportingReader = store as? any ReportingReading
+        let reviewReader = store as? any ReviewQueueReading
         return WorkspaceSnapshot(
             summary: try store.fetchSummary(),
             accounts: try store.fetchAccounts(),
             categories: try store.fetchCategories(),
+            pendingReviewItems: try reviewReader?.fetchPendingReviewItems() ?? [],
             transactions: try ledgerReader?.fetchTransactionLedger(filter: filter) ?? [],
             transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
             monthlyReport: try reportingReader?.fetchMonthlyReport(referenceDate: .now) ?? .empty
@@ -91,6 +96,30 @@ public struct WorkspaceService: Sendable {
             throw WorkspaceServiceError.transactionLedgerUnavailable
         }
         try writer.updateTransactionLedgerFields(id: id, draft: draft)
+    }
+
+    public func keepBothLikelyDuplicateReviewItem(id: UUID, resolvedAt: Date = Date()) throws {
+        guard let writer = store as? any ReviewQueueWriting else {
+            throw WorkspaceServiceError.reviewQueueUnavailable
+        }
+        _ = try writer.keepBothForLikelyDuplicateReviewItem(id: id, resolvedAt: resolvedAt)
+    }
+
+    public func approveClassificationReviewItem(
+        id: UUID,
+        assignment: ClassificationAssignment,
+        createRule: Bool,
+        resolvedAt: Date = Date()
+    ) throws {
+        guard let writer = store as? any ReviewQueueWriting else {
+            throw WorkspaceServiceError.reviewQueueUnavailable
+        }
+        _ = try writer.approveClassificationReviewItem(
+            id: id,
+            assignment: assignment,
+            createRule: createRule,
+            resolvedAt: resolvedAt
+        )
     }
 
     public func loadWorkspaceMetadata() throws -> WorkspaceMetadata {

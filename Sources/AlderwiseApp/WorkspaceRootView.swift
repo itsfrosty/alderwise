@@ -164,6 +164,23 @@ struct WorkspaceRootView: View {
             Text(model.transactionDetailErrorMessage ?? "")
         }
         .alert(
+            "Review Action Failed",
+            isPresented: Binding(
+                get: { model.reviewErrorMessage != nil },
+                set: { isPresented in
+                    if !isPresented {
+                        model.reviewErrorMessage = nil
+                    }
+                }
+            )
+        ) {
+            Button("OK") {
+                model.reviewErrorMessage = nil
+            }
+        } message: {
+            Text(model.reviewErrorMessage ?? "")
+        }
+        .alert(
             "Workspace Updated",
             isPresented: Binding(
                 get: { model.workspaceMaintenanceMessage != nil },
@@ -226,6 +243,8 @@ struct WorkspaceRootView: View {
         case .loaded(let snapshot):
             if section == .transactions {
                 TransactionLedgerView(snapshot: snapshot, model: model)
+            } else if section == .review {
+                ReviewQueueView(snapshot: snapshot, model: model)
             } else if section == .settings {
                 SettingsView(model: model)
             } else {

@@ -39,6 +39,95 @@ func bootstrapCreatesSchemaAndReturnsEmptySummary() throws {
 }
 
 @Test
+func bootstrapSeedsDefaultBudgetCategories() throws {
+    let store = try WorkspaceStore.inMemory()
+
+    try store.bootstrap()
+    try store.bootstrap()
+
+    let categories = try store.fetchCategories()
+
+    #expect(categories.map(\.name) == [
+        "Account Transfer",
+        "Auto Insurance",
+        "Auto Maintenance",
+        "Cash Withdrawal",
+        "Clothing",
+        "Coffee & Snacks",
+        "Credit Card Payment",
+        "Dental",
+        "Education",
+        "Electricity",
+        "Electronics",
+        "Fees",
+        "Fitness",
+        "Flights",
+        "Games",
+        "Gas",
+        "Gas Utility",
+        "General Shopping",
+        "Gifts & Donations",
+        "Groceries",
+        "Hobbies",
+        "Home Goods",
+        "Home Insurance",
+        "Home Maintenance",
+        "Hotels",
+        "Interest",
+        "Internet",
+        "Medical",
+        "Movies & Events",
+        "Other Expense",
+        "Other Income",
+        "Parking & Tolls",
+        "Paycheck",
+        "Personal Care",
+        "Pharmacy",
+        "Phone",
+        "Property Tax",
+        "Public Transit",
+        "Refunds",
+        "Rent or Mortgage",
+        "Rental Cars",
+        "Restaurants",
+        "Savings Transfer",
+        "Streaming",
+        "Subscriptions",
+        "Taxes",
+        "Travel Meals",
+        "Uncategorized",
+        "Water",
+    ])
+    #expect(categories.filter { $0.kind == .income }.map(\.name) == [
+        "Interest",
+        "Other Income",
+        "Paycheck",
+        "Refunds",
+    ])
+    #expect(categories.filter { $0.kind == .transfer }.map(\.name) == [
+        "Account Transfer",
+        "Credit Card Payment",
+        "Savings Transfer",
+    ])
+}
+
+@Test
+func bootstrapDoesNotSeedDefaultBudgetCategoriesOverExistingCategories() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    var store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    try replaceSeededCategoriesWithCustomCategory(databaseURL: databaseURL)
+
+    store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let categories = try store.fetchCategories()
+
+    #expect(categories.map(\.name) == ["Custom Food"])
+    #expect(categories.map(\.kind) == [.expense])
+}
+
+@Test
 func createdAccountsAppearInSummaryAndFetchResults() throws {
     let store = try WorkspaceStore.inMemory()
     try store.bootstrap()
@@ -1334,6 +1423,24 @@ private func temporaryDirectoryURL() throws -> URL {
         .appending(path: "AlderwisePersistenceTests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory
+}
+
+private func replaceSeededCategoriesWithCustomCategory(databaseURL: URL) throws {
+    let groupID = UUID(uuidString: "00000000-0000-0000-0000-00000000c001")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-00000000c002")!
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(sql: "DELETE FROM categories")
+        try db.execute(sql: "DELETE FROM category_groups")
+        try db.execute(
+            sql: "INSERT INTO category_groups (id, name) VALUES (?, ?)",
+            arguments: [groupID.uuidString, "Custom"]
+        )
+        try db.execute(
+            sql: "INSERT INTO categories (id, name, kind, category_group_id) VALUES (?, ?, ?, ?)",
+            arguments: [categoryID.uuidString, "Custom Food", "expense", groupID.uuidString]
+        )
+    }
 }
 
 private func fetchReviewItemStatus(databaseURL: URL, reviewItemID: UUID) throws -> ReviewItemStatus? {
