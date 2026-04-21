@@ -25,7 +25,7 @@ private final class RecordingReviewQueueStore: @unchecked Sendable, ReviewQueueR
     )
     var approvedClassificationReviewItemID: UUID?
     var approvedAssignment: ClassificationAssignment?
-    var approvedCreateRule: Bool?
+    var approvedRuleLearning: ReviewRuleLearningOption?
 
     func fetchPendingReviewItems() throws -> [PendingReviewItem] {
         items
@@ -40,12 +40,12 @@ private final class RecordingReviewQueueStore: @unchecked Sendable, ReviewQueueR
     func approveClassificationReviewItem(
         id: UUID,
         assignment: ClassificationAssignment,
-        createRule: Bool,
+        ruleLearning: ReviewRuleLearningOption?,
         resolvedAt: Date
     ) throws -> ReviewDecisionEvent {
         approvedClassificationReviewItemID = id
         approvedAssignment = assignment
-        approvedCreateRule = createRule
+        approvedRuleLearning = ruleLearning
         self.resolvedAt = resolvedAt
         return returnedEvent
     }
@@ -106,13 +106,13 @@ func approveClassificationDelegatesToStoreAndReturnsDecisionEvent() throws {
     let event = try service.approveClassificationReviewItem(
         id: reviewItemID,
         assignment: assignment,
-        createRule: true,
+        ruleLearning: .exactNormalizedMerchant(pattern: "coffee shop"),
         resolvedAt: resolvedAt
     )
 
     #expect(store.approvedClassificationReviewItemID == reviewItemID)
     #expect(store.approvedAssignment == assignment)
-    #expect(store.approvedCreateRule == true)
+    #expect(store.approvedRuleLearning == .exactNormalizedMerchant(pattern: "coffee shop"))
     #expect(store.resolvedAt == resolvedAt)
     #expect(event == store.returnedEvent)
 }

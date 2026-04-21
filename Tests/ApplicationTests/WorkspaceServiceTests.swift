@@ -500,6 +500,61 @@ func stageCSVImportHonorsPersistedSuggestionPreference() throws {
 }
 
 @Test
+func stageCSVImportHonorsSeededHeuristicAutoAcceptPreference() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let classifier = ClassificationEngine(
+        heuristics: [
+            ClassificationHeuristic(
+                merchantPattern: "coffee",
+                categoryID: categoryID,
+                merchantName: "Coffee Shop"
+            ),
+        ]
+    )
+    let csv = """
+    Date,Description,Amount
+    2026-04-02,SQ *Coffee Shop,-5.25
+    """
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+    let aggressiveStore = MutableWorkspaceStore(accounts: [account])
+    let aggressiveService = WorkspaceService(store: aggressiveStore, classifier: classifier)
+
+    let aggressiveResult = try aggressiveService.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-april.csv",
+        csvText: csv
+    )
+
+    let conservativeStore = MutableWorkspaceStore(accounts: [account])
+    conservativeStore.preferences = WorkspacePreferences(
+        suggestionsEnabled: true,
+        seededHeuristicAutoAcceptEnabled: false
+    )
+    let conservativeService = WorkspaceService(store: conservativeStore, classifier: classifier)
+
+    let reviewResult = try conservativeService.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-april-review.csv",
+        csvText: csv
+    )
+
+    #expect(aggressiveResult.classifications.count == 1)
+    #expect(aggressiveResult.classifications[0].decision.isAutoAccepted)
+    #expect(aggressiveResult.classifications[0].decision.source == .heuristic)
+    #expect(reviewResult.classifications.count == 1)
+    #expect(reviewResult.classifications[0].decision.isAutoAccepted == false)
+    #expect(reviewResult.classifications[0].decision.source == .heuristic)
+}
+
+@Test
 func stageCSVImportTreatsRenamedExactReimportAsNoOp() throws {
     let account = Account(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
@@ -751,6 +806,10 @@ func stageCSVImportSummarySeparatesPendingClassificationReviewFromLikelyDuplicat
         ]
     )
     let store = MutableWorkspaceStore(accounts: [account])
+    store.preferences = WorkspacePreferences(
+        suggestionsEnabled: true,
+        seededHeuristicAutoAcceptEnabled: false
+    )
     let service = WorkspaceService(store: store, classifier: classifier)
     let csv = """
     Date,Description,Amount

@@ -241,7 +241,10 @@ func workspacePreferencesDefaultToSuggestionsEnabled() throws {
 
     let preferences = try store.fetchWorkspacePreferences()
 
-    #expect(preferences == WorkspacePreferences(suggestionsEnabled: true))
+    #expect(preferences == WorkspacePreferences(
+        suggestionsEnabled: true,
+        seededHeuristicAutoAcceptEnabled: true
+    ))
 }
 
 @Test
@@ -250,15 +253,34 @@ func workspacePreferencesRoundTripThroughSQLite() throws {
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
 
-    try store.updateWorkspacePreferences(WorkspacePreferences(suggestionsEnabled: false))
-    #expect(try store.fetchWorkspacePreferences() == WorkspacePreferences(suggestionsEnabled: false))
+    try store.updateWorkspacePreferences(
+        WorkspacePreferences(
+            suggestionsEnabled: false,
+            seededHeuristicAutoAcceptEnabled: false
+        )
+    )
+    #expect(try store.fetchWorkspacePreferences() == WorkspacePreferences(
+        suggestionsEnabled: false,
+        seededHeuristicAutoAcceptEnabled: false
+    ))
 
     let reopenedStore = try WorkspaceStore.at(databaseURL: databaseURL)
     try reopenedStore.bootstrap()
-    #expect(try reopenedStore.fetchWorkspacePreferences() == WorkspacePreferences(suggestionsEnabled: false))
+    #expect(try reopenedStore.fetchWorkspacePreferences() == WorkspacePreferences(
+        suggestionsEnabled: false,
+        seededHeuristicAutoAcceptEnabled: false
+    ))
 
-    try reopenedStore.updateWorkspacePreferences(WorkspacePreferences(suggestionsEnabled: true))
-    #expect(try store.fetchWorkspacePreferences() == WorkspacePreferences(suggestionsEnabled: true))
+    try reopenedStore.updateWorkspacePreferences(
+        WorkspacePreferences(
+            suggestionsEnabled: true,
+            seededHeuristicAutoAcceptEnabled: true
+        )
+    )
+    #expect(try store.fetchWorkspacePreferences() == WorkspacePreferences(
+        suggestionsEnabled: true,
+        seededHeuristicAutoAcceptEnabled: true
+    ))
 }
 
 @Test
@@ -1240,7 +1262,7 @@ func approveClassificationReviewItemResolvesReviewAndPersistsLearnedRule() throw
             categoryID: categoryID,
             merchantName: "Coffee Shop"
         ),
-        createRule: true,
+        ruleLearning: .exactNormalizedMerchant(pattern: "coffee shop"),
         resolvedAt: resolvedAt
     )
 
@@ -1253,6 +1275,7 @@ func approveClassificationReviewItemResolvesReviewAndPersistsLearnedRule() throw
     #expect(rules[0].merchantPattern == "coffee shop")
     #expect(rules[0].categoryID == categoryID)
     #expect(rules[0].merchantName == "Coffee Shop")
+    #expect(rules[0].matchKind == .exactNormalizedMerchant)
 }
 
 @Test
@@ -1308,7 +1331,7 @@ func approveClassificationReviewItemUpdatesLinkedTransaction() throws {
     _ = try store.approveClassificationReviewItem(
         id: reviewItem.id,
         assignment: ClassificationAssignment(categoryID: categoryID, merchantName: "Coffee Shop"),
-        createRule: false,
+        ruleLearning: nil,
         resolvedAt: Date(timeIntervalSince1970: 1_775_200_000)
     )
     let row = try #require(try store.fetchTransactionLedger(filter: .empty).first)
@@ -1317,6 +1340,64 @@ func approveClassificationReviewItemUpdatesLinkedTransaction() throws {
     #expect(row.categoryID == categoryID)
     #expect(row.categoryName == "Coffee")
     #expect(row.merchantName == "Coffee Shop")
+}
+
+@Test
+func approveClassificationReviewItemCanPersistPrefixRule() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Charity", kind: "expense")
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","99PLEDG*ONIR BAWEJA","-25.00"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "99pledg onir baweja"
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+    let reviewItemID = try #require(try store.fetchPendingReviewItems().first?.id)
+
+    _ = try store.approveClassificationReviewItem(
+        id: reviewItemID,
+        assignment: ClassificationAssignment(categoryID: categoryID, merchantName: "99Pledg"),
+        ruleLearning: .prefixNormalizedMerchant(pattern: "99pledg"),
+        resolvedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    let rules = try store.fetchClassificationRules()
+    #expect(rules.count == 1)
+    #expect(rules[0].merchantPattern == "99pledg")
+    #expect(rules[0].matchKind == .prefixNormalizedMerchant)
+    #expect(rules[0].merchantName == "99Pledg")
 }
 
 @Test
@@ -1337,6 +1418,29 @@ func fetchClassificationRulesIgnoresRulesWithoutCategory() throws {
     let rules = try store.fetchClassificationRules()
 
     #expect(rules.isEmpty)
+}
+
+@Test
+func fetchClassificationRulesDefaultsLegacyRulesToContainsMatchKind() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    try insertRule(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000222")!,
+        pattern: "coffee",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    let rules = try store.fetchClassificationRules()
+
+    #expect(rules.count == 1)
+    #expect(rules[0].matchKind == .contains)
 }
 
 @Test

@@ -3,6 +3,7 @@ import Foundation
 import GRDB
 
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
+private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
 public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetWriting, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
@@ -113,6 +114,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 table.column("pattern", .text).notNull()
                 table.column("category_id", .text).references("categories", onDelete: .setNull)
                 table.column("merchant_name", .text)
+                table.column("match_kind", .text).notNull().defaults(to: ClassificationRuleMatchKind.contains.rawValue)
                 table.column("created_at", .datetime).notNull()
             }
 
@@ -312,6 +314,38 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 VALUES (?, ?)
                 """,
                 arguments: [workspacePreferenceSuggestionsEnabledKey, "true"]
+            )
+        }
+        migrator.registerMigration("add-rule-match-kind") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            guard try db.tableExists("rules") else {
+                return
+            }
+
+            let ruleColumns = try columnNames(in: "rules", db: db)
+            if !ruleColumns.contains("match_kind") {
+                try db.execute(
+                    sql: """
+                    ALTER TABLE rules
+                    ADD COLUMN match_kind TEXT NOT NULL DEFAULT 'contains'
+                    """
+                )
+            }
+        }
+        migrator.registerMigration("add-seeded-heuristic-auto-accept-preference") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            guard try db.tableExists("workspace_preferences") else {
+                return
+            }
+
+            try db.execute(
+                sql: """
+                INSERT OR IGNORE INTO workspace_preferences (key, value)
+                VALUES (?, ?)
+                """,
+                arguments: [workspacePreferenceSeededHeuristicAutoAcceptEnabledKey, "true"]
             )
         }
         migrator.registerMigration("accept-user-categorized-pending-transactions") { db in
@@ -750,7 +784,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
     public func approveClassificationReviewItem(
         id: UUID,
         assignment: ClassificationAssignment,
-        createRule: Bool,
+        ruleLearning: ReviewRuleLearningOption?,
         resolvedAt: Date
     ) throws -> ReviewDecisionEvent {
         try databaseQueue.write { db in
@@ -788,9 +822,17 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 row["normalized_merchant_name"],
                 field: "review_items.normalized_merchant_name"
             )
-            let details = createRule
-                ? "User approved classification and created a merchant rule."
-                : "User approved classification without creating a merchant rule."
+            let details: String
+            if let ruleLearning {
+                switch ruleLearning {
+                case .exactNormalizedMerchant:
+                    details = "User approved classification and created an exact merchant rule."
+                case .prefixNormalizedMerchant:
+                    details = "User approved classification and created a shared-prefix merchant rule."
+                }
+            } else {
+                details = "User approved classification without creating a merchant rule."
+            }
             let event = ReviewDecisionEvent(
                 id: UUID(),
                 reviewItemID: id,
@@ -831,17 +873,18 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 )
             }
 
-            if createRule {
+            if let ruleLearning {
                 try db.execute(
                     sql: """
-                    INSERT INTO rules (id, pattern, category_id, merchant_name, created_at)
-                    VALUES (?, ?, ?, ?, ?)
+                    INSERT INTO rules (id, pattern, category_id, merchant_name, match_kind, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     arguments: [
                         UUID().uuidString,
-                        merchantPattern,
+                        ruleLearning.pattern.nilIfEmpty ?? merchantPattern,
                         assignment.categoryID.uuidString,
                         assignment.merchantName,
+                        ruleLearning.matchKind.rawValue,
                         resolvedAt,
                     ]
                 )
@@ -879,6 +922,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 db,
                 sql: """
                 SELECT rules.id, rules.pattern, rules.category_id, rules.merchant_name
+                , rules.match_kind
                 FROM rules
                 JOIN categories ON categories.id = rules.category_id
                 ORDER BY rules.created_at ASC, rules.id ASC
@@ -895,12 +939,17 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 guard let categoryID = UUID(uuidString: categoryIDText) else {
                     throw WorkspaceStoreError.invalidStoredReviewItem(field: "rules.category_id", value: categoryIDText)
                 }
+                let matchKindText = (row["match_kind"] as String?) ?? ClassificationRuleMatchKind.contains.rawValue
+                guard let matchKind = ClassificationRuleMatchKind(rawValue: matchKindText) else {
+                    throw WorkspaceStoreError.invalidStoredReviewItem(field: "rules.match_kind", value: matchKindText)
+                }
 
                 return ClassificationRule(
                     id: ruleID,
                     merchantPattern: row["pattern"],
                     categoryID: categoryID,
-                    merchantName: row["merchant_name"]
+                    merchantName: row["merchant_name"],
+                    matchKind: matchKind
                 )
             }
         }
@@ -1012,7 +1061,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
 
     public func fetchWorkspacePreferences() throws -> WorkspacePreferences {
         try databaseQueue.read { db in
-            let rawValue = try String.fetchOne(
+            let suggestionsEnabled = try String.fetchOne(
                 db,
                 sql: """
                 SELECT value
@@ -1021,8 +1070,20 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 """,
                 arguments: [workspacePreferenceSuggestionsEnabledKey]
             ) ?? "true"
+            let seededHeuristicAutoAcceptEnabled = try String.fetchOne(
+                db,
+                sql: """
+                SELECT value
+                FROM workspace_preferences
+                WHERE key = ?
+                """,
+                arguments: [workspacePreferenceSeededHeuristicAutoAcceptEnabledKey]
+            ) ?? "true"
 
-            return WorkspacePreferences(suggestionsEnabled: rawValue == "true")
+            return WorkspacePreferences(
+                suggestionsEnabled: suggestionsEnabled == "true",
+                seededHeuristicAutoAcceptEnabled: seededHeuristicAutoAcceptEnabled == "true"
+            )
         }
     }
 
@@ -1037,6 +1098,17 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 arguments: [
                     workspacePreferenceSuggestionsEnabledKey,
                     preferences.suggestionsEnabled ? "true" : "false",
+                ]
+            )
+            try db.execute(
+                sql: """
+                INSERT INTO workspace_preferences (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                arguments: [
+                    workspacePreferenceSeededHeuristicAutoAcceptEnabledKey,
+                    preferences.seededHeuristicAutoAcceptEnabled ? "true" : "false",
                 ]
             )
         }

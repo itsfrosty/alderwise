@@ -112,7 +112,7 @@ public struct WorkspaceService: Sendable {
     public func approveClassificationReviewItem(
         id: UUID,
         assignment: ClassificationAssignment,
-        createRule: Bool,
+        ruleLearning: ReviewRuleLearningOption?,
         resolvedAt: Date = Date()
     ) throws {
         guard let writer = store as? any ReviewQueueWriting else {
@@ -121,7 +121,7 @@ public struct WorkspaceService: Sendable {
         _ = try writer.approveClassificationReviewItem(
             id: id,
             assignment: assignment,
-            createRule: createRule,
+            ruleLearning: ruleLearning,
             resolvedAt: resolvedAt
         )
     }
@@ -376,9 +376,10 @@ public struct WorkspaceService: Sendable {
     private func effectiveClassifier() throws -> ClassificationEngine {
         var effectiveClassifier = classifier
         if let preferencesReader = store as? any WorkspacePreferencesManaging {
-            effectiveClassifier = try effectiveClassifier.settingSuggestionsEnabled(
-                preferencesReader.fetchWorkspacePreferences().suggestionsEnabled
-            )
+            let preferences = try preferencesReader.fetchWorkspacePreferences()
+            effectiveClassifier = effectiveClassifier
+                .settingSuggestionsEnabled(preferences.suggestionsEnabled)
+                .settingSeededHeuristicAutoAcceptEnabled(preferences.seededHeuristicAutoAcceptEnabled)
         }
         guard let ruleReader = store as? any ClassificationRuleReading else {
             return effectiveClassifier

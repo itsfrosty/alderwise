@@ -47,11 +47,11 @@ struct ReviewQueueView: View {
                 item: selectedItem,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
-                onApproveClassification: { item, assignment, createRule in
+                onApproveClassification: { item, assignment, ruleLearning in
                     let didResolve = model.approveClassificationReviewItem(
                         id: item.id,
                         assignment: assignment,
-                        createRule: createRule
+                        ruleLearning: ruleLearning
                     )
                     if didResolve {
                         selectNextItem(after: item.id)
@@ -172,11 +172,12 @@ private struct ReviewQueueDetail: View {
     let item: PendingReviewItem?
     let categories: [BudgetCategory]
     let categoryGroups: [BudgetCategoryGroup]
-    var onApproveClassification: (PendingReviewItem, ClassificationAssignment, Bool) -> Void
+    var onApproveClassification: (PendingReviewItem, ClassificationAssignment, ReviewRuleLearningOption?) -> Void
     var onKeepBoth: (PendingReviewItem) -> Void
     @State private var selectedCategoryID: UUID?
     @State private var merchantName = ""
     @State private var createRule = true
+    @State private var selectedRuleLearning: ReviewRuleLearningOption?
 
     var body: some View {
         Group {
@@ -233,7 +234,9 @@ private struct ReviewQueueDetail: View {
     }
 
     private func classificationControls(for item: PendingReviewItem) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let learningOptions = ruleLearningOptions(for: item)
+
+        return VStack(alignment: .leading, spacing: 12) {
             TextField("Merchant", text: $merchantName)
             GroupedCategoryPicker(
                 title: "Category",
@@ -243,6 +246,18 @@ private struct ReviewQueueDetail: View {
                 selection: $selectedCategoryID
             )
             Toggle("Learn this merchant rule", isOn: $createRule)
+            if createRule, learningOptions.count > 1 {
+                Picker("Learn As", selection: $selectedRuleLearning) {
+                    ForEach(learningOptions, id: \.self) { option in
+                        Text(optionPickerLabel(option)).tag(Optional(option))
+                    }
+                }
+                if let selectedRuleLearning {
+                    Text(selectedRuleLearning.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
             Button("Approve Category") {
                 guard let selectedCategoryID else {
                     return
@@ -253,7 +268,7 @@ private struct ReviewQueueDetail: View {
                         categoryID: selectedCategoryID,
                         merchantName: merchantName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                     ),
-                    createRule
+                    createRule ? resolvedRuleLearning(for: item) : nil
                 )
             }
             .buttonStyle(.borderedProminent)
@@ -268,6 +283,32 @@ private struct ReviewQueueDetail: View {
             ?? item.classification?.normalizedMerchantName
             ?? ""
         createRule = true
+        selectedRuleLearning = ReviewRuleLearningOption.defaultOption(
+            forNormalizedMerchantName: item.classification?.normalizedMerchantName ?? ""
+        )
+    }
+
+    private func ruleLearningOptions(for item: PendingReviewItem) -> [ReviewRuleLearningOption] {
+        ReviewRuleLearningOption.options(
+            forNormalizedMerchantName: item.classification?.normalizedMerchantName ?? ""
+        )
+    }
+
+    private func resolvedRuleLearning(for item: PendingReviewItem) -> ReviewRuleLearningOption? {
+        selectedRuleLearning
+            ?? ReviewRuleLearningOption.defaultOption(
+                forNormalizedMerchantName: item.classification?.normalizedMerchantName ?? ""
+            )
+            ?? ruleLearningOptions(for: item).first
+    }
+
+    private func optionPickerLabel(_ option: ReviewRuleLearningOption) -> String {
+        switch option {
+        case .exactNormalizedMerchant(let pattern):
+            "Exact: \(pattern)"
+        case .prefixNormalizedMerchant(let pattern):
+            "Shared prefix: \(pattern)"
+        }
     }
 }
 

@@ -1,4 +1,5 @@
 import Application
+import Domain
 import Persistence
 
 struct AppServices {
@@ -12,7 +13,10 @@ struct AppServices {
 
         return AppServices(
             store: store,
-            workspaceService: WorkspaceService(store: store),
+            workspaceService: WorkspaceService(
+                store: store,
+                classifier: SeededClassification.liveClassifier()
+            ),
             csvImportPreviewService: CSVImportPreviewService()
         )
     }

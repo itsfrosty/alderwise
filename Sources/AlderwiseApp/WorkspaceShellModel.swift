@@ -117,7 +117,27 @@ final class WorkspaceShellModel: ObservableObject {
         }
 
         do {
-            let preferences = WorkspacePreferences(suggestionsEnabled: isEnabled)
+            let preferences = WorkspacePreferences(
+                suggestionsEnabled: isEnabled,
+                seededHeuristicAutoAcceptEnabled: workspacePreferences.seededHeuristicAutoAcceptEnabled
+            )
+            try service.updateWorkspacePreferences(preferences)
+            workspacePreferences = preferences
+        } catch {
+            workspaceMaintenanceErrorMessage = error.localizedDescription
+        }
+    }
+
+    func updateSeededHeuristicAutoAcceptEnabled(_ isEnabled: Bool) {
+        guard let service else {
+            return
+        }
+
+        do {
+            let preferences = WorkspacePreferences(
+                suggestionsEnabled: workspacePreferences.suggestionsEnabled,
+                seededHeuristicAutoAcceptEnabled: isEnabled
+            )
             try service.updateWorkspacePreferences(preferences)
             workspacePreferences = preferences
         } catch {
@@ -247,7 +267,7 @@ final class WorkspaceShellModel: ObservableObject {
     func approveClassificationReviewItem(
         id: UUID,
         assignment: ClassificationAssignment,
-        createRule: Bool
+        ruleLearning: ReviewRuleLearningOption?
     ) -> Bool {
         guard let service else {
             return false
@@ -257,7 +277,7 @@ final class WorkspaceShellModel: ObservableObject {
             try service.approveClassificationReviewItem(
                 id: id,
                 assignment: assignment,
-                createRule: createRule
+                ruleLearning: ruleLearning
             )
             reload()
             return true

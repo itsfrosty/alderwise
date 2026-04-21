@@ -133,6 +133,171 @@ func heuristicPrefillsButDoesNotAutoAccept() {
 }
 
 @Test
+func heuristicCanAutoAcceptWhenAggressivePolicyIsEnabled() {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let engine = ClassificationEngine(
+        heuristics: [
+            ClassificationHeuristic(
+                merchantPattern: "coffee",
+                categoryID: categoryID,
+                merchantName: "Coffee Shop"
+            ),
+        ],
+        seededHeuristicAutoAcceptEnabled: true
+    )
+
+    let decision = engine.classify(candidate: coffeeCandidate())
+
+    #expect(decision == .autoAccepted(
+        assignment: ClassificationAssignment(
+            categoryID: categoryID,
+            merchantName: "Coffee Shop"
+        ),
+        source: .heuristic,
+        sourceReference: nil,
+        confidence: 0.65,
+        reason: "Aggressive seeded heuristic matched."
+    ))
+}
+
+@Test
+func exactRulesMatchOnlyExactNormalizedMerchantNames() {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let engine = ClassificationEngine(
+        explicitRules: [
+            ClassificationRule(
+                merchantPattern: "coffee shop",
+                categoryID: categoryID,
+                merchantName: "Coffee Shop",
+                matchKind: .exactNormalizedMerchant
+            ),
+        ]
+    )
+
+    let exactDecision = engine.classify(candidate: coffeeCandidate())
+    let nonExactDecision = engine.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "row-2",
+            sourceLineNumber: 3,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_260),
+            rawDescription: "Coffee Shop Downtown",
+            normalizedMerchantName: "coffee shop downtown",
+            amount: Decimal(-7.25)
+        )
+    )
+
+    #expect(exactDecision.isAutoAccepted)
+    #expect(nonExactDecision == .reviewRequired(
+        prefill: nil,
+        source: nil,
+        sourceReference: nil,
+        confidence: nil,
+        reason: "No classification matched."
+    ))
+}
+
+@Test
+func prefixRulesMatchSharedMerchantFamilyAtTheStartOnly() {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let engine = ClassificationEngine(
+        explicitRules: [
+            ClassificationRule(
+                merchantPattern: "99pledg",
+                categoryID: categoryID,
+                merchantName: "Pledge",
+                matchKind: .prefixNormalizedMerchant
+            ),
+        ]
+    )
+
+    let prefixDecision = engine.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "row-prefix",
+            sourceLineNumber: 2,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+            rawDescription: "99PLEDG*ONIR BAWEJA",
+            normalizedMerchantName: "99pledg onir baweja",
+            amount: Decimal(-25)
+        )
+    )
+    let nonPrefixDecision = engine.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "row-non-prefix",
+            sourceLineNumber: 3,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_260),
+            rawDescription: "ONIR BAWEJA 99PLEDG",
+            normalizedMerchantName: "onir baweja 99pledg",
+            amount: Decimal(-25)
+        )
+    )
+
+    #expect(prefixDecision.isAutoAccepted)
+    #expect(nonPrefixDecision == .reviewRequired(
+        prefill: nil,
+        source: nil,
+        sourceReference: nil,
+        confidence: nil,
+        reason: "No classification matched."
+    ))
+}
+
+@Test
+func patternLikeMerchantsOfferExactAndPrefixLearningOptions() {
+    let options = ReviewRuleLearningOption.options(forNormalizedMerchantName: "99pledg onir baweja")
+
+    #expect(options == [
+        .exactNormalizedMerchant(pattern: "99pledg onir baweja"),
+        .prefixNormalizedMerchant(pattern: "99pledg"),
+    ])
+    #expect(
+        ReviewRuleLearningOption.defaultOption(forNormalizedMerchantName: "99pledg onir baweja")
+            == .prefixNormalizedMerchant(pattern: "99pledg")
+    )
+}
+
+@Test
+func ordinaryMerchantsOnlyOfferExactLearning() {
+    let options = ReviewRuleLearningOption.options(forNormalizedMerchantName: "dishdash 408 7741889 ca")
+
+    #expect(options == [
+        .exactNormalizedMerchant(pattern: "dishdash 408 7741889 ca"),
+    ])
+    #expect(
+        ReviewRuleLearningOption.defaultOption(forNormalizedMerchantName: "dishdash 408 7741889 ca")
+            == .exactNormalizedMerchant(pattern: "dishdash 408 7741889 ca")
+    )
+}
+
+@Test
+func appendedRulesTakePrecedenceOverSeededRules() {
+    let seededCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let learnedCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let engine = ClassificationEngine(
+        explicitRules: [
+            ClassificationRule(
+                merchantPattern: "coffee shop",
+                categoryID: seededCategoryID,
+                merchantName: "Seeded Coffee",
+                matchKind: .exactNormalizedMerchant
+            ),
+        ]
+    )
+    .appendingExplicitRules([
+        ClassificationRule(
+            merchantPattern: "coffee shop",
+            categoryID: learnedCategoryID,
+            merchantName: "Learned Coffee",
+            matchKind: .exactNormalizedMerchant
+        ),
+    ])
+
+    let decision = engine.classify(candidate: coffeeCandidate())
+
+    #expect(decision.assignment?.categoryID == learnedCategoryID)
+    #expect(decision.assignment?.merchantName == "Learned Coffee")
+}
+
+@Test
 func highConfidenceSuggestionAutoAcceptsOnlyWithPriorHistoryAndNoDuplicateConcern() {
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let provider = FixedSuggestionProvider(
@@ -261,4 +426,85 @@ private struct FixedSuggestionProvider: SuggestionProvider {
     func suggestion(for candidate: NormalizedImportCandidate) -> ClassificationSuggestion? {
         suggestion
     }
+}
+
+@Test
+func seededClassifierMatchesRepresentativeSampleMerchants() {
+    let classifier = SeededClassification.liveClassifier()
+    let cases: [(String, UUID)] = [
+        ("VENMO            PAYMENT    1049657853223   WEB ID: 3264681992", DefaultBudgetTaxonomy.CategoryID.transfers),
+        ("CONNECTYOURCARE  OPTUMCLAIM                 PPD ID: 7261274092", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy),
+        ("IRS              USATAXPYMT 240650542279973 WEB ID: 3387702000", DefaultBudgetTaxonomy.CategoryID.taxes),
+        ("PGANDE           WEB ONLINE 69773024032626  WEB ID: 5940742640", DefaultBudgetTaxonomy.CategoryID.utilities),
+        ("DISHDASH 408-7741889 CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
+        ("AUTOPAY 999990000061865RAUTOPAY AUTO-PMT", DefaultBudgetTaxonomy.CategoryID.transfers),
+        ("KHANS KARAHI KABOB (WA 165-06819470 CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
+        ("MERIT VEGAN RESTAURANT Sunnyvale CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
+        ("HAPPY SUSHI SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
+        ("SQ *TOBANG KOREAN BBQ SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
+        ("SRI ANANDABHAVAN SUNNYVALE CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
+        ("WALMART.COM WALMART.COM AR", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing),
+        ("FLAGSTAR BANK TROY MI", DefaultBudgetTaxonomy.CategoryID.rentAndMortgage),
+        ("TAJ MAHAL SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
+        ("PAMF 2441 MISSION CO M SANTA CLARA CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy),
+        ("CHAVEZ SUPERMARKET SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.groceries),
+        ("FRANCHISE TAX BO PAYMENTS   129035404    PM WEB ID: 1282532045", DefaultBudgetTaxonomy.CategoryID.taxes),
+        ("BITES* CHAAT BHAVAN EX WWW.DELIVERYCCA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars),
+    ]
+
+    for (index, testCase) in cases.enumerated() {
+        let decision = classifier.classify(
+            candidate: NormalizedImportCandidate(
+                rowHash: "sample-\(index)",
+                sourceLineNumber: index + 2,
+                transactionDate: Date(timeIntervalSince1970: 1_775_171_200 + Double(index)),
+                rawDescription: testCase.0,
+                normalizedMerchantName: MerchantNormalizer().normalize(testCase.0),
+                amount: Decimal(-10)
+            )
+        )
+
+        #expect(decision.isAutoAccepted)
+        #expect(decision.assignment?.categoryID == testCase.1)
+    }
+}
+
+@Test
+func specificSeededRulesBeatBroaderMerchantRules() {
+    let classifier = SeededClassification.liveClassifier()
+
+    let costcoRxDecision = classifier.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "costco-rx",
+            sourceLineNumber: 2,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+            rawDescription: "COSTCO RX #0423 7144342702 CA",
+            normalizedMerchantName: MerchantNormalizer().normalize("COSTCO RX #0423 7144342702 CA"),
+            amount: Decimal(-12.34)
+        )
+    )
+    let walmartComDecision = classifier.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "walmart-com",
+            sourceLineNumber: 3,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_260),
+            rawDescription: "WALMART.COM WALMART.COM AR",
+            normalizedMerchantName: MerchantNormalizer().normalize("WALMART.COM WALMART.COM AR"),
+            amount: Decimal(-2.53)
+        )
+    )
+    let walmartStoreDecision = classifier.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "wal-mart-store",
+            sourceLineNumber: 4,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_320),
+            rawDescription: "WAL-MART #3123 SANTA CLARA CA",
+            normalizedMerchantName: MerchantNormalizer().normalize("WAL-MART #3123 SANTA CLARA CA"),
+            amount: Decimal(-75.20)
+        )
+    )
+
+    #expect(costcoRxDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy)
+    #expect(walmartComDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing)
+    #expect(walmartStoreDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.groceries)
 }

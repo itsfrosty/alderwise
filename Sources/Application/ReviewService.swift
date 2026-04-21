@@ -25,7 +25,7 @@ public struct ReviewService: Sendable {
     public func approveClassificationReviewItem(
         id: UUID,
         assignment: ClassificationAssignment,
-        createRule: Bool,
+        ruleLearning: ReviewRuleLearningOption?,
         resolvedAt: Date = Date()
     ) throws -> ReviewDecisionEvent {
         guard let writer else {
@@ -35,7 +35,7 @@ public struct ReviewService: Sendable {
         return try writer.approveClassificationReviewItem(
             id: id,
             assignment: assignment,
-            createRule: createRule,
+            ruleLearning: ruleLearning,
             resolvedAt: resolvedAt
         )
     }

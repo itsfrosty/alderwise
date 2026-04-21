@@ -59,9 +59,14 @@ public protocol WorkspaceMaintenanceManaging: Sendable {
 
 public struct WorkspacePreferences: Equatable, Sendable {
     public var suggestionsEnabled: Bool
+    public var seededHeuristicAutoAcceptEnabled: Bool
 
-    public init(suggestionsEnabled: Bool = true) {
+    public init(
+        suggestionsEnabled: Bool = true,
+        seededHeuristicAutoAcceptEnabled: Bool = true
+    ) {
         self.suggestionsEnabled = suggestionsEnabled
+        self.seededHeuristicAutoAcceptEnabled = seededHeuristicAutoAcceptEnabled
     }
 
     public static let `default` = WorkspacePreferences()

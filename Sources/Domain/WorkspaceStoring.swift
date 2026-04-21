@@ -37,7 +37,7 @@ public protocol ReviewQueueWriting: Sendable {
     func approveClassificationReviewItem(
         id: UUID,
         assignment: ClassificationAssignment,
-        createRule: Bool,
+        ruleLearning: ReviewRuleLearningOption?,
         resolvedAt: Date
     ) throws -> ReviewDecisionEvent
 }

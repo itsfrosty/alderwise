@@ -73,8 +73,25 @@ struct SettingsView: View {
                 )
             )
 
+            Toggle(
+                "Auto-accept seeded heuristic matches",
+                isOn: Binding(
+                    get: { model.workspacePreferences.seededHeuristicAutoAcceptEnabled },
+                    set: { model.updateSeededHeuristicAutoAcceptEnabled($0) }
+                )
+            )
+
             LabeledContent("Local suggestion layer", value: model.workspacePreferences.suggestionsEnabled ? "Enabled" : "Disabled")
-            LabeledContent("Import behavior", value: model.workspacePreferences.suggestionsEnabled ? "Rules, heuristics, and suggestions" : "Rules and heuristics only")
+            LabeledContent(
+                "Starter auto-accept",
+                value: model.workspacePreferences.seededHeuristicAutoAcceptEnabled ? "Seeded rules and heuristics" : "Seeded rules only"
+            )
+            LabeledContent(
+                "Import behavior",
+                value: model.workspacePreferences.suggestionsEnabled
+                    ? "Rules, heuristics, and suggestions"
+                    : "Rules and heuristics only"
+            )
         }
     }
 

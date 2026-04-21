@@ -56,7 +56,7 @@ func reviewCompletionWorkflowLearnsRuleForLaterImports() throws {
     try service.approveClassificationReviewItem(
         id: reviewItem.id,
         assignment: ClassificationAssignment(categoryID: category.id, merchantName: "Coffee Stand"),
-        createRule: true,
+        ruleLearning: .exactNormalizedMerchant(pattern: "sq coffee stand"),
         resolvedAt: Date(timeIntervalSince1970: 1_775_171_260)
     )
     let afterApproval = try service.loadSnapshot()
