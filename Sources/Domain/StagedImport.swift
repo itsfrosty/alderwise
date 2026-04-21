@@ -19,6 +19,7 @@ public struct StagedSourceRowDraft: Equatable, Sendable {
     public var importDecision: ImportRowDecision
     public var classification: TransactionClassificationDecision?
     public var normalizedMerchantName: String?
+    public var transaction: StagedTransactionDraft?
 
     public init(
         sourceLineNumber: Int,
@@ -27,7 +28,8 @@ public struct StagedSourceRowDraft: Equatable, Sendable {
         validationStatus: StagedSourceRowValidationStatus,
         importDecision: ImportRowDecision = .imported(reason: "New source row."),
         classification: TransactionClassificationDecision? = nil,
-        normalizedMerchantName: String? = nil
+        normalizedMerchantName: String? = nil,
+        transaction: StagedTransactionDraft? = nil
     ) {
         self.sourceLineNumber = sourceLineNumber
         self.rawPayload = rawPayload
@@ -36,6 +38,26 @@ public struct StagedSourceRowDraft: Equatable, Sendable {
         self.importDecision = importDecision
         self.classification = classification
         self.normalizedMerchantName = normalizedMerchantName
+        self.transaction = transaction
+    }
+}
+
+public struct StagedTransactionDraft: Equatable, Sendable {
+    public var transactionDate: Date
+    public var rawDescription: String
+    public var normalizedMerchantName: String
+    public var amount: Decimal
+
+    public init(
+        transactionDate: Date,
+        rawDescription: String,
+        normalizedMerchantName: String,
+        amount: Decimal
+    ) {
+        self.transactionDate = transactionDate
+        self.rawDescription = rawDescription
+        self.normalizedMerchantName = normalizedMerchantName
+        self.amount = amount
     }
 }
 

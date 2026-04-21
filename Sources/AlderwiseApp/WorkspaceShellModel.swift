@@ -198,6 +198,7 @@ final class WorkspaceShellModel: ObservableObject {
                 csvText: pendingCSVImport.csvText
             )
             dismissCSVImportPreview()
+            reload()
             switch result.outcome {
             case .staged:
                 importResultMessage = "\(result.summary.importedRowCount) rows staged. \(result.summary.flaggedDuplicateRowCount) likely duplicates flagged."

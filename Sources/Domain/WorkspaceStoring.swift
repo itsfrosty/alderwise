@@ -55,6 +55,10 @@ public protocol TransactionLedgerReading: Sendable {
     func fetchTransactionImportOrigins() throws -> [TransactionImportOrigin]
 }
 
+public protocol ReportingReading: Sendable {
+    func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport
+}
+
 public protocol TransactionLedgerWriting: Sendable {
     func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws
 }

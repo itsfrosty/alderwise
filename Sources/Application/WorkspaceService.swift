@@ -68,12 +68,14 @@ public struct WorkspaceService: Sendable {
 
     public func loadSnapshot(filter: TransactionLedgerFilter = .empty) throws -> WorkspaceSnapshot {
         let ledgerReader = store as? any TransactionLedgerReading
+        let reportingReader = store as? any ReportingReading
         return WorkspaceSnapshot(
             summary: try store.fetchSummary(),
             accounts: try store.fetchAccounts(),
             categories: try store.fetchCategories(),
             transactions: try ledgerReader?.fetchTransactionLedger(filter: filter) ?? [],
-            transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? []
+            transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
+            monthlyReport: try reportingReader?.fetchMonthlyReport(referenceDate: .now) ?? .empty
         )
     }
 
@@ -197,6 +199,20 @@ public struct WorkspaceService: Sendable {
             normalizedRows.map { ($0.rowHash, $0.normalizedMerchantName) },
             uniquingKeysWith: { first, _ in first }
         )
+        let transactionDraftByRowHash = Dictionary(
+            normalizedRows.map { normalizedRow in
+                (
+                    normalizedRow.rowHash,
+                    StagedTransactionDraft(
+                        transactionDate: normalizedRow.transactionDate,
+                        rawDescription: normalizedRow.rawDescription,
+                        normalizedMerchantName: normalizedRow.normalizedMerchantName,
+                        amount: normalizedRow.amount
+                    )
+                )
+            },
+            uniquingKeysWith: { first, _ in first }
+        )
 
         var remainingSkippedRows = skippedRows
         let rows = rowIdentities.map { rowIdentity in
@@ -221,7 +237,8 @@ public struct WorkspaceService: Sendable {
                 validationStatus: .valid,
                 importDecision: decision,
                 classification: classificationByRowHash[rowIdentity.rowHash]?.decision,
-                normalizedMerchantName: normalizedMerchantByRowHash[rowIdentity.rowHash]
+                normalizedMerchantName: normalizedMerchantByRowHash[rowIdentity.rowHash],
+                transaction: transactionDraftByRowHash[rowIdentity.rowHash]
             )
         }
         let decisions = rows.map(\.importDecision)

@@ -307,6 +307,108 @@ func fetchPendingReviewItemsReturnsLikelyDuplicateSourceRowContext() throws {
 }
 
 @Test
+func stagedImportedRowsCreateLedgerTransactions() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+
+    let session = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","SQ *Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .autoAccepted(
+                        assignment: ClassificationAssignment(categoryID: categoryID, merchantName: "Coffee Shop"),
+                        source: .rule,
+                        sourceReference: "rule-123",
+                        confidence: 1.0,
+                        reason: "Matched explicit merchant rule."
+                    ),
+                    normalizedMerchantName: "coffee shop",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+                        rawDescription: "SQ *Coffee Shop",
+                        normalizedMerchantName: "coffee shop",
+                        amount: Decimal(-4.75)
+                    )
+                ),
+                StagedSourceRowDraft(
+                    sourceLineNumber: 3,
+                    rawPayload: #"["2026-04-02","Unknown Store","-8.25"]"#,
+                    rowHash: "row-2-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "unknown store",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+                        rawDescription: "Unknown Store",
+                        normalizedMerchantName: "unknown store",
+                        amount: Decimal(-8.25)
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 2,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let rows = try store.fetchTransactionLedger(filter: .empty)
+
+    #expect(session.id == rows[0].importOrigin?.id)
+    #expect(rows.map(\.rawDescription) == ["Unknown Store", "SQ *Coffee Shop"])
+    #expect(rows.map(\.reviewStatus) == [.pending, .accepted])
+    #expect(rows[1].categoryID == categoryID)
+    #expect(rows[1].categoryName == "Coffee")
+    #expect(rows[1].merchantName == "Coffee Shop")
+}
+
+@Test
+func bootstrapBackfillsLedgerTransactionsForLegacyStagedImports() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000801")!
+    try createWorkspaceWithLegacyStagedImportMissingDecisionColumns(at: databaseURL, accountID: accountID)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+    let rows = try store.fetchTransactionLedger(filter: .empty)
+
+    #expect(rows.map(\.rawDescription) == [
+        "SRI ANANDABHAVAN SUNNYVALE CA null XXXXXXXXXXXX3969",
+        "WALMART.COM WALMART.COM AR",
+    ])
+    let amounts = rows.map { NSDecimalNumber(decimal: $0.amount).doubleValue }
+    #expect(abs(amounts[0] - -34.48) < 0.000001)
+    #expect(abs(amounts[1] - -2.53) < 0.000001)
+    #expect(rows.map(\.reviewStatus) == [.pending, .pending])
+    #expect(rows.allSatisfy { $0.importOrigin?.id == 1 })
+}
+
+@Test
 func fetchPendingReviewItemsExcludesResolvedRows() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -602,6 +704,135 @@ func transactionDetailIncludesExplanationFieldsAndEditableValuesRoundTrip() thro
 }
 
 @Test
+func monthlyReportCountsOnlyAcceptedCurrentMonthExpenses() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000601")!,
+        accountID: account.id,
+        categoryID: groceries,
+        importSessionID: nil,
+        rawDescription: "Current accepted expense",
+        normalizedMerchantName: "current accepted expense",
+        amount: Decimal(-42.50),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000602")!,
+        accountID: account.id,
+        categoryID: groceries,
+        importSessionID: nil,
+        rawDescription: "Pending expense",
+        normalizedMerchantName: "pending expense",
+        amount: Decimal(-100.00),
+        transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+        reviewStatus: "pending"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000603")!,
+        accountID: account.id,
+        categoryID: groceries,
+        importSessionID: nil,
+        rawDescription: "Income",
+        normalizedMerchantName: "income",
+        amount: Decimal(500.00),
+        transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000604")!,
+        accountID: account.id,
+        categoryID: groceries,
+        importSessionID: nil,
+        rawDescription: "Last month accepted expense",
+        normalizedMerchantName: "last month accepted expense",
+        amount: Decimal(-25.00),
+        transactionDate: Date(timeIntervalSince1970: 1_772_492_400),
+        reviewStatus: "accepted"
+    )
+
+    let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+
+    #expect(report.currentMonthAcceptedSpend == Decimal(42.50))
+    #expect(report.lastMonthAcceptedSpend == Decimal(25.00))
+    #expect(report.pendingReviewCount == 0)
+}
+
+@Test
+func targetProgressSupportsCategoryAndCategoryGroupTargets() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let groupID = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000711")!
+    let dining = UUID(uuidString: "00000000-0000-0000-0000-000000000712")!
+    let travel = UUID(uuidString: "00000000-0000-0000-0000-000000000713")!
+    let groceryTarget = UUID(uuidString: "00000000-0000-0000-0000-000000000721")!
+    let foodTarget = UUID(uuidString: "00000000-0000-0000-0000-000000000722")!
+    try insertCategoryGroup(databaseURL: databaseURL, id: groupID, name: "Food")
+    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: groupID)
+    try insertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense", categoryGroupID: groupID)
+    try insertCategory(databaseURL: databaseURL, id: travel, name: "Travel", kind: "expense")
+    try insertTarget(databaseURL: databaseURL, id: groceryTarget, categoryID: groceries, categoryGroupID: nil, monthlyLimit: Decimal(100))
+    try insertTarget(databaseURL: databaseURL, id: foodTarget, categoryID: nil, categoryGroupID: groupID, monthlyLimit: Decimal(250))
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000731")!,
+        accountID: account.id,
+        categoryID: groceries,
+        importSessionID: nil,
+        rawDescription: "Groceries",
+        normalizedMerchantName: "groceries",
+        amount: Decimal(-40),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000732")!,
+        accountID: account.id,
+        categoryID: dining,
+        importSessionID: nil,
+        rawDescription: "Dining",
+        normalizedMerchantName: "dining",
+        amount: Decimal(-60),
+        transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000733")!,
+        accountID: account.id,
+        categoryID: travel,
+        importSessionID: nil,
+        rawDescription: "Travel",
+        normalizedMerchantName: "travel",
+        amount: Decimal(-200),
+        transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+        reviewStatus: "accepted"
+    )
+
+    let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+
+    #expect(report.targets.map(\.name) == ["Food", "Groceries"])
+    #expect(report.targets.map(\.spent) == [Decimal(100), Decimal(40)])
+    #expect(report.targets.map(\.remaining) == [Decimal(150), Decimal(60)])
+    #expect(report.targets.map(\.monthlyLimit) == [Decimal(250), Decimal(100)])
+}
+
+@Test
 func stagedImportCreatesClassificationReviewItemsForRowsNeedingReview() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -722,6 +953,70 @@ func approveClassificationReviewItemResolvesReviewAndPersistsLearnedRule() throw
     #expect(rules[0].merchantPattern == "coffee shop")
     #expect(rules[0].categoryID == categoryID)
     #expect(rules[0].merchantName == "Coffee Shop")
+}
+
+@Test
+func approveClassificationReviewItemUpdatesLinkedTransaction() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","SQ *Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "coffee shop",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+                        rawDescription: "SQ *Coffee Shop",
+                        normalizedMerchantName: "coffee shop",
+                        amount: Decimal(-4.75)
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+    let reviewItem = try #require(try store.fetchPendingReviewItems().first)
+
+    _ = try store.approveClassificationReviewItem(
+        id: reviewItem.id,
+        assignment: ClassificationAssignment(categoryID: categoryID, merchantName: "Coffee Shop"),
+        createRule: false,
+        resolvedAt: Date(timeIntervalSince1970: 1_775_200_000)
+    )
+    let row = try #require(try store.fetchTransactionLedger(filter: .empty).first)
+
+    #expect(row.reviewStatus == .accepted)
+    #expect(row.categoryID == categoryID)
+    #expect(row.categoryName == "Coffee")
+    #expect(row.merchantName == "Coffee Shop")
 }
 
 @Test
@@ -995,6 +1290,169 @@ private func createLegacyWorkspaceWithFilenameSourceFiles(at databaseURL: URL) t
     }
 }
 
+private func createWorkspaceWithLegacyStagedImportMissingDecisionColumns(
+    at databaseURL: URL,
+    accountID: UUID
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(sql: "PRAGMA foreign_keys = ON")
+        try db.execute(sql: "CREATE TABLE grdb_migrations (identifier TEXT NOT NULL PRIMARY KEY)")
+        for identifier in [
+            "create-v1-schema",
+            "expand-staged-import-schema",
+            "add-review-decision-events",
+            "add-classification-review-context",
+            "add-category-group-membership",
+        ] {
+            try db.execute(sql: "INSERT INTO grdb_migrations (identifier) VALUES (?)", arguments: [identifier])
+        }
+
+        try db.execute(
+            sql: """
+            CREATE TABLE accounts (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                institution_name TEXT,
+                created_at DATETIME NOT NULL
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE source_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                original_filename TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                imported_at DATETIME NOT NULL,
+                row_count INTEGER NOT NULL
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE source_rows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_file_id INTEGER NOT NULL REFERENCES source_files(id) ON DELETE CASCADE,
+                row_hash TEXT NOT NULL,
+                raw_payload TEXT NOT NULL,
+                source_line_number INTEGER NOT NULL DEFAULT 0,
+                validation_status TEXT NOT NULL DEFAULT 'valid'
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE import_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                source_file_id INTEGER NOT NULL REFERENCES source_files(id) ON DELETE CASCADE,
+                mapping_json TEXT NOT NULL,
+                valid_row_count INTEGER NOT NULL,
+                invalid_row_count INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_at DATETIME NOT NULL
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE transactions (
+                id TEXT PRIMARY KEY,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                import_session_id INTEGER REFERENCES import_sessions(id) ON DELETE SET NULL,
+                merchant_id TEXT,
+                category_id TEXT,
+                raw_description TEXT NOT NULL,
+                normalized_merchant_name TEXT,
+                amount DOUBLE NOT NULL,
+                transaction_date DATE NOT NULL,
+                posted_date DATE,
+                direction TEXT NOT NULL,
+                decision_source TEXT NOT NULL,
+                decision_source_reference TEXT,
+                confidence DOUBLE,
+                review_status TEXT NOT NULL,
+                duplicate_status TEXT NOT NULL,
+                notes TEXT
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE review_items (
+                id TEXT PRIMARY KEY,
+                transaction_id TEXT REFERENCES transactions(id) ON DELETE CASCADE,
+                type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at DATETIME NOT NULL,
+                normalized_merchant_name TEXT,
+                suggested_category_id TEXT,
+                suggested_merchant_name TEXT,
+                classification_source TEXT,
+                classification_source_reference TEXT,
+                classification_confidence DOUBLE
+            )
+            """
+        )
+        try db.execute(sql: "CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, category_group_id TEXT)")
+        try db.execute(sql: "CREATE TABLE category_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
+        try db.execute(sql: "CREATE TABLE targets (id TEXT PRIMARY KEY, category_id TEXT, category_group_id TEXT, monthly_limit DOUBLE NOT NULL, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE rules (id TEXT PRIMARY KEY, pattern TEXT NOT NULL, category_id TEXT, merchant_name TEXT, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE review_decision_events (id TEXT PRIMARY KEY, review_item_id TEXT NOT NULL, source_row_id INTEGER NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE decision_events (id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL, source TEXT NOT NULL, details TEXT NOT NULL, created_at DATETIME NOT NULL)")
+
+        try db.execute(
+            sql: "INSERT INTO accounts (id, name, kind, institution_name, created_at) VALUES (?, ?, ?, ?, ?)",
+            arguments: [accountID.uuidString, "Checking", "checking", "Local Bank", Date(timeIntervalSince1970: 1_775_171_200)]
+        )
+        try db.execute(
+            sql: "INSERT INTO source_files (id, account_id, original_filename, content_hash, imported_at, row_count) VALUES (?, ?, ?, ?, ?, ?)",
+            arguments: [1, accountID.uuidString, "checking-april.csv", "file-sha256", Date(timeIntervalSince1970: 1_775_171_200), 2]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO import_sessions (
+                id, account_id, source_file_id, mapping_json, valid_row_count, invalid_row_count, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                1,
+                #"{"amount":{"debitCredit":{"creditColumnIndex":4,"debitColumnIndex":3}},"dateColumnIndex":1,"descriptionColumnIndex":2}"#,
+                2,
+                0,
+                "staged",
+                Date(timeIntervalSince1970: 1_775_171_200),
+            ]
+        )
+        try db.execute(
+            sql: "INSERT INTO source_rows (source_file_id, row_hash, raw_payload, source_line_number, validation_status) VALUES (?, ?, ?, ?, ?)",
+            arguments: [
+                1,
+                "row-1-sha256",
+                #"["Cleared","04\/15\/2026","SRI ANANDABHAVAN SUNNYVALE CA null XXXXXXXXXXXX3969","34.48",""]"#,
+                2,
+                "valid",
+            ]
+        )
+        try db.execute(
+            sql: "INSERT INTO source_rows (source_file_id, row_hash, raw_payload, source_line_number, validation_status) VALUES (?, ?, ?, ?, ?)",
+            arguments: [
+                1,
+                "row-2-sha256",
+                #"["Cleared","04\/14\/2026","WALMART.COM WALMART.COM AR","2.53",""]"#,
+                3,
+                "valid",
+            ]
+        )
+    }
+}
+
 private func insertTransaction(
     databaseURL: URL,
     id: UUID,
@@ -1101,19 +1559,66 @@ private func insertCategory(
     databaseURL: URL,
     id: UUID,
     name: String,
-    kind: String
+    kind: String,
+    categoryGroupID: UUID? = nil
 ) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
         try db.execute(
             sql: """
-            INSERT INTO categories (id, name, kind)
-            VALUES (?, ?, ?)
+            INSERT INTO categories (id, name, kind, category_group_id)
+            VALUES (?, ?, ?, ?)
             """,
             arguments: [
                 id.uuidString,
                 name,
                 kind,
+                categoryGroupID?.uuidString,
+            ]
+        )
+    }
+}
+
+private func insertCategoryGroup(
+    databaseURL: URL,
+    id: UUID,
+    name: String
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO category_groups (id, name)
+            VALUES (?, ?)
+            """,
+            arguments: [
+                id.uuidString,
+                name,
+            ]
+        )
+    }
+}
+
+private func insertTarget(
+    databaseURL: URL,
+    id: UUID,
+    categoryID: UUID?,
+    categoryGroupID: UUID?,
+    monthlyLimit: Decimal
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO targets (id, category_id, category_group_id, monthly_limit, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                id.uuidString,
+                categoryID?.uuidString,
+                categoryGroupID?.uuidString,
+                NSDecimalNumber(decimal: monthlyLimit).doubleValue,
+                Date(timeIntervalSince1970: 1_775_171_200),
             ]
         )
     }
