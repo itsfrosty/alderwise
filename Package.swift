@@ -52,7 +52,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ApplicationTests",
-            dependencies: ["Application", "Domain"],
+            dependencies: ["Application", "Domain", "Persistence"],
             path: "Tests/ApplicationTests"
         ),
         .testTarget(
