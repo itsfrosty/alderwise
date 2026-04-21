@@ -120,18 +120,29 @@ public enum ImportRowDecision: Codable, Equatable, Sendable {
 public struct StagedImportDecisionSummary: Equatable, Sendable {
     public var importedRowCount: Int
     public var skippedRowCount: Int
+    public var pendingClassificationReviewRowCount: Int
     public var flaggedDuplicateRowCount: Int
 
-    public init(importedRowCount: Int, skippedRowCount: Int, flaggedDuplicateRowCount: Int) {
+    public init(
+        importedRowCount: Int,
+        skippedRowCount: Int,
+        pendingClassificationReviewRowCount: Int,
+        flaggedDuplicateRowCount: Int
+    ) {
         self.importedRowCount = importedRowCount
         self.skippedRowCount = skippedRowCount
+        self.pendingClassificationReviewRowCount = pendingClassificationReviewRowCount
         self.flaggedDuplicateRowCount = flaggedDuplicateRowCount
     }
 
-    public static func make(decisions: [ImportRowDecision]) -> StagedImportDecisionSummary {
+    public static func make(
+        decisions: [ImportRowDecision],
+        pendingClassificationReviewRowCount: Int = 0
+    ) -> StagedImportDecisionSummary {
         StagedImportDecisionSummary(
             importedRowCount: decisions.filter { $0.storageKind == "imported" }.count,
             skippedRowCount: decisions.filter { $0.storageKind == "skipped_exact_reimport" }.count,
+            pendingClassificationReviewRowCount: pendingClassificationReviewRowCount,
             flaggedDuplicateRowCount: decisions.filter { $0.storageKind == "flagged_likely_duplicate" }.count
         )
     }

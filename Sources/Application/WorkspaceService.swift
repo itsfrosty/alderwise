@@ -311,6 +311,15 @@ public struct WorkspaceService: Sendable {
             )
         }
         let decisions = rows.map(\.importDecision)
+        let pendingClassificationReviewRowCount = rows.filter { row in
+            guard case .imported = row.importDecision,
+                  let classification = row.classification,
+                  case .reviewRequired = classification
+            else {
+                return false
+            }
+            return true
+        }.count
 
         let session = try store.createStagedImportSession(
             StagedImportSessionDraft(
@@ -330,7 +339,10 @@ public struct WorkspaceService: Sendable {
             session: session,
             decisions: decisions,
             classifications: classifications,
-            summary: .make(decisions: decisions)
+            summary: .make(
+                decisions: decisions,
+                pendingClassificationReviewRowCount: pendingClassificationReviewRowCount
+            )
         )
     }
 

@@ -1455,6 +1455,7 @@ func keepBothLikelyDuplicateResolvesReviewItemUpdatesSourceRowDecisionAndRecords
     #expect(event.createdAt == resolvedAt)
     #expect(event.details == "User kept both the staged row and existing transaction after duplicate review.")
     #expect(try store.fetchReviewDecisionEvents(reviewItemID: reviewItemID) == [event])
+    #expect(try store.fetchSummary().transactionCount == 2)
 
     let resolvedSession = try #require(try store.fetchStagedImportSession(id: session.id))
     #expect(resolvedSession.rows == [
@@ -1471,6 +1472,14 @@ func keepBothLikelyDuplicateResolvesReviewItemUpdatesSourceRowDecisionAndRecords
             )
         ),
     ])
+
+    let ledgerRows = try store.fetchTransactionLedger(filter: .empty)
+    let createdRow = try #require(ledgerRows.first { $0.id != duplicateTransactionID })
+    #expect(createdRow.importOrigin?.originalFilename == "checking-april.csv")
+    #expect(createdRow.reviewStatus == .pending)
+    #expect(createdRow.categoryID == nil)
+    #expect(createdRow.rawDescription == "Coffee Shop")
+    #expect(createdRow.amount == Decimal(-4.75))
 }
 
 @Test

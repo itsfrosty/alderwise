@@ -733,6 +733,55 @@ func stageCSVImportHandlesRepeatedRowsThatShareADuplicateCandidate() throws {
 }
 
 @Test
+func stageCSVImportSummarySeparatesPendingClassificationReviewFromLikelyDuplicates() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let classifier = ClassificationEngine(
+        heuristics: [
+            ClassificationHeuristic(
+                merchantPattern: "coffee",
+                categoryID: categoryID,
+                merchantName: "Coffee Shop"
+            ),
+        ]
+    )
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store, classifier: classifier)
+    let csv = """
+    Date,Description,Amount
+    2026-04-02,SQ *Coffee Shop,-4.75
+    2026-04-03,Book Shop,-12.00
+    """
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+    let duplicateRowHash = try WorkspaceService.rowHash(for: preview.sourceRows[1])
+    let existingTransactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
+    store.likelyDuplicateCandidates = [
+        LikelyDuplicateCandidate(
+            rowHash: duplicateRowHash,
+            existingTransactionID: existingTransactionID,
+            reason: "Same account, amount, normalized merchant, and nearby date."
+        ),
+    ]
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-april.csv",
+        csvText: csv
+    )
+
+    #expect(result.summary.importedRowCount == 1)
+    #expect(result.summary.skippedRowCount == 0)
+    #expect(result.summary.pendingClassificationReviewRowCount == 1)
+    #expect(result.summary.flaggedDuplicateRowCount == 1)
+}
+
+@Test
 func stageCSVImportRejectsInvalidPreviewBeforeWriting() throws {
     let account = Account(name: "Checking", kind: .checking, institutionName: "Local Bank")
     let store = MutableWorkspaceStore(accounts: [account])
