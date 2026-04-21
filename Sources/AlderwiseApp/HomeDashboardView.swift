@@ -305,7 +305,8 @@ struct HomeDashboardView: View {
             endDate: endOfMonth(for: snapshot.monthlyReport.monthStart),
             categoryID: categoryID(for: driver.scope),
             categoryGroupID: categoryGroupID(for: driver.scope),
-            direction: .expense
+            direction: .expense,
+            reviewStatus: .accepted
         )
     }
 

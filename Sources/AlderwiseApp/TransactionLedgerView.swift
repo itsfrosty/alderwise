@@ -11,6 +11,7 @@ struct TransactionLedgerView: View {
     @State private var startDate = Date()
     @State private var endDate = Date()
     @State private var isSearchPresented = false
+    @State private var isSyncingControls = false
 
     private var selectedIDBinding: Binding<UUID?> {
         Binding(
@@ -238,6 +239,9 @@ struct TransactionLedgerView: View {
     }
 
     private func applyFilters() {
+        guard !isSyncingControls else {
+            return
+        }
         var filter = model.transactionFilter
         filter.searchText = searchText
         filter.startDate = hasStartDate ? startDate : nil
@@ -246,11 +250,14 @@ struct TransactionLedgerView: View {
     }
 
     private func syncControlsFromFilter() {
-        let filter = model.transactionFilter
-
-        if searchText != filter.searchText {
-            searchText = filter.searchText
+        isSyncingControls = true
+        defer {
+            Task { @MainActor in
+                isSyncingControls = false
+            }
         }
+
+        let filter = model.transactionFilter
 
         let nextHasStartDate = filter.startDate != nil
         if hasStartDate != nextHasStartDate {
@@ -266,6 +273,10 @@ struct TransactionLedgerView: View {
         }
         if let filterEndDate = filter.endDate, endDate != filterEndDate {
             endDate = filterEndDate
+        }
+
+        if searchText != filter.searchText {
+            searchText = filter.searchText
         }
     }
 

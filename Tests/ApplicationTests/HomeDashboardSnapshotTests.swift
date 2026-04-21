@@ -102,6 +102,29 @@ func homeDashboardUsesNeutralHeroWhenNoTargetsExist() {
 }
 
 @Test
+func homeDashboardUsesUnderPaceHeroWhenSpendIsBelowExpectedPace() {
+    let report = homeDashboardReport(
+        pendingReviewCount: 0,
+        targets: [],
+        currentMonthAcceptedSpend: 40,
+        lastMonthAcceptedSpend: 25,
+        hasActiveTargets: true,
+        totalMonthlyTargetLimit: 100,
+        expectedPaceSpend: 60,
+        paceDelta: -20,
+        drivers: [],
+        biggestShift: nil
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 10, reviewCount: 0, targetCount: 1),
+        monthlyReport: report
+    )
+
+    #expect(dashboard.hero.status == .underPace)
+}
+
+@Test
 func homeDashboardPrioritizesOverLimitTargetsWhenReviewBacklogIsEmpty() {
     let report = homeDashboardReport(
         pendingReviewCount: 0,
@@ -124,6 +147,55 @@ func homeDashboardPrioritizesOverLimitTargetsWhenReviewBacklogIsEmpty() {
         paceDelta: 20,
         drivers: [],
         biggestShift: nil
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 10, reviewCount: 0, targetCount: 1),
+        monthlyReport: report
+    )
+
+    #expect(dashboard.primaryAction?.destination == .targets)
+    #expect(dashboard.primaryAction?.title == "Review Food target")
+}
+
+@Test
+func homeDashboardPrioritizesPositivePaceTargetsBeforeDrivers() {
+    let foodGroupID = homeDashboardID("00000000-0000-0000-0000-000000000202")
+    let report = homeDashboardReport(
+        pendingReviewCount: 0,
+        targets: [
+            homeDashboardTarget(
+                id: "00000000-0000-0000-0000-000000000403",
+                name: "Food",
+                scope: .categoryGroup(foodGroupID),
+                monthlyLimit: 200,
+                spent: 110,
+                remaining: 90,
+                paceDelta: 15
+            ),
+        ],
+        currentMonthAcceptedSpend: 110,
+        lastMonthAcceptedSpend: 95,
+        hasActiveTargets: true,
+        totalMonthlyTargetLimit: 200,
+        expectedPaceSpend: 95,
+        paceDelta: 15,
+        drivers: [
+            homeDashboardDriver(
+                title: "Food",
+                scope: .categoryGroup(foodGroupID),
+                currentPeriodSpend: 110,
+                comparisonPeriodSpend: 95,
+                delta: 15
+            ),
+        ],
+        biggestShift: homeDashboardDriver(
+            title: "Food",
+            scope: .categoryGroup(foodGroupID),
+            currentPeriodSpend: 110,
+            comparisonPeriodSpend: 95,
+            delta: 15
+        )
     )
 
     let dashboard = HomeDashboardSnapshot.make(
@@ -222,10 +294,67 @@ func homeDashboardPrioritizesBiggestDriverWhenReviewBacklogAndTargetPressureAreE
     #expect(dashboard.primaryAction?.destination == .transactions(
         TransactionLedgerFilter(
             startDate: report.monthStart,
-            endDate: homeDashboardEndOfMonth(for: report.monthStart),
+            endDate: homeDashboardUTCDate(year: 2026, month: 4, day: 30, hour: 23, minute: 59, second: 59),
             categoryID: nil,
             categoryGroupID: foodGroupID,
-            direction: .expense
+            direction: .expense,
+            reviewStatus: .accepted
+        )
+    ))
+    #expect(dashboard.primaryAction?.title == "Inspect Food")
+}
+
+@Test
+func homeDashboardSkipsNegativeBiggestShiftAndUsesLargestPositiveDriverForDrillDown() {
+    let foodGroupID = homeDashboardID("00000000-0000-0000-0000-000000000203")
+    let travelCategoryID = homeDashboardID("00000000-0000-0000-0000-000000000113")
+    let report = homeDashboardReport(
+        pendingReviewCount: 0,
+        targets: [],
+        currentMonthAcceptedSpend: 60,
+        lastMonthAcceptedSpend: 120,
+        hasActiveTargets: false,
+        totalMonthlyTargetLimit: 0,
+        expectedPaceSpend: 0,
+        paceDelta: 0,
+        drivers: [
+            homeDashboardDriver(
+                title: "Travel",
+                scope: .category(travelCategoryID),
+                currentPeriodSpend: 50,
+                comparisonPeriodSpend: 120,
+                delta: -70
+            ),
+            homeDashboardDriver(
+                title: "Food",
+                scope: .categoryGroup(foodGroupID),
+                currentPeriodSpend: 60,
+                comparisonPeriodSpend: 20,
+                delta: 40
+            ),
+        ],
+        biggestShift: homeDashboardDriver(
+            title: "Travel",
+            scope: .category(travelCategoryID),
+            currentPeriodSpend: 50,
+            comparisonPeriodSpend: 120,
+            delta: -70
+        )
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 10, reviewCount: 0, targetCount: 0),
+        monthlyReport: report
+    )
+
+    #expect(dashboard.primaryAction?.destination == .transactions(
+        TransactionLedgerFilter(
+            startDate: report.monthStart,
+            endDate: homeDashboardUTCDate(year: 2026, month: 4, day: 30, hour: 23, minute: 59, second: 59),
+            categoryID: nil,
+            categoryGroupID: foodGroupID,
+            direction: .expense,
+            reviewStatus: .accepted
         )
     ))
     #expect(dashboard.primaryAction?.title == "Inspect Food")
@@ -245,7 +374,7 @@ private func homeDashboardReport(
     biggestShift: MonthlySpendingDriver? = nil
 ) -> MonthlyReport {
     MonthlyReport(
-        monthStart: Date(timeIntervalSince1970: 1_775_084_800),
+        monthStart: homeDashboardUTCDate(year: 2026, month: 4, day: 1),
         currentMonthAcceptedSpend: currentMonthAcceptedSpend,
         lastMonthAcceptedSpend: lastMonthAcceptedSpend,
         pendingReviewCount: pendingReviewCount,
@@ -300,11 +429,22 @@ private func homeDashboardID(_ value: String) -> UUID {
     UUID(uuidString: value)!
 }
 
-private func homeDashboardEndOfMonth(for date: Date) -> Date? {
-    var calendar = Calendar(identifier: .gregorian)
-    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-    guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: date) else {
-        return nil
-    }
-    return calendar.date(byAdding: .second, value: -1, to: nextMonth)
+private func homeDashboardUTCDate(
+    year: Int,
+    month: Int,
+    day: Int,
+    hour: Int = 0,
+    minute: Int = 0,
+    second: Int = 0
+) -> Date {
+    var components = DateComponents()
+    components.calendar = Calendar(identifier: .gregorian)
+    components.timeZone = TimeZone(secondsFromGMT: 0)
+    components.year = year
+    components.month = month
+    components.day = day
+    components.hour = hour
+    components.minute = minute
+    components.second = second
+    return components.date!
 }

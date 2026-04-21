@@ -93,7 +93,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             )
         }
 
-        if let biggestDriver = monthlyReport.biggestShift, biggestDriver.delta > 0 {
+        if let biggestDriver = monthlyReport.drivers.first(where: { $0.delta > 0 }) {
             return HomeDashboardAction(
                 title: "Inspect \(biggestDriver.title)",
                 destination: .transactions(
@@ -102,7 +102,8 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                         endDate: endOfMonth(for: monthlyReport.monthStart, calendar: calendar),
                         categoryID: biggestDriver.scope.categoryID,
                         categoryGroupID: biggestDriver.scope.categoryGroupID,
-                        direction: .expense
+                        direction: .expense,
+                        reviewStatus: .accepted
                     )
                 )
             )

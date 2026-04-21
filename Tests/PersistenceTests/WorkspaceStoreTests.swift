@@ -111,16 +111,18 @@ func bootstrapPreservesCustomCategoriesWhileMaintainingDefaultTaxonomy() throws 
     let databaseURL = try temporaryDatabaseURL()
     var store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
+    let baselineCategoryNames = Set(try store.fetchCategories().map(\.name))
     try replaceSeededCategoriesWithCustomCategory(databaseURL: databaseURL)
 
     store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
 
     let categories = try store.fetchCategories()
+    let preservedDefaultNames = baselineCategoryNames.subtracting(["Housing & Utilities"])
 
     #expect(categories.contains { $0.name == "Custom Food" && $0.kind == .expense })
     #expect(categories.contains { $0.name == "Housing & Utilities" } == false)
-    #expect(categories.filter { $0.name != "Custom Food" }.count == 23)
+    #expect(Set(categories.filter { $0.name != "Custom Food" }.map(\.name)) == preservedDefaultNames)
     #expect(categories.filter { $0.kind == .income }.map(\.name) == ["Income"])
     #expect(categories.filter { $0.kind == .transfer }.map(\.name) == ["Transfers"])
 }
