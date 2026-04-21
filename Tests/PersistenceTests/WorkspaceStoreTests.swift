@@ -904,6 +904,86 @@ func transactionDetailIncludesExplanationFieldsAndEditableValuesRoundTrip() thro
 }
 
 @Test
+func updateTransactionLedgerFieldsAcceptsPendingTransactionWithCategory() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Groceries", kind: "expense")
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000412")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: transactionID,
+        accountID: account.id,
+        categoryID: nil,
+        importSessionID: nil,
+        rawDescription: "Market",
+        normalizedMerchantName: "market",
+        amount: Decimal(-31.25),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "pending"
+    )
+
+    try store.updateTransactionLedgerFields(
+        id: transactionID,
+        draft: TransactionLedgerEditDraft(
+            merchantName: "Market",
+            categoryID: categoryID,
+            notes: nil
+        )
+    )
+
+    let detail = try #require(try store.fetchTransactionDetail(id: transactionID))
+    let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+
+    #expect(detail.row.reviewStatus == .accepted)
+    #expect(report.currentMonthAcceptedSpend == Decimal(31.25))
+}
+
+@Test
+func bootstrapAcceptsPreviouslyUserCategorizedPendingTransactions() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Groceries", kind: "expense")
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000413")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: transactionID,
+        accountID: account.id,
+        categoryID: categoryID,
+        importSessionID: nil,
+        rawDescription: "Market",
+        normalizedMerchantName: "market",
+        amount: Decimal(-28.40),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "pending",
+        decisionSource: "user",
+        confidence: 1.0
+    )
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: "DELETE FROM grdb_migrations WHERE identifier = ?",
+            arguments: ["accept-user-categorized-pending-transactions"]
+        )
+    }
+
+    try store.bootstrap()
+
+    let detail = try #require(try store.fetchTransactionDetail(id: transactionID))
+    let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+
+    #expect(detail.row.reviewStatus == .accepted)
+    #expect(report.currentMonthAcceptedSpend == Decimal(28.40))
+}
+
+@Test
 func monthlyReportCountsOnlyAcceptedCurrentMonthExpenses() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

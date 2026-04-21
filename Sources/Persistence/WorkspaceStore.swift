@@ -314,6 +314,39 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 arguments: [workspacePreferenceSuggestionsEnabledKey, "true"]
             )
         }
+        migrator.registerMigration("accept-user-categorized-pending-transactions") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            guard try db.tableExists("transactions") else {
+                return
+            }
+
+            let transactionColumns = try columnNames(in: "transactions", db: db)
+            guard transactionColumns.contains("category_id"),
+                  transactionColumns.contains("decision_source"),
+                  transactionColumns.contains("review_status"),
+                  transactionColumns.contains("duplicate_status")
+            else {
+                return
+            }
+
+            try db.execute(
+                sql: """
+                UPDATE transactions
+                SET review_status = ?
+                WHERE review_status = ?
+                    AND decision_source = ?
+                    AND category_id IS NOT NULL
+                    AND duplicate_status = ?
+                """,
+                arguments: [
+                    TransactionReviewStatus.accepted.rawValue,
+                    TransactionReviewStatus.pending.rawValue,
+                    ClassificationDecisionSource.user.rawValue,
+                    "none",
+                ]
+            )
+        }
 
         try migrator.migrate(databaseQueue)
         try seedDefaultBudgetTaxonomy()
@@ -866,12 +899,24 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 UPDATE transactions
                 SET normalized_merchant_name = ?,
                     category_id = ?,
+                    decision_source = CASE WHEN ? IS NOT NULL AND review_status = ? THEN ? ELSE decision_source END,
+                    confidence = CASE WHEN ? IS NOT NULL AND review_status = ? THEN ? ELSE confidence END,
+                    review_status = CASE WHEN ? IS NOT NULL AND review_status = ? THEN ? ELSE review_status END,
                     notes = ?
                 WHERE id = ?
                 """,
                 arguments: [
                     draft.merchantName.trimmingCharacters(in: .whitespacesAndNewlines),
                     draft.categoryID?.uuidString,
+                    draft.categoryID?.uuidString,
+                    TransactionReviewStatus.pending.rawValue,
+                    ClassificationDecisionSource.user.rawValue,
+                    draft.categoryID?.uuidString,
+                    TransactionReviewStatus.pending.rawValue,
+                    1.0,
+                    draft.categoryID?.uuidString,
+                    TransactionReviewStatus.pending.rawValue,
+                    TransactionReviewStatus.accepted.rawValue,
                     draft.notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                     id.uuidString,
                 ]
