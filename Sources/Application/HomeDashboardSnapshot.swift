@@ -53,7 +53,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                 amount: monthlyReport.currentMonthAcceptedSpend,
                 status: heroStatus(for: monthlyReport)
             ),
-            primaryAction: primaryAction(summary: summary, monthlyReport: monthlyReport, calendar: calendar)
+            primaryAction: primaryAction(monthlyReport: monthlyReport, calendar: calendar)
         )
     }
 
@@ -67,14 +67,10 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         return .onPace
     }
 
-    private static func primaryAction(
-        summary: WorkspaceSummary,
-        monthlyReport: MonthlyReport,
-        calendar: Calendar
-    ) -> HomeDashboardAction? {
-        if summary.reviewCount > 0 {
+    private static func primaryAction(monthlyReport: MonthlyReport, calendar: Calendar) -> HomeDashboardAction? {
+        if monthlyReport.pendingReviewCount > 0 {
             return HomeDashboardAction(
-                title: "Finish \(summary.reviewCount) items in Review",
+                title: "Finish \(monthlyReport.pendingReviewCount) items in Review",
                 destination: .review
             )
         }
@@ -103,7 +99,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                 destination: .transactions(
                     TransactionLedgerFilter(
                         startDate: monthlyReport.monthStart,
-                        endDate: calendar.date(byAdding: .month, value: 1, to: monthlyReport.monthStart),
+                        endDate: endOfMonth(for: monthlyReport.monthStart, calendar: calendar),
                         categoryID: biggestDriver.scope.categoryID,
                         categoryGroupID: biggestDriver.scope.categoryGroupID,
                         direction: .expense
@@ -123,6 +119,13 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             return lhs.remaining > rhs.remaining
         }
         return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+    }
+
+    private static func endOfMonth(for monthStart: Date, calendar: Calendar) -> Date? {
+        guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart) else {
+            return nil
+        }
+        return calendar.date(byAdding: .second, value: -1, to: nextMonth)
     }
 }
 

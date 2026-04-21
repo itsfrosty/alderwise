@@ -53,6 +53,30 @@ func homeDashboardPrioritizesReviewBacklogOverTargetsAndDrivers() {
 }
 
 @Test
+func homeDashboardUsesMonthlyReportPendingReviewCountAsReviewSourceOfTruth() {
+    let report = homeDashboardReport(
+        pendingReviewCount: 7,
+        targets: [],
+        currentMonthAcceptedSpend: 40,
+        lastMonthAcceptedSpend: 25,
+        hasActiveTargets: false,
+        totalMonthlyTargetLimit: 0,
+        expectedPaceSpend: 0,
+        paceDelta: 0,
+        drivers: [],
+        biggestShift: nil
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 10, reviewCount: 0, targetCount: 0),
+        monthlyReport: report
+    )
+
+    #expect(dashboard.primaryAction?.destination == .review)
+    #expect(dashboard.primaryAction?.title == "Finish 7 items in Review")
+}
+
+@Test
 func homeDashboardPrioritizesOverLimitTargetsWhenReviewBacklogIsEmpty() {
     let report = homeDashboardReport(
         pendingReviewCount: 0,
@@ -173,7 +197,7 @@ func homeDashboardPrioritizesBiggestDriverWhenReviewBacklogAndTargetPressureAreE
     #expect(dashboard.primaryAction?.destination == .transactions(
         TransactionLedgerFilter(
             startDate: report.monthStart,
-            endDate: homeDashboardAddingMonth(to: report.monthStart),
+            endDate: homeDashboardEndOfMonth(for: report.monthStart),
             categoryID: nil,
             categoryGroupID: foodGroupID,
             direction: .expense
@@ -251,8 +275,11 @@ private func homeDashboardID(_ value: String) -> UUID {
     UUID(uuidString: value)!
 }
 
-private func homeDashboardAddingMonth(to date: Date) -> Date? {
+private func homeDashboardEndOfMonth(for date: Date) -> Date? {
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = TimeZone(secondsFromGMT: 0)!
-    return calendar.date(byAdding: .month, value: 1, to: date)
+    guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: date) else {
+        return nil
+    }
+    return calendar.date(byAdding: .second, value: -1, to: nextMonth)
 }
