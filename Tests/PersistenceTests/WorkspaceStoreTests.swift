@@ -896,7 +896,8 @@ func fetchTransactionLedgerFiltersByDirectionAndCategoryGroup() throws {
         normalizedMerchantName: "payroll",
         amount: Decimal(1800),
         transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
-        reviewStatus: "accepted"
+        reviewStatus: "accepted",
+        direction: "income"
     )
 
     let rows = try store.fetchTransactionLedger(
@@ -1882,6 +1883,7 @@ private func insertLedgerTransaction(
     amount: Decimal,
     transactionDate: Date,
     reviewStatus: String,
+    direction: String = "expense",
     decisionSource: String = "heuristic",
     decisionSourceReference: String? = nil,
     confidence: Double? = nil,
@@ -1919,7 +1921,7 @@ private func insertLedgerTransaction(
                 normalizedMerchantName,
                 NSDecimalNumber(decimal: amount).doubleValue,
                 transactionDate,
-                "expense",
+                direction,
                 decisionSource,
                 decisionSourceReference,
                 confidence,

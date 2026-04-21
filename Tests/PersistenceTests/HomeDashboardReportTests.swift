@@ -22,45 +22,79 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
         databaseURL: databaseURL,
         accountID: account.id,
         categoryID: groceries,
-        amount: Decimal(-40),
-        transactionDate: Date(timeIntervalSince1970: 1_775_171_200)
+        amount: Decimal(-60),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 5)
     )
     try homeDashboardInsertAcceptedExpense(
         databaseURL: databaseURL,
         accountID: account.id,
         categoryID: dining,
-        amount: Decimal(-65),
-        transactionDate: Date(timeIntervalSince1970: 1_775_344_000)
+        amount: Decimal(-90),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 10)
     )
     try homeDashboardInsertAcceptedExpense(
         databaseURL: databaseURL,
         accountID: account.id,
         categoryID: groceries,
         amount: Decimal(-20),
-        transactionDate: Date(timeIntervalSince1970: 1_772_492_400)
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 3, day: 12)
     )
 
     _ = try store.createMonthlyTarget(
-        MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(200)),
-        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+        MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(300)),
+        createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 1)
     )
-    let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_430_400))
+    let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
 
-    #expect(report.currentMonthAcceptedSpend == Decimal(105))
+    #expect(report.currentMonthAcceptedSpend == Decimal(150))
+    #expect(report.lastMonthAcceptedSpend == Decimal(20))
     #expect(report.hasActiveTargets)
-    #expect(report.totalMonthlyTargetLimit == Decimal(200))
-    #expect(report.expectedPaceSpend > 0)
-    #expect(report.paceDelta == report.currentMonthAcceptedSpend - report.expectedPaceSpend)
-    #expect(report.paceSeries.isEmpty == false)
-    #expect(report.drivers.count == 2)
-    #expect(report.drivers.first?.title == "Restaurants & Bars")
-    #expect(report.biggestShift?.title == "Restaurants & Bars")
+    #expect(report.totalMonthlyTargetLimit == Decimal(300))
+    #expect(report.expectedPaceSpend == Decimal(150))
+    #expect(report.paceDelta == Decimal(0))
+    #expect(report.paceSeries == [
+        MonthlySpendPoint(day: 5, actualSpend: Decimal(60), expectedSpend: Decimal(50)),
+        MonthlySpendPoint(day: 10, actualSpend: Decimal(150), expectedSpend: Decimal(100)),
+    ])
+    #expect(report.drivers == [
+        MonthlySpendingDriver(
+            title: "Groceries",
+            scope: .category(groceries),
+            currentPeriodSpend: Decimal(60),
+            comparisonPeriodSpend: Decimal(20),
+            delta: Decimal(40)
+        ),
+        MonthlySpendingDriver(
+            title: "Restaurants & Bars",
+            scope: .category(dining),
+            currentPeriodSpend: Decimal(90),
+            comparisonPeriodSpend: Decimal(0),
+            delta: Decimal(90)
+        ),
+    ])
+    #expect(report.biggestShift == MonthlySpendingDriver(
+        title: "Restaurants & Bars",
+        scope: .category(dining),
+        currentPeriodSpend: Decimal(90),
+        comparisonPeriodSpend: Decimal(0),
+        delta: Decimal(90)
+    ))
 }
 
 private func homeDashboardTemporaryDatabaseURL() throws -> URL {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory.appending(path: "workspace.sqlite")
+}
+
+private func homeDashboardUTCDate(year: Int, month: Int, day: Int) -> Date {
+    var components = DateComponents()
+    components.calendar = Calendar(identifier: .gregorian)
+    components.timeZone = TimeZone(secondsFromGMT: 0)
+    components.year = year
+    components.month = month
+    components.day = day
+    return components.date!
 }
 
 private func homeDashboardInsertCategoryGroup(databaseURL: URL, id: UUID, name: String) throws {
