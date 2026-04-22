@@ -25,14 +25,11 @@ struct TransactionLedgerView: View {
     private var isPresentingSelectionChangeConfirmation: Binding<Bool> {
         Binding(
             get: {
-                if case .selection = draftCoordinator.pendingSelection {
-                    return true
-                }
-                return false
+                draftCoordinator.isSelectionChangePromptPresented
             },
             set: { isPresented in
                 if !isPresented {
-                    draftCoordinator.cancelPendingSelectionChange()
+                    draftCoordinator.dismissSelectionChangePrompt()
                 }
             }
         )

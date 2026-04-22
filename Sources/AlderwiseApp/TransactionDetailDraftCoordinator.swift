@@ -21,6 +21,7 @@ struct TransactionDetailDraftCoordinator {
     private(set) var currentDraft: TransactionLedgerEditDraft?
     private var savedDraft: TransactionLedgerEditDraft?
     private(set) var pendingSelection: PendingSelectionChange = .none
+    private(set) var isSelectionChangePromptPresented = false
 
     init(selectionID: UUID? = nil, detail: TransactionDetail? = nil) {
         load(selectionID: selectionID, detail: detail)
@@ -40,6 +41,7 @@ struct TransactionDetailDraftCoordinator {
         currentDraft = draft
         savedDraft = draft
         pendingSelection = .none
+        isSelectionChangePromptPresented = false
     }
 
     mutating func updateDraft(_ draft: TransactionLedgerEditDraft?) {
@@ -54,10 +56,12 @@ struct TransactionDetailDraftCoordinator {
 
         guard isDirty else {
             pendingSelection = .none
+            isSelectionChangePromptPresented = false
             return .proceed
         }
 
         pendingSelection = .selection(proposedSelectionID)
+        isSelectionChangePromptPresented = true
         return .promptToSaveDiscardOrCancel
     }
 
@@ -73,6 +77,7 @@ struct TransactionDetailDraftCoordinator {
         }
 
         pendingSelection = .selection(selectionID)
+        isSelectionChangePromptPresented = true
         return .preserveCurrentDraftAndPrompt
     }
 
@@ -80,11 +85,13 @@ struct TransactionDetailDraftCoordinator {
         currentDraft = savedDraft
         let pendingSelection = pendingSelection
         self.pendingSelection = .none
+        isSelectionChangePromptPresented = false
         return pendingSelection
     }
 
     mutating func cancelPendingSelectionChange() {
         pendingSelection = .none
+        isSelectionChangePromptPresented = false
     }
 
     mutating func completeSave(didSucceed: Bool) -> PendingSelectionChange {
@@ -95,7 +102,12 @@ struct TransactionDetailDraftCoordinator {
         savedDraft = currentDraft
         let pendingSelection = pendingSelection
         self.pendingSelection = .none
+        isSelectionChangePromptPresented = false
         return pendingSelection
+    }
+
+    mutating func dismissSelectionChangePrompt() {
+        isSelectionChangePromptPresented = false
     }
 
     static func makeDraft(from detail: TransactionDetail) -> TransactionLedgerEditDraft {
