@@ -1352,6 +1352,39 @@ func updateTransactionLedgerFieldsAcceptsPendingTransactionWithCategory() throws
 }
 
 @Test
+func fetchTransactionDetailAcceptsCuratedPrefillDecisionSource() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Groceries", kind: "expense")
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000414")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: transactionID,
+        accountID: account.id,
+        categoryID: categoryID,
+        importSessionID: nil,
+        rawDescription: "Market",
+        normalizedMerchantName: "market",
+        amount: Decimal(-31.25),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.curatedPrefill.rawValue,
+        decisionSourceReference: "starter:market",
+        confidence: nil
+    )
+
+    let detail = try #require(try store.fetchTransactionDetail(id: transactionID))
+
+    #expect(detail.decisionSource == .curatedPrefill)
+    #expect(detail.decisionSourceReference == "starter:market")
+    #expect(detail.confidence == nil)
+}
+
+@Test
 func bootstrapAcceptsPreviouslyUserCategorizedPendingTransactions() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -1578,6 +1611,59 @@ func stagedImportCreatesClassificationReviewItemsForRowsNeedingReview() throws {
     #expect(reviewItems[0].classification?.prefill?.categoryID == categoryID)
     #expect(reviewItems[0].classification?.prefill?.merchantName == "Coffee Shop")
     #expect(reviewItems[0].reason == "Deterministic heuristic requires review.")
+}
+
+@Test
+func fetchPendingReviewItemsAcceptsCuratedPrefillClassificationSource() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","SQ *Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: ClassificationAssignment(
+                            categoryID: categoryID,
+                            merchantName: "Coffee Shop"
+                        ),
+                        source: .curatedPrefill,
+                        sourceReference: "starter:coffee-shop",
+                        confidence: nil,
+                        reason: "Curated starter match requires review before acceptance."
+                    ),
+                    normalizedMerchantName: "coffee shop"
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let reviewItem = try #require(try store.fetchPendingReviewItems().first)
+
+    #expect(reviewItem.classification?.source == .curatedPrefill)
+    #expect(reviewItem.classification?.sourceReference == "starter:coffee-shop")
+    #expect(reviewItem.classification?.confidence == nil)
 }
 
 @Test
