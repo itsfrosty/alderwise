@@ -179,17 +179,17 @@ struct SettingsView: View {
 
     private var learnedRulesSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Learned Rules")
+            Text("Rules")
                 .font(.headline)
 
-            Text("Inspect and manage the rules Alderwise learned from review decisions.")
+            Text("Browse learned rules alongside Alderwise's included deterministic rules and starter prefills.")
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 Button {
                     model.showLearnedRules()
                 } label: {
-                    Label("Open Learned Rules", systemImage: "slider.horizontal.3")
+                    Label("Open Rules", systemImage: "slider.horizontal.3")
                 }
                 .buttonStyle(.borderedProminent)
             }

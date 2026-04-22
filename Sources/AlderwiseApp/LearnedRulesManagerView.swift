@@ -9,7 +9,7 @@ struct LearnedRulesManagerView: View {
     let snapshot: LearnedRuleManagerSnapshot?
 
     @State private var searchText = ""
-    @State private var selectedLearnedRuleID: UUID?
+    @State private var selectedRowID: RulesListRowID?
     @State private var pendingDisableRule: ManagedLearnedRuleRow?
     @State private var lastSyncedDestination: LearnedRulesDestination?
 
@@ -17,69 +17,91 @@ struct LearnedRulesManagerView: View {
         snapshot?.learned.rows ?? []
     }
 
-    private var filteredRows: [ManagedLearnedRuleRow] {
-        guard searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
-            return learnedRows
-        }
-
-        let query = searchText.lowercased()
-        return learnedRows.filter { row in
-            row.merchantPattern.lowercased().contains(query)
-                || row.merchantName?.lowercased().contains(query) == true
-                || scopeLabel(for: row.matchKind).lowercased().contains(query)
-                || statusLabel(for: row).lowercased().contains(query)
-                || categoryName(for: row.categoryID)?.lowercased().contains(query) == true
-        }
+    private var seededRows: [SeededRuleSourceRow] {
+        snapshot?.seeded.rows ?? []
     }
 
-    private var selectedRule: ManagedLearnedRuleRow? {
-        guard let selectedLearnedRuleID else {
+    private var deterministicRows: [SeededRuleSourceRow] {
+        seededRows.filter { $0.sourceKind == .deterministicRule }
+    }
+
+    private var curatedPrefillRows: [SeededRuleSourceRow] {
+        seededRows.filter { $0.sourceKind == .curatedPrefill }
+    }
+
+    private var filteredLearnedRows: [ManagedLearnedRuleRow] {
+        learnedRows.filter(matchesSearch)
+    }
+
+    private var filteredDeterministicRows: [SeededRuleSourceRow] {
+        deterministicRows.filter(matchesSearch)
+    }
+
+    private var filteredCuratedPrefillRows: [SeededRuleSourceRow] {
+        curatedPrefillRows.filter(matchesSearch)
+    }
+
+    private var visibleRowIDs: [RulesListRowID] {
+        filteredLearnedRows.map { .learned($0.id) }
+            + filteredDeterministicRows.map { .seeded($0.id) }
+            + filteredCuratedPrefillRows.map { .seeded($0.id) }
+    }
+
+    private var selectedLearnedRule: ManagedLearnedRuleRow? {
+        guard case .learned(let id)? = selectedRowID else {
             return nil
         }
-
-        return learnedRows.first { $0.id == selectedLearnedRuleID }
+        return learnedRows.first { $0.id == id }
     }
 
-    private var selectedRuleIsUnavailable: Bool {
-        selectedLearnedRuleID != nil && selectedRule == nil
+    private var selectedSeededRule: SeededRuleSourceRow? {
+        guard case .seeded(let id)? = selectedRowID else {
+            return nil
+        }
+        return seededRows.first { $0.id == id }
+    }
+
+    private var selectedLearnedRuleIsUnavailable: Bool {
+        if case .learned = selectedRowID {
+            return selectedLearnedRule == nil
+        }
+        return false
+    }
+
+    private var selectedSeededRuleIsUnavailable: Bool {
+        if case .seeded = selectedRowID {
+            return selectedSeededRule == nil
+        }
+        return false
     }
 
     var body: some View {
-        switch destination.mode {
-        case .learned:
-            learnedManagerContent
-        case .seeded:
-            SeededRulesListView(
-                model: model,
-                categories: categories,
-                snapshot: snapshot
-            )
-        }
+        unifiedManagerContent
     }
 
-    private var learnedManagerContent: some View {
+    private var unifiedManagerContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
 
             if snapshot == nil {
                 ContentUnavailableView(
-                    "Learned Rules Unavailable",
+                    "Rules Unavailable",
                     systemImage: "slider.horizontal.3",
-                    description: Text("Alderwise could not load the learned-rule manager for this workspace.")
+                    description: Text("Alderwise could not load rule management for this workspace.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if learnedRows.isEmpty {
+            } else if learnedRows.isEmpty && seededRows.isEmpty {
                 ContentUnavailableView(
-                    "No Learned Rules Yet",
+                    "No Rules Yet",
                     systemImage: "slider.horizontal.3",
-                    description: Text("Learned rules will appear here after review teaches Alderwise new classifications.")
+                    description: Text("Rules will appear here after Alderwise learns from review and loads bundled defaults.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if filteredRows.isEmpty {
+            } else if visibleRowIDs.isEmpty {
                 ContentUnavailableView(
                     "No Results",
                     systemImage: "magnifyingglass",
-                    description: Text("No learned rules match \"\(searchText)\".")
+                    description: Text("No rules match \"\(searchText)\".")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
@@ -88,7 +110,7 @@ struct LearnedRulesManagerView: View {
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .searchable(text: $searchText, placement: .toolbar, prompt: "Search learned rules")
+        .searchable(text: $searchText, placement: .toolbar, prompt: "Search rules")
         .onAppear {
             syncDestination(destination, force: true)
         }
@@ -98,7 +120,7 @@ struct LearnedRulesManagerView: View {
         .onChange(of: searchText) { _, _ in
             syncSelectionToVisibleRows()
         }
-        .onChange(of: learnedRows.map(\.id)) { _, _ in
+        .onChange(of: trackedRowIdentityTokens) { _, _ in
             syncSelectionToVisibleRows()
         }
         .alert(
@@ -145,7 +167,7 @@ struct LearnedRulesManagerView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 18) {
             Button {
                 model.selectSettingsDestination(.overview)
             } label: {
@@ -153,12 +175,13 @@ struct LearnedRulesManagerView: View {
             }
             .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Learned Rules")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Rules")
                     .font(.largeTitle.bold())
 
-                Text("Inspect the rules Alderwise learned from review decisions. Disable a rule to stop future imports from using it.")
+                Text("Learned rules plus Alderwise's included deterministic rules and starter prefills.")
                     .foregroundStyle(.secondary)
+                    .frame(maxWidth: 720, alignment: .leading)
             }
         }
     }
@@ -168,21 +191,64 @@ struct LearnedRulesManagerView: View {
             VStack(spacing: 0) {
                 listPane
             }
-            .frame(minWidth: 360, idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 280, idealWidth: 320, maxWidth: 360, maxHeight: .infinity)
 
             detailPane
-                .frame(idealWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minWidth: 520, idealWidth: 720, maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
     private var listPane: some View {
         List(selection: selectedIDBinding) {
-            ForEach(filteredRows) { row in
-                LearnedRuleRowView(
-                    row: row,
-                    categoryName: categoryName(for: row.categoryID)
-                )
-                .tag(row.id)
+            if filteredLearnedRows.isEmpty == false {
+                Section {
+                    ForEach(filteredLearnedRows) { row in
+                        LearnedRuleRowView(
+                            row: row,
+                            categoryName: categoryName(for: row.categoryID)
+                        )
+                        .tag(RulesListRowID.learned(row.id))
+                    }
+                } header: {
+                    RulesSectionHeader(
+                        title: "Learned",
+                        subtitle: "From review decisions"
+                    )
+                }
+            }
+
+            if filteredDeterministicRows.isEmpty == false {
+                Section {
+                    ForEach(filteredDeterministicRows) { row in
+                        SeededRuleRowView(
+                            row: row,
+                            categoryName: categoryName(for: row.categoryID)
+                        )
+                        .tag(RulesListRowID.seeded(row.id))
+                    }
+                } header: {
+                    RulesSectionHeader(
+                        title: "Deterministic Rules",
+                        subtitle: "Included with App"
+                    )
+                }
+            }
+
+            if filteredCuratedPrefillRows.isEmpty == false {
+                Section {
+                    ForEach(filteredCuratedPrefillRows) { row in
+                        SeededRuleRowView(
+                            row: row,
+                            categoryName: categoryName(for: row.categoryID)
+                        )
+                        .tag(RulesListRowID.seeded(row.id))
+                    }
+                } header: {
+                    RulesSectionHeader(
+                        title: "Starter Prefills",
+                        subtitle: "Included with App"
+                    )
+                }
             }
         }
         .listStyle(.inset)
@@ -190,36 +256,47 @@ struct LearnedRulesManagerView: View {
 
     @ViewBuilder
     private var detailPane: some View {
-        if let selectedRule {
+        if let selectedLearnedRule {
             LearnedRuleDetailView(
-                row: selectedRule,
-                categoryName: categoryName(for: selectedRule.categoryID),
+                row: selectedLearnedRule,
+                categoryName: categoryName(for: selectedLearnedRule.categoryID),
                 onDisable: {
-                    pendingDisableRule = selectedRule
+                    pendingDisableRule = selectedLearnedRule
                 },
                 onEnable: {
-                    _ = model.enableLearnedRule(id: selectedRule.id)
+                    _ = model.enableLearnedRule(id: selectedLearnedRule.id)
                 }
             )
-        } else if selectedRuleIsUnavailable {
+        } else if let selectedSeededRule {
+            SeededRuleDetailView(
+                row: selectedSeededRule,
+                categoryName: categoryName(for: selectedSeededRule.categoryID)
+            )
+        } else if selectedLearnedRuleIsUnavailable {
             ContentUnavailableView(
                 "Selected Rule Unavailable",
                 systemImage: "exclamationmark.triangle",
                 description: Text("The selected learned rule is no longer available in the current workspace snapshot.")
             )
+        } else if selectedSeededRuleIsUnavailable {
+            ContentUnavailableView(
+                "Selected Source Unavailable",
+                systemImage: "exclamationmark.triangle",
+                description: Text("The selected seeded source is no longer available in the current workspace snapshot.")
+            )
         } else {
             ContentUnavailableView(
-                "No Learned Rule Selected",
+                "No Rule Selected",
                 systemImage: "sidebar.left",
-                description: Text("Select a learned rule to inspect its category, match scope, and lifecycle.")
+                description: Text("Select a rule to inspect its source, category, match scope, and lifecycle.")
             )
         }
     }
 
-    private var selectedIDBinding: Binding<UUID?> {
+    private var selectedIDBinding: Binding<RulesListRowID?> {
         Binding(
-            get: { selectedLearnedRuleID },
-            set: { selectedLearnedRuleID = $0 }
+            get: { selectedRowID },
+            set: { selectedRowID = $0 }
         )
     }
 
@@ -232,29 +309,71 @@ struct LearnedRulesManagerView: View {
         searchText = ""
 
         if let selectedLearnedRuleID = destination.selectedLearnedRuleID {
-            self.selectedLearnedRuleID = selectedLearnedRuleID
+            selectedRowID = .learned(selectedLearnedRuleID)
             return
         }
 
-        selectedLearnedRuleID = learnedRows.first?.id
+        switch destination.mode {
+        case .learned:
+            selectedRowID = firstAvailableLearnedRowID ?? firstVisibleRowID
+        case .seeded:
+            selectedRowID = firstAvailableSeededRowID ?? firstVisibleRowID
+        }
     }
 
     private func syncSelectionToVisibleRows() {
-        guard filteredRows.isEmpty == false else {
+        guard visibleRowIDs.isEmpty == false else {
             return
         }
 
-        guard let selectedLearnedRuleID else {
-            self.selectedLearnedRuleID = filteredRows.first?.id
+        guard let selectedRowID else {
+            self.selectedRowID = preferredVisibleRowID
             return
         }
 
-        if filteredRows.contains(where: { $0.id == selectedLearnedRuleID }) {
+        if visibleRowIDs.contains(selectedRowID) {
             return
         }
 
-        if learnedRows.contains(where: { $0.id == selectedLearnedRuleID }) {
-            self.selectedLearnedRuleID = filteredRows.first?.id
+        if rowStillExists(selectedRowID) {
+            self.selectedRowID = preferredVisibleRowID
+        }
+    }
+
+    private var firstVisibleRowID: RulesListRowID? {
+        visibleRowIDs.first
+    }
+
+    private var preferredVisibleRowID: RulesListRowID? {
+        switch destination.mode {
+        case .learned:
+            return filteredLearnedRows.first.map { .learned($0.id) } ?? firstVisibleRowID
+        case .seeded:
+            let firstSeededID = filteredDeterministicRows.first.map { RulesListRowID.seeded($0.id) }
+                ?? filteredCuratedPrefillRows.first.map { RulesListRowID.seeded($0.id) }
+            return firstSeededID ?? firstVisibleRowID
+        }
+    }
+
+    private var trackedRowIdentityTokens: [String] {
+        learnedRows.map { "learned:\($0.id.uuidString)" }
+            + seededRows.map { "seeded:\($0.id)" }
+    }
+
+    private var firstAvailableLearnedRowID: RulesListRowID? {
+        learnedRows.first.map { .learned($0.id) }
+    }
+
+    private var firstAvailableSeededRowID: RulesListRowID? {
+        seededRows.first.map { .seeded($0.id) }
+    }
+
+    private func rowStillExists(_ rowID: RulesListRowID) -> Bool {
+        switch rowID {
+        case .learned(let id):
+            learnedRows.contains(where: { $0.id == id })
+        case .seeded(let id):
+            seededRows.contains(where: { $0.id == id })
         }
     }
 
@@ -262,8 +381,33 @@ struct LearnedRulesManagerView: View {
         guard let categoryID else {
             return nil
         }
-
         return categories.first { $0.id == categoryID }?.name
+    }
+
+    private func matchesSearch(_ row: ManagedLearnedRuleRow) -> Bool {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard query.isEmpty == false else {
+            return true
+        }
+
+        return row.merchantPattern.lowercased().contains(query)
+            || row.merchantName?.lowercased().contains(query) == true
+            || scopeLabel(for: row.matchKind).lowercased().contains(query)
+            || statusLabel(for: row).lowercased().contains(query)
+            || categoryName(for: row.categoryID)?.lowercased().contains(query) == true
+    }
+
+    private func matchesSearch(_ row: SeededRuleSourceRow) -> Bool {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard query.isEmpty == false else {
+            return true
+        }
+
+        return row.merchantPattern.lowercased().contains(query)
+            || row.merchantName?.lowercased().contains(query) == true
+            || scopeLabel(for: row.matchKind).lowercased().contains(query)
+            || sourceTypeLabel(for: row).lowercased().contains(query)
+            || categoryName(for: row.categoryID)?.lowercased().contains(query) == true
     }
 
     private func scopeLabel(for matchKind: ClassificationRuleMatchKind) -> String {
@@ -280,6 +424,38 @@ struct LearnedRulesManagerView: View {
     private func statusLabel(for row: ManagedLearnedRuleRow) -> String {
         row.isDisabled ? "Disabled" : "Active"
     }
+
+    private func sourceTypeLabel(for row: SeededRuleSourceRow) -> String {
+        switch row.sourceKind {
+        case .deterministicRule:
+            "Deterministic rule"
+        case .curatedPrefill:
+            "Curated starter prefill"
+        }
+    }
+}
+
+private enum RulesListRowID: Hashable {
+    case learned(UUID)
+    case seeded(String)
+}
+
+private struct RulesSectionHeader: View {
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .textCase(.uppercase)
+                .foregroundStyle(.secondary)
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.top, 6)
+    }
 }
 
 private struct LearnedRuleRowView: View {
@@ -287,7 +463,7 @@ private struct LearnedRuleRowView: View {
     let categoryName: String?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(row.merchantPattern)
                     .font(.headline)
@@ -308,7 +484,13 @@ private struct LearnedRuleRowView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 3)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+        .alignmentGuide(.listRowSeparatorTrailing) { dimensions in
+            dimensions.width
+        }
     }
 
     private var subtitle: String {
@@ -348,15 +530,20 @@ private struct LearnedRuleDetailView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
                     Text(row.merchantPattern)
-                        .font(.title.bold())
+                        .font(.title2.bold())
+                    HStack(spacing: 8) {
+                        detailBadge(title: "Learned", tint: .accentColor)
+                        detailBadge(title: statusText, tint: row.isDisabled ? .secondary : .green)
+                    }
                     Text(detailSummary)
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: 640, alignment: .leading)
                 }
 
-                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 12) {
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                     detailRow(title: "Status", value: statusText)
                     detailRow(title: "Match Scope", value: scopeText)
                     detailRow(title: "Category", value: categoryName ?? "No category")
@@ -436,5 +623,15 @@ private struct LearnedRuleDetailView: View {
             Text(value)
                 .textSelection(.enabled)
         }
+    }
+
+    @ViewBuilder
+    private func detailBadge(title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.thinMaterial, in: Capsule())
     }
 }
