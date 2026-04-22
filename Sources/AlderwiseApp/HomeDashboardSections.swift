@@ -38,11 +38,11 @@ struct HomeDashboardSections: View {
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             } else {
                 VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(actions.enumerated()), id: \.offset) { offset, action in
+                    ForEach(orderedActions, id: \.id) { item in
                         Button {
-                            perform(action.destination)
+                            perform(item.action.destination)
                         } label: {
-                            actionRow(action, isPrimary: offset == 0 && action.prominence == .primary)
+                            actionRow(item.action, isPrimary: item.action == actions.first && item.action.prominence == .primary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -76,15 +76,15 @@ struct HomeDashboardSections: View {
 
     private var noTargetsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Strongest Driver")
+            Text("Month-over-Month Drivers")
                 .font(.headline)
 
-            Text("Track what changed most month over month before you decide whether to add a monthly limit.")
+            Text("Use the largest spending changes here for drill-down before you decide whether to add a monthly limit.")
                 .foregroundStyle(.secondary)
 
             if driverRows.isEmpty == false {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(driverRows.prefix(1))) { driver in
+                    ForEach(driverRows) { driver in
                         DriverRow(driver: driver, action: {
                             perform(driver.destination)
                         })
@@ -102,6 +102,12 @@ struct HomeDashboardSections: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var orderedActions: [(id: String, action: HomeDashboardAction)] {
+        actions.map { action in
+            (id: actionID(for: action), action: action)
+        }
     }
 
     private var targetsSection: some View {
@@ -167,10 +173,24 @@ struct HomeDashboardSections: View {
             Text(card.detail)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
+            if card.destination != nil {
+                HStack(spacing: 6) {
+                    Text("Open details")
+                    Image(systemName: "arrow.right")
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Color.accentColor)
+                .padding(.top, 4)
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(card.destination == nil ? Color.clear : Color.accentColor.opacity(0.2))
+        }
 
         if let destination = card.destination {
             Button {
@@ -237,6 +257,21 @@ struct HomeDashboardSections: View {
             return AppSection.targets.systemImage
         case .transactions:
             return AppSection.transactions.systemImage
+        }
+    }
+
+    private func actionID(for action: HomeDashboardAction) -> String {
+        "\(action.kind)-\(destinationID(for: action.destination))-\(action.prominence)"
+    }
+
+    private func destinationID(for destination: HomeDashboardDestination) -> String {
+        switch destination {
+        case .review:
+            return "review"
+        case .targets(let targetID):
+            return "targets:\(targetID?.uuidString ?? "root")"
+        case .transactions(let filter):
+            return "transactions:\(filter.startDate?.timeIntervalSince1970 ?? 0):\(filter.endDate?.timeIntervalSince1970 ?? 0):\(filter.categoryID?.uuidString ?? "none"):\(filter.categoryGroupID?.uuidString ?? "none")"
         }
     }
 }
