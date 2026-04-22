@@ -267,19 +267,22 @@ func workspacePreferencesUpgradeExistingWorkspaceWithoutSeededHeuristicAutoAccep
 }
 
 @Test
-func bootstrapKeepsLegacyTargetsDisjointAfterDefaultTaxonomySeeding() throws {
+func bootstrapDoesNotCreateTargetOverlapWhenSeedingDefaultCategoryMembership() throws {
     let databaseURL = try temporaryDatabaseURL()
     try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
-    try insertLegacyDisjointTargetsForBootstrapRegression(databaseURL: databaseURL)
+    try insertLegacyTargetsForBootstrapOverlapRegression(databaseURL: databaseURL)
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
 
     try store.bootstrap()
 
+    let categories = try store.fetchCategories()
     let managedTargets = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+    let groceries = try #require(categories.first { $0.id == DefaultBudgetTaxonomy.CategoryID.groceries })
 
-    #expect(managedTargets.map(\.name) == ["Financial", "Groceries"])
+    #expect(groceries.groupID == nil)
+    #expect(managedTargets.map(\.name) == ["Food & Drink", "Groceries"])
     #expect(managedTargets.map(\.scope) == [
-        .categoryGroup(DefaultBudgetTaxonomy.CategoryGroupID.financial),
+        .categoryGroup(DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink),
         .category(DefaultBudgetTaxonomy.CategoryID.groceries),
     ])
 }
@@ -1852,16 +1855,9 @@ private func createWorkspaceAfterWorkspacePreferencesMigration(at databaseURL: U
     }
 }
 
-private func insertLegacyDisjointTargetsForBootstrapRegression(databaseURL: URL) throws {
+private func insertLegacyTargetsForBootstrapOverlapRegression(databaseURL: URL) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
-        try db.execute(
-            sql: "INSERT INTO category_groups (id, name) VALUES (?, ?)",
-            arguments: [
-                DefaultBudgetTaxonomy.CategoryGroupID.financial.uuidString,
-                "Financial",
-            ]
-        )
         try db.execute(
             sql: "INSERT INTO categories (id, name, kind, category_group_id) VALUES (?, ?, ?, ?)",
             arguments: [
@@ -1884,7 +1880,7 @@ private func insertLegacyDisjointTargetsForBootstrapRegression(databaseURL: URL)
                 Date(timeIntervalSince1970: 1_775_171_200),
                 UUID(uuidString: "00000000-0000-0000-0000-000000009002")!.uuidString,
                 nil as String?,
-                DefaultBudgetTaxonomy.CategoryGroupID.financial.uuidString,
+                DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink.uuidString,
                 250.0,
                 Date(timeIntervalSince1970: 1_775_171_201),
             ]

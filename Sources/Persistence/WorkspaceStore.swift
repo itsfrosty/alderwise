@@ -502,6 +502,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             }
 
             for category in defaultBudgetCategories {
+                let groupID = try seededCategoryGroupIDPreservingTargetDisjointness(
+                    for: category,
+                    db: db
+                )
                 try db.execute(
                     sql: """
                     INSERT INTO categories (id, name, kind, category_group_id)
@@ -515,7 +519,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                         category.id.uuidString,
                         category.name,
                         category.kind.rawValue,
-                        category.groupID.uuidString,
+                        groupID?.uuidString,
                     ]
                 )
             }
@@ -2381,6 +2385,45 @@ private func targetProgress(
         remaining: monthlyLimit - spent,
         paceDelta: spent - expectedSpend
     )
+}
+
+private func seededCategoryGroupIDPreservingTargetDisjointness(
+    for category: DefaultBudgetCategoryDefinition,
+    db: Database
+) throws -> UUID? {
+    guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT category_group_id FROM categories WHERE id = ?",
+        arguments: [category.id.uuidString]
+    ) else {
+        return category.groupID
+    }
+
+    let currentGroupID: UUID?
+    if let currentGroupIDText = row["category_group_id"] as String? {
+        guard let parsedGroupID = UUID(uuidString: currentGroupIDText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(
+                field: "categories.category_group_id",
+                value: currentGroupIDText
+            )
+        }
+        currentGroupID = parsedGroupID
+    } else {
+        currentGroupID = nil
+    }
+
+    if currentGroupID == category.groupID {
+        return currentGroupID
+    }
+
+    // Bootstrap may normalize seeded memberships, but it must not implicitly create
+    // an overlap between an existing category target and an existing group target.
+    if try targetExists(categoryID: category.id, excluding: nil, db: db),
+       try targetExists(categoryGroupID: category.groupID, excluding: nil, db: db) {
+        return currentGroupID
+    }
+
+    return category.groupID
 }
 
 private struct PersistedTargetScope {
