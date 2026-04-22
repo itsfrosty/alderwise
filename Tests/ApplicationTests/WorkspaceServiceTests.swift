@@ -96,6 +96,7 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     var preferences = WorkspacePreferences()
     var createMonthlyTargetError: (any Error)?
     var updateMonthlyTargetError: (any Error)?
+    var deleteMonthlyTargetError: (any Error)?
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -267,11 +268,28 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
                 createdAt: existingTarget.createdAt
             )
         }
+        if let reportIndex = monthlyReport.targets.firstIndex(where: { $0.id == id }) {
+            monthlyReport.targets[reportIndex] = TargetProgress(
+                id: id,
+                name: "Groceries",
+                scope: draft.scope,
+                monthlyLimit: draft.monthlyLimit,
+                spent: Decimal(40),
+                remaining: draft.monthlyLimit - Decimal(40),
+                paceDelta: Decimal(0)
+            )
+        }
 
         return updatedTarget
     }
 
     func deleteMonthlyTarget(id: UUID) throws {
+        if let deleteMonthlyTargetError {
+            throw deleteMonthlyTargetError
+        }
+        guard createdTargets.contains(where: { $0.id == id }) else {
+            throw MonthlyTargetManagementError.targetNotFound(id)
+        }
         createdTargets.removeAll { $0.id == id }
         managedTargets.removeAll { $0.id == id }
         monthlyReport.targets.removeAll { $0.id == id }
@@ -409,6 +427,59 @@ func updateMonthlyTargetSurfacesTypedConflictErrors() throws {
             id: UUID(uuidString: "00000000-0000-0000-0000-000000000914")!,
             MonthlyTargetDraft(scope: .categoryGroup(groupID), monthlyLimit: Decimal(250))
         )
+    }
+}
+
+@Test
+func fetchManagedTargetsReturnsManagedTargets() throws {
+    let store = MutableWorkspaceStore()
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000915")!
+    store.managedTargets = [
+        ManagedMonthlyTarget(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000916")!,
+            name: "Groceries",
+            scope: .category(categoryID),
+            monthlyLimit: Decimal(125),
+            spent: Decimal(40),
+            remaining: Decimal(85),
+            paceDelta: Decimal(5),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+        ),
+    ]
+    let service = WorkspaceService(store: store)
+
+    let managedTargets = try service.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+
+    #expect(managedTargets == store.managedTargets)
+}
+
+@Test
+func deleteMonthlyTargetRemovesTargetAndReloadsSnapshot() throws {
+    let store = MutableWorkspaceStore()
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000917")!
+    store.categories = [BudgetCategory(id: categoryID, name: "Groceries", kind: .expense)]
+    let service = WorkspaceService(store: store)
+    let target = try service.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(categoryID), monthlyLimit: Decimal(125)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    try service.deleteMonthlyTarget(id: target.id)
+    let snapshot = try service.loadSnapshot()
+
+    #expect(snapshot.summary.targetCount == 0)
+    #expect(snapshot.monthlyReport.targets.isEmpty)
+    #expect(try service.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200)).isEmpty)
+}
+
+@Test
+func deleteMonthlyTargetPropagatesStaleIDError() throws {
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+    let missingID = UUID(uuidString: "00000000-0000-0000-0000-000000000918")!
+
+    #expect(throws: MonthlyTargetManagementError.targetNotFound(missingID)) {
+        try service.deleteMonthlyTarget(id: missingID)
     }
 }
 

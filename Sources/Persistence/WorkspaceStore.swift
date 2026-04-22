@@ -381,6 +381,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 ]
             )
         }
+        migrator.registerMigration("enforce-target-scope-invariants") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+            try installTargetScopeWriteGuards(db: db)
+        }
 
         try migrator.migrate(databaseQueue)
         try seedDefaultBudgetTaxonomy()
@@ -2357,14 +2361,20 @@ private func targetProgress(
     let scope: TargetScope
     let name: String
     let spent: Decimal
-    if let categoryIDText = row["category_id"] as String? {
+    let categoryIDText = row["category_id"] as String?
+    let categoryGroupIDText = row["category_group_id"] as String?
+    if categoryIDText != nil && categoryGroupIDText != nil {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.scope", value: "MULTIPLE")
+    }
+
+    if let categoryIDText {
         guard let categoryID = UUID(uuidString: categoryIDText) else {
             throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.category_id", value: categoryIDText)
         }
         scope = .category(categoryID)
         name = (row["category_name"] as String?) ?? "Uncategorized"
         spent = try acceptedExpenseSpend(db: db, interval: interval, categoryID: categoryID)
-    } else if let categoryGroupIDText = row["category_group_id"] as String? {
+    } else if let categoryGroupIDText {
         guard let categoryGroupID = UUID(uuidString: categoryGroupIDText) else {
             throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.category_group_id", value: categoryGroupIDText)
         }
@@ -2385,6 +2395,144 @@ private func targetProgress(
         remaining: monthlyLimit - spent,
         paceDelta: spent - expectedSpend
     )
+}
+
+private func installTargetScopeWriteGuards(db: Database) throws {
+    guard try db.tableExists("targets") else {
+        return
+    }
+
+    let targetColumns = try columnNames(in: "targets", db: db)
+    guard targetColumns.contains("category_id"),
+          targetColumns.contains("category_group_id"),
+          targetColumns.contains("monthly_limit")
+    else {
+        return
+    }
+
+    try db.execute(
+        sql: """
+        CREATE TRIGGER IF NOT EXISTS validate_targets_before_insert
+        BEFORE INSERT ON targets
+        BEGIN
+            SELECT CASE
+                WHEN ((NEW.category_id IS NULL AND NEW.category_group_id IS NULL)
+                   OR (NEW.category_id IS NOT NULL AND NEW.category_group_id IS NOT NULL))
+                THEN RAISE(ABORT, 'invalid target scope')
+            END;
+            SELECT CASE
+                WHEN NEW.monthly_limit <= 0
+                THEN RAISE(ABORT, 'invalid target limit')
+            END;
+            SELECT CASE
+                WHEN NEW.category_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM targets
+                    WHERE category_id = NEW.category_id
+                      AND category_group_id IS NULL
+                )
+                THEN RAISE(ABORT, 'duplicate target category scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_group_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM targets
+                    WHERE category_group_id = NEW.category_group_id
+                      AND category_id IS NULL
+                )
+                THEN RAISE(ABORT, 'duplicate target group scope')
+            END;
+        END
+        """
+    )
+    try db.execute(
+        sql: """
+        CREATE TRIGGER IF NOT EXISTS validate_targets_before_update
+        BEFORE UPDATE ON targets
+        BEGIN
+            SELECT CASE
+                WHEN ((NEW.category_id IS NULL AND NEW.category_group_id IS NULL)
+                   OR (NEW.category_id IS NOT NULL AND NEW.category_group_id IS NOT NULL))
+                THEN RAISE(ABORT, 'invalid target scope')
+            END;
+            SELECT CASE
+                WHEN NEW.monthly_limit <= 0
+                THEN RAISE(ABORT, 'invalid target limit')
+            END;
+            SELECT CASE
+                WHEN NEW.category_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM targets
+                    WHERE category_id = NEW.category_id
+                      AND category_group_id IS NULL
+                      AND id != NEW.id
+                )
+                THEN RAISE(ABORT, 'duplicate target category scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_group_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM targets
+                    WHERE category_group_id = NEW.category_group_id
+                      AND category_id IS NULL
+                      AND id != NEW.id
+                )
+                THEN RAISE(ABORT, 'duplicate target group scope')
+            END;
+        END
+        """
+    )
+
+    if try canCreateUniqueCategoryScopeIndex(db: db) {
+        try db.execute(
+            sql: """
+            CREATE UNIQUE INDEX IF NOT EXISTS targets_unique_category_scope
+            ON targets(category_id)
+            WHERE category_id IS NOT NULL AND category_group_id IS NULL
+            """
+        )
+    }
+    if try canCreateUniqueCategoryGroupScopeIndex(db: db) {
+        try db.execute(
+            sql: """
+            CREATE UNIQUE INDEX IF NOT EXISTS targets_unique_category_group_scope
+            ON targets(category_group_id)
+            WHERE category_group_id IS NOT NULL AND category_id IS NULL
+            """
+        )
+    }
+}
+
+private func canCreateUniqueCategoryScopeIndex(db: Database) throws -> Bool {
+    try String.fetchOne(
+        db,
+        sql: """
+        SELECT category_id
+        FROM targets
+        WHERE category_id IS NOT NULL AND category_group_id IS NULL
+        GROUP BY category_id
+        HAVING COUNT(*) > 1
+        LIMIT 1
+        """
+    ) == nil
+}
+
+private func canCreateUniqueCategoryGroupScopeIndex(db: Database) throws -> Bool {
+    try String.fetchOne(
+        db,
+        sql: """
+        SELECT category_group_id
+        FROM targets
+        WHERE category_group_id IS NOT NULL AND category_id IS NULL
+        GROUP BY category_group_id
+        HAVING COUNT(*) > 1
+        LIMIT 1
+        """
+    ) == nil
 }
 
 private func seededCategoryGroupIDPreservingTargetDisjointness(

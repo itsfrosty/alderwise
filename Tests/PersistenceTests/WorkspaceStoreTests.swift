@@ -288,6 +288,56 @@ func bootstrapDoesNotCreateTargetOverlapWhenSeedingDefaultCategoryMembership() t
 }
 
 @Test
+func bootstrapInstallsDatabaseGuardsForTargetScopeWrites() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    try insertTarget(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000009011")!,
+        categoryID: DefaultBudgetTaxonomy.CategoryID.groceries,
+        categoryGroupID: nil,
+        monthlyLimit: Decimal(125)
+    )
+
+    #expect(throws: (any Error).self) {
+        try insertTarget(
+            databaseURL: databaseURL,
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000009012")!,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.groceries,
+            categoryGroupID: nil,
+            monthlyLimit: Decimal(140)
+        )
+    }
+    #expect(throws: (any Error).self) {
+        try insertTarget(
+            databaseURL: databaseURL,
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000009013")!,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.groceries,
+            categoryGroupID: DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink,
+            monthlyLimit: Decimal(150)
+        )
+    }
+}
+
+@Test
+func fetchManagedTargetsRejectsAmbiguousStoredTargetScopeRows() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    try insertAmbiguousLegacyTargetForReadRegression(databaseURL: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    #expect(throws: (any Error).self) {
+        _ = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+    }
+}
+
+@Test
 func workspacePreferencesRoundTripThroughSQLite() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -1883,6 +1933,37 @@ private func insertLegacyTargetsForBootstrapOverlapRegression(databaseURL: URL) 
                 DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink.uuidString,
                 250.0,
                 Date(timeIntervalSince1970: 1_775_171_201),
+            ]
+        )
+    }
+}
+
+private func insertAmbiguousLegacyTargetForReadRegression(databaseURL: URL) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO categories (id, name, kind, category_group_id)
+            VALUES (?, ?, ?, ?)
+            """,
+            arguments: [
+                DefaultBudgetTaxonomy.CategoryID.groceries.uuidString,
+                "Groceries",
+                "expense",
+                nil as String?,
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO targets (id, category_id, category_group_id, monthly_limit, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                UUID(uuidString: "00000000-0000-0000-0000-000000009021")!.uuidString,
+                DefaultBudgetTaxonomy.CategoryID.groceries.uuidString,
+                DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink.uuidString,
+                125.0,
+                Date(timeIntervalSince1970: 1_775_171_200),
             ]
         )
     }
