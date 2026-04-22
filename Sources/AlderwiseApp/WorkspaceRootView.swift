@@ -211,36 +211,36 @@ struct WorkspaceRootView: View {
         .alert(
             "Workspace Updated",
             isPresented: Binding(
-                get: { model.workspaceMaintenanceMessage != nil },
+                get: { model.latestMaintenanceOutcome != nil },
                 set: { isPresented in
                     if !isPresented {
-                        model.workspaceMaintenanceMessage = nil
+                        model.dismissLatestMaintenanceOutcome()
                     }
                 }
             )
         ) {
             Button("OK") {
-                model.workspaceMaintenanceMessage = nil
+                model.dismissLatestMaintenanceOutcome()
             }
         } message: {
-            Text(model.workspaceMaintenanceMessage ?? "")
+            Text(model.latestMaintenanceOutcome?.message ?? "")
         }
         .alert(
             "Workspace Maintenance Failed",
             isPresented: Binding(
-                get: { model.workspaceMaintenanceErrorMessage != nil },
+                get: { model.latestMaintenanceFailure != nil },
                 set: { isPresented in
                     if !isPresented {
-                        model.workspaceMaintenanceErrorMessage = nil
+                        model.dismissLatestMaintenanceFailure()
                     }
                 }
             )
         ) {
             Button("OK") {
-                model.workspaceMaintenanceErrorMessage = nil
+                model.dismissLatestMaintenanceFailure()
             }
         } message: {
-            Text(model.workspaceMaintenanceErrorMessage ?? "")
+            Text(model.latestMaintenanceFailure?.message ?? "")
         }
     }
 
