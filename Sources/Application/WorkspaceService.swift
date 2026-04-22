@@ -8,7 +8,11 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case importPreviewCouldNotNormalizeRow(line: Int)
     case transactionLedgerUnavailable
     case reviewQueueUnavailable
-    case targetWritingUnavailable
+    case monthlyTargetConflict(MonthlyTargetConflict)
+    case archivedAccountImportUnavailable
+    case accountManagementUnavailable
+    case accountDeleteBlocked
+    case targetManagementUnavailable
     case workspaceMaintenanceUnavailable
 }
 
@@ -25,7 +29,20 @@ extension WorkspaceServiceError: LocalizedError {
             "The transaction ledger is unavailable for this workspace."
         case .reviewQueueUnavailable:
             "The review queue is unavailable for this workspace."
-        case .targetWritingUnavailable:
+        case .monthlyTargetConflict(let conflict):
+            switch conflict {
+            case .duplicateScope:
+                "A monthly target already exists for that scope."
+            case .categoryGroupOverlap:
+                "A monthly target cannot overlap a category group and one of its member categories."
+            }
+        case .archivedAccountImportUnavailable:
+            "Archived accounts can't accept new imports."
+        case .accountManagementUnavailable:
+            "Accounts are unavailable for this workspace."
+        case .accountDeleteBlocked:
+            "This account can't be deleted because it still has imported files or transactions."
+        case .targetManagementUnavailable:
             "Monthly targets are unavailable for this workspace."
         case .workspaceMaintenanceUnavailable:
             "Workspace maintenance is unavailable for this workspace."
@@ -81,9 +98,16 @@ public struct WorkspaceService: Sendable {
         let reviewReader = store as? any ReviewQueueReading
         let summary = try store.fetchSummary()
         let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: .now) ?? .empty
+        let managementAccounts = try store.fetchManagementAccounts()
+        let importEligibleAccounts = try store.fetchImportEligibleAccounts()
+        let ledgerFilterAccounts = try store.fetchLedgerFilterAccounts()
+        let permanentlyDeletableAccountIDs = try store.fetchPermanentlyDeletableAccountIDs()
         return WorkspaceSnapshot(
             summary: summary,
-            accounts: try store.fetchAccounts(),
+            managementAccounts: managementAccounts,
+            importEligibleAccounts: importEligibleAccounts,
+            ledgerFilterAccounts: ledgerFilterAccounts,
+            permanentlyDeletableAccountIDs: permanentlyDeletableAccountIDs,
             categories: try store.fetchCategories(),
             categoryGroups: try store.fetchCategoryGroups(),
             pendingReviewItems: try reviewReader?.fetchPendingReviewItems() ?? [],
@@ -129,15 +153,37 @@ public struct WorkspaceService: Sendable {
         )
     }
 
+    public func fetchManagedTargets(referenceDate: Date = Date()) throws -> [ManagedMonthlyTarget] {
+        try targetManager().fetchManagedTargets(referenceDate: referenceDate)
+    }
+
     @discardableResult
     public func createMonthlyTarget(
         _ draft: MonthlyTargetDraft,
         createdAt: Date = Date()
     ) throws -> MonthlyTarget {
-        guard let writer = store as? any TargetWriting else {
-            throw WorkspaceServiceError.targetWritingUnavailable
+        do {
+            return try targetManager().createMonthlyTarget(draft, createdAt: createdAt)
+        } catch MonthlyTargetManagementError.conflict(let conflict) {
+            throw WorkspaceServiceError.monthlyTargetConflict(conflict)
         }
-        return try writer.createMonthlyTarget(draft, createdAt: createdAt)
+    }
+
+    @discardableResult
+    public func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget {
+        do {
+            return try targetManager().updateMonthlyTarget(id: id, draft)
+        } catch MonthlyTargetManagementError.conflict(let conflict) {
+            throw WorkspaceServiceError.monthlyTargetConflict(conflict)
+        }
+    }
+
+    public func deleteMonthlyTarget(id: UUID) throws {
+        do {
+            try targetManager().deleteMonthlyTarget(id: id)
+        } catch MonthlyTargetManagementError.conflict(let conflict) {
+            throw WorkspaceServiceError.monthlyTargetConflict(conflict)
+        }
     }
 
     public func loadWorkspaceMetadata() throws -> WorkspaceMetadata {
@@ -174,8 +220,41 @@ public struct WorkspaceService: Sendable {
     }
 
     @discardableResult
+    public func updateAccount(
+        id: UUID,
+        named: String,
+        kind: AccountKind,
+        institutionName: String?
+    ) throws -> Account {
+        try store.updateAccount(
+            id: id,
+            named: named.trimmingCharacters(in: .whitespacesAndNewlines),
+            kind: kind,
+            institutionName: institutionName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        )
+    }
+
+    @discardableResult
+    public func archiveAccount(id: UUID, archivedAt: Date = .now) throws -> Account {
+        try store.archiveAccount(id: id, archivedAt: archivedAt)
+    }
+
+    @discardableResult
+    public func restoreAccount(id: UUID) throws -> Account {
+        try store.restoreAccount(id: id)
+    }
+
+    public func deleteAccountPermanently(id: UUID) throws {
+        do {
+            try store.deleteAccountPermanently(id: id)
+        } catch AccountManagementError.deleteBlockedByDependencies {
+            throw WorkspaceServiceError.accountDeleteBlocked
+        }
+    }
+
+    @discardableResult
     public func seedSampleDataIfNeeded() throws -> Bool {
-        let existingAccounts = try store.fetchAccounts()
+        let existingAccounts = try store.fetchManagementAccounts()
         guard existingAccounts.isEmpty else {
             return false
         }
@@ -201,6 +280,11 @@ public struct WorkspaceService: Sendable {
         csvText: String,
         importedAt: Date = .now
     ) throws -> StagedCSVImportResult {
+        let importEligibleAccountIDs = try Set(store.fetchImportEligibleAccounts().map(\.id))
+        guard importEligibleAccountIDs.contains(account.id) else {
+            throw WorkspaceServiceError.archivedAccountImportUnavailable
+        }
+
         guard preview.validation.isReadyForImport else {
             throw WorkspaceServiceError.importPreviewNotReady
         }
@@ -396,6 +480,13 @@ public struct WorkspaceService: Sendable {
             throw WorkspaceServiceError.transactionLedgerUnavailable
         }
         return reader
+    }
+
+    private func targetManager() throws -> any TargetManaging {
+        guard let manager = store as? any TargetManaging else {
+            throw WorkspaceServiceError.targetManagementUnavailable
+        }
+        return manager
     }
 
     private func workspaceMaintenanceManager() throws -> any WorkspaceMaintenanceManaging {

@@ -3,6 +3,7 @@ import Foundation
 public enum ClassificationDecisionSource: String, Codable, Equatable, Sendable {
     case rule
     case heuristic
+    case curatedPrefill
     case suggestion
     case user
 }

@@ -3,12 +3,20 @@ import Foundation
 public protocol WorkspaceReading: Sendable {
     func fetchSummary() throws -> WorkspaceSummary
     func fetchAccounts() throws -> [Account]
+    func fetchManagementAccounts() throws -> [Account]
+    func fetchImportEligibleAccounts() throws -> [Account]
+    func fetchLedgerFilterAccounts() throws -> [Account]
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID>
     func fetchCategories() throws -> [BudgetCategory]
     func fetchCategoryGroups() throws -> [BudgetCategoryGroup]
 }
 
 public protocol AccountWriting: Sendable {
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account
+    func restoreAccount(id: UUID) throws -> Account
+    func deleteAccountPermanently(id: UUID) throws
 }
 
 public protocol StagedImportWriting: Sendable {
@@ -60,9 +68,17 @@ public protocol ReportingReading: Sendable {
     func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport
 }
 
+public protocol TargetManagementReading: Sendable {
+    func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget]
+}
+
 public protocol TargetWriting: Sendable {
     func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget
+    func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget
+    func deleteMonthlyTarget(id: UUID) throws
 }
+
+public typealias TargetManaging = TargetManagementReading & TargetWriting
 
 public protocol TransactionLedgerWriting: Sendable {
     func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws

@@ -7,9 +7,62 @@ struct AccountCreationSheet: View {
     @State private var name = ""
     @State private var institutionName = ""
     @State private var kind = AccountKind.checking
-    @FocusState private var focusedField: Field?
+    @State private var errorMessage: String?
 
-    let onCreate: (String, AccountKind, String?) -> Void
+    let onCreate: (String, AccountKind, String?) throws -> Void
+
+    var body: some View {
+        AccountDraftEditorForm(
+            name: $name,
+            institutionName: $institutionName,
+            kind: $kind,
+            title: "Create Account",
+            submitTitle: "Create",
+            errorMessage: errorMessage,
+            onCancel: {
+                dismiss()
+            },
+            onSubmit: submit
+        )
+    }
+
+    private func submit() {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            errorMessage = "Enter an account name."
+            return
+        }
+
+        do {
+            try onCreate(
+                trimmedName,
+                kind,
+                optionalTrimmedInstitutionName
+            )
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private var optionalTrimmedInstitutionName: String? {
+        let trimmed = institutionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+struct AccountDraftEditorForm: View {
+    @Binding var name: String
+    @Binding var institutionName: String
+    @Binding var kind: AccountKind
+
+    let title: String
+    let submitTitle: String
+    let errorMessage: String?
+    let onCancel: () -> Void
+    let onSubmit: () -> Void
+
+    @FocusState private var focusedField: Field?
 
     private enum Field {
         case name
@@ -19,8 +72,14 @@ struct AccountCreationSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                Text("Create Account")
+                Text(title)
                     .font(.title2.bold())
+
+                if let errorMessage, !errorMessage.isEmpty {
+                    Text(errorMessage)
+                        .font(.subheadline)
+                        .foregroundStyle(.red)
+                }
 
                 Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 14) {
                     GridRow {
@@ -50,14 +109,11 @@ struct AccountCreationSheet: View {
                     Spacer()
 
                     Button("Cancel") {
-                        dismiss()
+                        onCancel()
                     }
 
-                    Button {
-                        onCreate(name, kind, institutionName.isEmpty ? nil : institutionName)
-                        dismiss()
-                    } label: {
-                        Label("Create", systemImage: "plus")
+                    Button(submitTitle) {
+                        onSubmit()
                     }
                     .keyboardShortcut(.defaultAction)
                     .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
