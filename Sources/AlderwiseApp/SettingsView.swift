@@ -7,21 +7,34 @@ struct SettingsView: View {
     @ObservedObject var model: WorkspaceShellModel
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                Text("Settings")
-                    .font(.largeTitle.bold())
+        Group {
+            switch model.settingsDestination {
+            case .overview:
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        Text("Settings")
+                            .font(.largeTitle.bold())
 
-                workspaceSection
-                backupAndRecoverySection
-                dangerZoneSection
-                suggestionsSection
-                    .padding(.top, 8)
+                        workspaceSection
+                        backupAndRecoverySection
+                        dangerZoneSection
+                        suggestionsSection
+                            .padding(.top, 8)
+                        learnedRulesSection
 
-                Spacer(minLength: 0)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+                }
+            case .learnedRules(let destination):
+                LearnedRulesManagerView(
+                    model: model,
+                    destination: destination,
+                    categories: model.snapshot.categories,
+                    snapshot: model.learnedRuleManagerSnapshot
+                )
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .modifier(WorkspaceMaintenanceFeedbackModifier(model: model))
@@ -162,6 +175,25 @@ struct SettingsView: View {
             )
         }
         .foregroundStyle(.secondary)
+    }
+
+    private var learnedRulesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Learned Rules")
+                .font(.headline)
+
+            Text("Inspect and manage the rules Alderwise learned from review decisions.")
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: 12) {
+                Button {
+                    model.showLearnedRules()
+                } label: {
+                    Label("Open Learned Rules", systemImage: "slider.horizontal.3")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
     }
 
     private var workspaceLocationText: String {

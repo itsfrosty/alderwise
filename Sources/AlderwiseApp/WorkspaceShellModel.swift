@@ -30,6 +30,8 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
     @Published var selectedTargetID: UUID?
     @Published private(set) var settingsDestination: SettingsDestination = .overview
+    @Published private(set) var learnedRuleManagerSnapshot: LearnedRuleManagerSnapshot?
+    @Published var learnedRuleManagerActionErrorMessage: String?
     @Published private(set) var csvImportPreview: CSVImportPreview?
     @Published private(set) var pendingCSVImport: PendingCSVImport?
     @Published var importErrorMessage: String?
@@ -254,6 +256,40 @@ final class WorkspaceShellModel: ObservableObject {
         settingsDestination = SettingsDestination.learnedRulesRoute(
             selectedLearnedRuleID: selectedLearnedRuleID
         )
+    }
+
+    @discardableResult
+    func disableLearnedRule(id: UUID) -> Bool {
+        guard let service else {
+            return false
+        }
+
+        do {
+            _ = try service.disableLearnedRule(id: id)
+            reload()
+            learnedRuleManagerActionErrorMessage = nil
+            return true
+        } catch {
+            learnedRuleManagerActionErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
+    func enableLearnedRule(id: UUID) -> Bool {
+        guard let service else {
+            return false
+        }
+
+        do {
+            _ = try service.enableLearnedRule(id: id)
+            reload()
+            learnedRuleManagerActionErrorMessage = nil
+            return true
+        } catch {
+            learnedRuleManagerActionErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
     @discardableResult
@@ -510,11 +546,13 @@ final class WorkspaceShellModel: ObservableObject {
         let managedTargets = try service.fetchManagedTargets(referenceDate: snapshot.monthlyReport.monthStart)
         let metadata = try? service.loadWorkspaceMetadata()
         let preferences = (try? service.loadWorkspacePreferences()) ?? .default
+        let learnedRuleManagerSnapshot = try? service.loadLearnedRuleManagerSnapshot()
 
         state = .loaded(snapshot)
         self.managedTargets = managedTargets
         workspaceStatus = .available(metadata)
         workspacePreferences = preferences
+        self.learnedRuleManagerSnapshot = learnedRuleManagerSnapshot
 
         if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
             self.selectedTargetID = nil
@@ -535,6 +573,7 @@ final class WorkspaceShellModel: ObservableObject {
         selectedTransactionID = nil
         selectedTransactionDetail = nil
         transactionDetailErrorMessage = nil
+        learnedRuleManagerSnapshot = nil
         state = .failed(message)
         workspaceStatus = .failedToOpen(message)
     }

@@ -139,6 +139,24 @@ public struct WorkspaceService: Sendable {
         )
     }
 
+    @discardableResult
+    public func disableLearnedRule(id: UUID, disabledAt: Date = .now) throws -> ManagedLearnedRule {
+        guard let learnedRuleWriter = store as? any LearnedRuleWriting else {
+            throw WorkspaceServiceError.learnedRuleManagementUnavailable
+        }
+
+        return try learnedRuleWriter.disableLearnedRule(id: id, disabledAt: disabledAt)
+    }
+
+    @discardableResult
+    public func enableLearnedRule(id: UUID) throws -> ManagedLearnedRule {
+        guard let learnedRuleWriter = store as? any LearnedRuleWriting else {
+            throw WorkspaceServiceError.learnedRuleManagementUnavailable
+        }
+
+        return try learnedRuleWriter.enableLearnedRule(id: id)
+    }
+
     public func loadTransactionDetail(id: UUID) throws -> TransactionDetail? {
         try transactionLedgerReader().fetchTransactionDetail(id: id)
     }
