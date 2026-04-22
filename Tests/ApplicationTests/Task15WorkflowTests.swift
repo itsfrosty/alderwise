@@ -194,6 +194,97 @@ func homeTransactionDestinationPreservesFilterInNavigationIntent() throws {
 }
 
 @Test
+func emptyWorkspaceHomeStillExposesOnlyExistingSetupSurfaces() throws {
+    let service = try task15Service()
+
+    let dashboard = try #require(try service.loadSnapshot().homeDashboard)
+
+    #expect(dashboard.isEmptyWorkspace)
+    #expect(dashboard.reviewQualifier == nil)
+    #expect(dashboard.actions.isEmpty)
+    #expect(dashboard.summaryCards.isEmpty)
+    #expect(dashboard.chart == nil)
+    #expect(dashboard.targetRows.isEmpty)
+    #expect(dashboard.driverRows.isEmpty)
+}
+
+@Test
+func populatedHomeWithPendingReviewPrioritizesReviewAndQualifiesAcceptedOnlyStatus() throws {
+    let service = try task15Service()
+    let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,Coffee Shop,-4.75
+    """
+    _ = try task15Stage(csv: csv, account: account, service: service)
+
+    let dashboard = try #require(try service.loadSnapshot().homeDashboard)
+
+    let qualifier = try #require(dashboard.reviewQualifier)
+    let firstAction = try #require(dashboard.actions.first)
+    let reviewCard = try #require(dashboard.summaryCards.first { $0.id == "review" })
+
+    #expect(qualifier.pendingReviewCount == 1)
+    #expect(firstAction.kind == .reviewBacklog(count: 1))
+    #expect(firstAction.destination.workspaceNavigationIntent.section == .review)
+    #expect(reviewCard.destination?.workspaceNavigationIntent.section == .review)
+}
+
+@Test
+func populatedHomeWithNoTargetsAndNoPendingReviewSurfacesDriverAndSetupActions() throws {
+    let service = try task15Service()
+    let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let category = try #require(try service.loadSnapshot().categories.first { $0.kind == .expense })
+    let csv = """
+    Date,Description,Amount
+    2026-03-05,Grocery Mart,-35.00
+    2026-04-03,Grocery Mart,-62.00
+    """
+    _ = try task15Stage(csv: csv, account: account, service: service)
+    try task15ApproveAllPending(service: service, categoryID: category.id, merchantName: "Grocery Mart")
+
+    let dashboard = try #require(try service.loadSnapshot().homeDashboard)
+
+    #expect(dashboard.reviewQualifier == nil)
+    #expect(dashboard.chart == nil)
+    #expect(dashboard.targetRows.isEmpty)
+    #expect(dashboard.driverRows.isEmpty == false)
+    #expect(dashboard.actions.map(\.kind) == [.spendDriver, .createFirstTarget])
+    #expect(dashboard.summaryCards.map(\.title) == ["This Month", "Last Month", "Strongest Driver"])
+}
+
+@Test
+func populatedHomeWithActiveTargetSurfacesTargetPressureAndDrivers() throws {
+    let service = try task15Service()
+    let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let category = try #require(try service.loadSnapshot().categories.first { $0.kind == .expense })
+    let csv = """
+    Date,Description,Amount
+    2026-03-02,Grocery Mart,-80.00
+    2026-04-02,Grocery Mart,-120.00
+    """
+    _ = try task15Stage(csv: csv, account: account, service: service)
+    try task15ApproveAllPending(service: service, categoryID: category.id, merchantName: "Grocery Mart")
+    let target = try service.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(category.id), monthlyLimit: Decimal(100)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    let dashboard = try #require(try service.loadSnapshot().homeDashboard)
+
+    let chart = try #require(dashboard.chart)
+    let targetPressureCard = try #require(dashboard.summaryCards.first { $0.id == "target-pressure" })
+
+    #expect(dashboard.reviewQualifier == nil)
+    #expect(chart.points.isEmpty == false)
+    #expect(dashboard.targetRows.map(\.id) == [target.id])
+    #expect(dashboard.driverRows.isEmpty == false)
+    #expect(dashboard.actions.first?.kind == .pressuredTarget)
+    #expect(dashboard.summaryCards.map(\.title) == ["This Month", "Last Month", "Target Pressure"])
+    #expect(targetPressureCard.destination == .targets(target.id))
+}
+
+@Test
 func accountServiceWorkflowSupportsEditArchiveRestoreAndDeleteWhenUnused() throws {
     let service = try task15Service()
 
@@ -298,6 +389,17 @@ private func task15Stage(csv: String, account: Account, service: WorkspaceServic
         csvText: csv,
         importedAt: Date(timeIntervalSince1970: 1_775_171_200)
     )
+}
+
+private func task15ApproveAllPending(service: WorkspaceService, categoryID: UUID, merchantName: String) throws {
+    for item in try service.loadSnapshot().pendingReviewItems {
+        try service.approveClassificationReviewItem(
+            id: item.id,
+            assignment: ClassificationAssignment(categoryID: categoryID, merchantName: merchantName),
+            ruleLearning: nil,
+            resolvedAt: Date(timeIntervalSince1970: 1_775_171_260)
+        )
+    }
 }
 
 private func task15TemporaryDatabaseURL() throws -> URL {
