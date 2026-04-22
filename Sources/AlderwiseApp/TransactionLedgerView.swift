@@ -401,15 +401,10 @@ struct TransactionLedgerView: View {
     }
 
     private func handleSave(_ draft: TransactionLedgerEditDraft) {
-        let currentSelectionID = model.selectedTransactionID
         model.updateSelectedTransaction(draft: draft)
 
-        guard model.selectedTransactionID == currentSelectionID else {
-            return
-        }
-
         let pendingSelectionID = draftCoordinator.saveSucceeded()
-        if pendingSelectionID != currentSelectionID {
+        if pendingSelectionID != model.selectedTransactionID {
             model.selectTransaction(id: pendingSelectionID)
         }
     }
