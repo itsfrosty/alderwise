@@ -1169,6 +1169,19 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         )
     }
 
+    public func resetWorkspace() throws -> WorkspaceResetResult {
+        guard databaseURL != nil else {
+            throw WorkspaceMaintenanceError.onDiskWorkspaceRequired
+        }
+
+        let preResetBackup = try createWorkspaceBackup()
+        try withBootstrappedReplacementWorkspaceStore { replacementStore in
+            try replacementStore.databaseQueue.backup(to: databaseQueue)
+        }
+
+        return WorkspaceResetResult(preResetBackupURL: preResetBackup.fileURL)
+    }
+
     public func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {
         let interval = monthInterval(containing: referenceDate)
         let lastMonthStart = Calendar.alderwiseUTC.date(byAdding: .month, value: -1, to: interval.start) ?? interval.start
@@ -2476,6 +2489,23 @@ private let backupFilenameDateFormatter: DateFormatter = {
 private let defaultCategoryGroups = DefaultBudgetTaxonomy.categoryGroups
 
 private let defaultBudgetCategories = DefaultBudgetTaxonomy.categories
+
+private func withBootstrappedReplacementWorkspaceStore<R>(
+    fileManager: FileManager = .default,
+    perform body: (WorkspaceStore) throws -> R
+) throws -> R {
+    let replacementDirectory = fileManager.temporaryDirectory
+        .appending(path: "AlderwiseWorkspaceReset-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let replacementURL = replacementDirectory.appending(path: "workspace.sqlite")
+    try fileManager.createDirectory(at: replacementDirectory, withIntermediateDirectories: true)
+    defer {
+        try? fileManager.removeItem(at: replacementDirectory)
+    }
+
+    let store = try WorkspaceStore.at(databaseURL: replacementURL)
+    try store.bootstrap()
+    return try body(store)
+}
 
 private func pruneObsoleteDefaultTaxonomy(db: Database) throws {
     let currentCategoryIDs = Set(defaultBudgetCategories.map(\.id.uuidString))

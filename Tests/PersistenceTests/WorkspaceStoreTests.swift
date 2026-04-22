@@ -307,6 +307,90 @@ func restoreWorkspaceBackupLeavesLiveWorkspaceUnchangedWhenValidationFailsBefore
 }
 
 @Test
+func resetWorkspaceCreatesMandatoryBackupAndLeavesBootstrappedEmptyWorkspace() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    let result = try store.resetWorkspace()
+    let backupStore = try WorkspaceStore.at(databaseURL: result.preResetBackupURL)
+
+    #expect(FileManager.default.fileExists(atPath: result.preResetBackupURL.path))
+    #expect(try backupStore.fetchSummary().accountCount == 1)
+    #expect(try store.fetchSummary() == .empty)
+    #expect(try store.fetchAccounts().isEmpty)
+    #expect(try store.fetchCategories().isEmpty == false)
+}
+
+@Test
+func resetWorkspacePreservesLiveWorkspacePath() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    _ = try store.resetWorkspace()
+    let metadata = try store.fetchWorkspaceMetadata()
+    let reopenedStore = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    #expect(metadata.databaseURL == databaseURL)
+    #expect(FileManager.default.fileExists(atPath: databaseURL.path))
+    #expect(try reopenedStore.fetchSummary() == .empty)
+}
+
+@Test
+func resetWorkspaceClearsWorkspacePreferencesBackToDefaults() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    try store.updateWorkspacePreferences(
+        WorkspacePreferences(
+            suggestionsEnabled: false,
+            seededHeuristicAutoAcceptEnabled: true
+        )
+    )
+
+    _ = try store.resetWorkspace()
+
+    #expect(try store.fetchWorkspacePreferences() == .default)
+}
+
+@Test
+func resetWorkspaceLeavesExistingBackupFilesUntouched() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let backupDirectory = databaseURL.deletingLastPathComponent().appending(path: "Backups", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+    let existingBackupURL = backupDirectory.appending(path: "Alderwise Backup 2000-01-01 000000.sqlite")
+    let existingBackupContents = Data("existing backup".utf8)
+    try existingBackupContents.write(to: existingBackupURL)
+
+    let result = try store.resetWorkspace()
+
+    #expect(result.preResetBackupURL != existingBackupURL)
+    #expect(FileManager.default.fileExists(atPath: existingBackupURL.path))
+    #expect(try Data(contentsOf: existingBackupURL) == existingBackupContents)
+}
+
+@Test
+func resetWorkspaceIsBlockedWhenMandatoryBackupCannotComplete() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let backupDirectory = databaseURL.deletingLastPathComponent().appending(path: "Backups", directoryHint: .isDirectory)
+    try Data("not a directory".utf8).write(to: backupDirectory)
+
+    #expect(throws: (any Error).self) {
+        try store.resetWorkspace()
+    }
+    #expect(try store.fetchSummary().accountCount == 1)
+}
+
+@Test
 func workspacePreferencesDefaultToSuggestionsEnabled() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
