@@ -16,29 +16,30 @@ struct TransactionLedgerHeaderView: View {
             }
 
             if !state.activeChips.isEmpty {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 8) {
-                        ForEach(state.activeChips, id: \.self) { chip in
-                            Button {
-                                onRemoveChip(chip)
-                            } label: {
-                                HStack(spacing: 6) {
-                                    Image(systemName: chipIconName(for: chip))
-                                        .foregroundStyle(.secondary)
-                                    Text(chipLabel(for: chip))
-                                    Image(systemName: "xmark.circle.fill")
-                                        .foregroundStyle(.secondary)
-                                }
-                                .font(.caption.weight(.medium))
-                                .lineLimit(1)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(.regularMaterial, in: Capsule())
+                WrappingFlowLayout(spacing: 8, rowSpacing: 8) {
+                    ForEach(state.activeChips, id: \.self) { chip in
+                        Button {
+                            onRemoveChip(chip)
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: chipIconName(for: chip))
+                                    .foregroundStyle(.secondary)
+                                Text(chipLabel(for: chip))
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundStyle(.secondary)
                             }
-                            .buttonStyle(.plain)
+                            .font(.caption.weight(.medium))
+                            .lineLimit(1)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(.regularMaterial, in: Capsule())
                         }
+                        .buttonStyle(.plain)
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 2)
+                .padding(.trailing, 6)
             }
         }
     }

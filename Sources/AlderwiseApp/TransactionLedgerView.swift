@@ -3,6 +3,12 @@ import Domain
 import SwiftUI
 
 struct TransactionLedgerView: View {
+    private enum Layout {
+        static let minimumPrimaryWidth: CGFloat = 420
+        static let idealPrimaryWidth: CGFloat = 560
+        static let minimumSecondaryWidth: CGFloat = 320
+    }
+
     let snapshot: WorkspaceSnapshot
     @ObservedObject var model: WorkspaceShellModel
     @State private var searchText = ""
@@ -14,6 +20,7 @@ struct TransactionLedgerView: View {
     @State private var isSyncingControls = false
     @State private var userExpandedSecondaryFilters = false
     @State private var draftCoordinator = TransactionDetailDraftCoordinator()
+    @SceneStorage("transactionsLedgerPrimaryWidth") private var primaryPaneWidth = Double(Layout.idealPrimaryWidth)
 
     private var selectedIDBinding: Binding<UUID?> {
         Binding(
@@ -46,6 +53,13 @@ struct TransactionLedgerView: View {
         )
     }
 
+    private var primaryPaneWidthBinding: Binding<CGFloat> {
+        Binding(
+            get: { CGFloat(primaryPaneWidth) },
+            set: { primaryPaneWidth = Double($0) }
+        )
+    }
+
     private var hasActiveSecondaryFilters: Bool {
         hasActiveSecondaryFilters(in: model.transactionFilter)
     }
@@ -60,8 +74,11 @@ struct TransactionLedgerView: View {
     }
 
     var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
+        StableTwoPaneSplitView(
+            primaryWidth: primaryPaneWidthBinding,
+            minPrimaryWidth: Layout.minimumPrimaryWidth,
+            minSecondaryWidth: Layout.minimumSecondaryWidth,
+            primary: VStack(spacing: 0) {
                 ledgerHeader
                     .padding(12)
 
@@ -69,9 +86,8 @@ struct TransactionLedgerView: View {
 
                 ledgerContent
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            TransactionLedgerView.DetailInspector(
+            .frame(maxWidth: .infinity, maxHeight: .infinity),
+            secondary: TransactionLedgerView.DetailInspector(
                 detail: model.selectedTransactionDetail,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
@@ -80,8 +96,8 @@ struct TransactionLedgerView: View {
                 onDraftChange: { draftCoordinator.updateDraft($0) },
                 onSave: handleSave
             )
-            .frame(idealWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
-        }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        )
         .alert(
             "Save changes before switching transactions?",
             isPresented: isPresentingSelectionChangeConfirmation
@@ -136,35 +152,7 @@ struct TransactionLedgerView: View {
                 onRemoveChip: clear
             )
 
-            HStack(alignment: .center, spacing: 12) {
-                Picker("Account", selection: accountSelection) {
-                    Text("All Accounts").tag(Optional<UUID>.none)
-                    ForEach(snapshot.ledgerFilterAccounts) { account in
-                        Text(accountFilterLabel(for: account)).tag(Optional(account.id))
-                    }
-                }
-
-                GroupedCategoryPicker(
-                    title: "Category",
-                    prompt: "All Categories",
-                    categories: snapshot.categories,
-                    categoryGroups: snapshot.categoryGroups,
-                    selection: categorySelection
-                )
-
-                Spacer(minLength: 12)
-
-                Button("Search", systemImage: "magnifyingglass") {
-                    focusSearch()
-                }
-                .keyboardShortcut("f", modifiers: [.command])
-
-                if !headerState.activeChips.isEmpty {
-                    Button("Reset All") {
-                        clear(chips: headerState.activeChips)
-                    }
-                }
-            }
+            primaryFilterControls
 
             DisclosureGroup(isExpanded: secondaryFiltersExpansion) {
                 VStack(alignment: .leading, spacing: 12) {
@@ -220,6 +208,31 @@ struct TransactionLedgerView: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var primaryFilterControls: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Picker("Account", selection: accountSelection) {
+                Text("All Accounts").tag(Optional<UUID>.none)
+                ForEach(snapshot.ledgerFilterAccounts) { account in
+                    Text(accountFilterLabel(for: account)).tag(Optional(account.id))
+                }
+            }
+            .frame(minWidth: 180)
+            .layoutPriority(1)
+
+            GroupedCategoryPicker(
+                title: "Category",
+                prompt: "All Categories",
+                categories: snapshot.categories,
+                categoryGroups: snapshot.categoryGroups,
+                selection: categorySelection
+            )
+            .frame(minWidth: 220)
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
+        }
     }
 
     @ViewBuilder
@@ -380,10 +393,6 @@ struct TransactionLedgerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func focusSearch() {
-        isSearchPresented = true
     }
 
     private func syncDraftCoordinator() {
