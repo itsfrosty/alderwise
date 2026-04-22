@@ -132,18 +132,64 @@ func monthlyReportExposesAcceptedSpendReviewCountTargetsPaceAndDriversForHome() 
         createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 6)
     )
 
-    _ = try store.createMonthlyTarget(
+    let target = try store.createMonthlyTarget(
         MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(300)),
         createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 1)
     )
     let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
 
-    #expect(report.currentMonthAcceptedSpend >= 0)
-    #expect(report.lastMonthAcceptedSpend >= 0)
-    #expect(report.pendingReviewCount >= 0)
-    #expect(report.paceSeries.isEmpty == false || report.currentMonthAcceptedSpend == 0)
-    #expect(report.targets.isEmpty == false || report.hasActiveTargets == false)
-    #expect(report.biggestShift == nil || report.drivers.isEmpty == false)
+    #expect(report.monthStart == homeDashboardUTCDate(year: 2026, month: 4, day: 1))
+    #expect(report.currentMonthAcceptedSpend == Decimal(42))
+    #expect(report.lastMonthAcceptedSpend == Decimal(0))
+    #expect(report.pendingReviewCount == 1)
+    #expect(report.targets == [
+        TargetProgress(
+            id: target.id,
+            name: "Food",
+            scope: .categoryGroup(food),
+            monthlyLimit: Decimal(300),
+            spent: Decimal(42),
+            remaining: Decimal(258),
+            paceDelta: Decimal(-108)
+        )
+    ])
+    #expect(report.hasActiveTargets)
+    #expect(report.totalMonthlyTargetLimit == Decimal(300))
+    #expect(report.expectedPaceSpend == Decimal(150))
+    #expect(report.paceDelta == Decimal(-108))
+    #expect(report.paceSeries == [
+        MonthlySpendPoint(day: 1, actualSpend: Decimal(0), expectedSpend: Decimal(10)),
+        MonthlySpendPoint(day: 2, actualSpend: Decimal(0), expectedSpend: Decimal(20)),
+        MonthlySpendPoint(day: 3, actualSpend: Decimal(0), expectedSpend: Decimal(30)),
+        MonthlySpendPoint(day: 4, actualSpend: Decimal(0), expectedSpend: Decimal(40)),
+        MonthlySpendPoint(day: 5, actualSpend: Decimal(42), expectedSpend: Decimal(50)),
+        MonthlySpendPoint(day: 6, actualSpend: Decimal(42), expectedSpend: Decimal(60)),
+        MonthlySpendPoint(day: 7, actualSpend: Decimal(42), expectedSpend: Decimal(70)),
+        MonthlySpendPoint(day: 8, actualSpend: Decimal(42), expectedSpend: Decimal(80)),
+        MonthlySpendPoint(day: 9, actualSpend: Decimal(42), expectedSpend: Decimal(90)),
+        MonthlySpendPoint(day: 10, actualSpend: Decimal(42), expectedSpend: Decimal(100)),
+        MonthlySpendPoint(day: 11, actualSpend: Decimal(42), expectedSpend: Decimal(110)),
+        MonthlySpendPoint(day: 12, actualSpend: Decimal(42), expectedSpend: Decimal(120)),
+        MonthlySpendPoint(day: 13, actualSpend: Decimal(42), expectedSpend: Decimal(130)),
+        MonthlySpendPoint(day: 14, actualSpend: Decimal(42), expectedSpend: Decimal(140)),
+        MonthlySpendPoint(day: 15, actualSpend: Decimal(42), expectedSpend: Decimal(150)),
+    ])
+    #expect(report.drivers == [
+        MonthlySpendingDriver(
+            title: "Food",
+            scope: .categoryGroup(food),
+            currentPeriodSpend: Decimal(42),
+            comparisonPeriodSpend: Decimal(0),
+            delta: Decimal(42)
+        )
+    ])
+    #expect(report.biggestShift == MonthlySpendingDriver(
+        title: "Food",
+        scope: .categoryGroup(food),
+        currentPeriodSpend: Decimal(42),
+        comparisonPeriodSpend: Decimal(0),
+        delta: Decimal(42)
+    ))
 }
 
 @Test
