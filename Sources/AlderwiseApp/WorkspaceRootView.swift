@@ -328,16 +328,15 @@ struct WorkspaceRootView: View {
             if section == .home {
                 HomeDashboardView(
                     snapshot: snapshot,
-                    openReview: {
-                        selectedSectionRawValue = AppSection.review.rawValue
-                    },
-                    openTargets: { targetID in
-                        selectedSectionRawValue = AppSection.targets.rawValue
-                        model.selectTarget(id: targetID)
-                    },
-                    openTransactions: { filter in
-                        selectedSectionRawValue = AppSection.transactions.rawValue
-                        model.updateTransactionFilter(filter)
+                    navigate: { destination in
+                        let selection = destination.navigationSelection
+                        selectedSectionRawValue = selection.section.rawValue
+                        if selection.section == .targets {
+                            model.selectTarget(id: selection.targetID)
+                        }
+                        if case .transactions(let filter) = destination {
+                            model.updateTransactionFilter(filter)
+                        }
                     }
                 )
             } else if section == .transactions {

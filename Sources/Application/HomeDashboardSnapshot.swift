@@ -13,6 +13,16 @@ public enum HomeDashboardDestination: Equatable, Sendable {
     case transactions(TransactionLedgerFilter)
 }
 
+public struct HomeDashboardNavigationSelection: Equatable, Sendable {
+    public var section: AppSection
+    public var targetID: UUID?
+
+    public init(section: AppSection, targetID: UUID? = nil) {
+        self.section = section
+        self.targetID = targetID
+    }
+}
+
 public struct HomeDashboardAction: Equatable, Sendable {
     public var title: String
     public var destination: HomeDashboardDestination
@@ -146,6 +156,19 @@ private extension SpendingDriverScope {
             return nil
         case .categoryGroup(let id):
             return id
+        }
+    }
+}
+
+public extension HomeDashboardDestination {
+    var navigationSelection: HomeDashboardNavigationSelection {
+        switch self {
+        case .review:
+            HomeDashboardNavigationSelection(section: .review)
+        case .targets(let targetID):
+            HomeDashboardNavigationSelection(section: .targets, targetID: targetID)
+        case .transactions:
+            HomeDashboardNavigationSelection(section: .transactions)
         }
     }
 }

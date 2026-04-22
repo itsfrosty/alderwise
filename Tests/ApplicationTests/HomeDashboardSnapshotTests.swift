@@ -155,6 +155,10 @@ func homeDashboardPrioritizesOverLimitTargetsWhenReviewBacklogIsEmpty() {
     )
 
     #expect(dashboard.primaryAction?.destination == .targets(homeDashboardID("00000000-0000-0000-0000-000000000401")))
+    #expect(dashboard.primaryAction?.destination.navigationSelection == HomeDashboardNavigationSelection(
+        section: .targets,
+        targetID: homeDashboardID("00000000-0000-0000-0000-000000000401")
+    ))
     #expect(dashboard.primaryAction?.title == "Review Food target")
 }
 

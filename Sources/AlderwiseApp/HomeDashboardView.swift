@@ -4,9 +4,7 @@ import SwiftUI
 
 struct HomeDashboardView: View {
     let snapshot: WorkspaceSnapshot
-    let openReview: () -> Void
-    let openTargets: (UUID?) -> Void
-    let openTransactions: (TransactionLedgerFilter) -> Void
+    let navigate: (HomeDashboardDestination) -> Void
 
     @EnvironmentObject private var model: WorkspaceShellModel
 
@@ -134,7 +132,7 @@ struct HomeDashboardView: View {
 
                     ForEach(driverRows) { driver in
                         DriverRow(driver: driver.driver, action: {
-                            openTransactions(transactionFilter(for: driver.driver))
+                            navigate(.transactions(transactionFilter(for: driver.driver)))
                         }, currency: currency)
                     }
                 }
@@ -166,7 +164,7 @@ struct HomeDashboardView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(snapshot.monthlyReport.targets) { target in
                         Button {
-                            openTargets(target.id)
+                            navigate(.targets(target.id))
                         } label: {
                             TargetRow(target: target, currency: currency)
                                 .contentShape(Rectangle())
@@ -195,7 +193,7 @@ struct HomeDashboardView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(driverRows) { driver in
                         DriverRow(driver: driver.driver, action: {
-                            openTransactions(transactionFilter(for: driver.driver))
+                            navigate(.transactions(transactionFilter(for: driver.driver)))
                         }, currency: currency)
                     }
                 }
@@ -279,12 +277,8 @@ struct HomeDashboardView: View {
 
     private func perform(_ destination: HomeDashboardDestination) {
         switch destination {
-        case .review:
-            openReview()
-        case .targets(let targetID):
-            openTargets(targetID)
-        case .transactions(let filter):
-            openTransactions(filter)
+        case .review, .targets, .transactions:
+            navigate(destination)
         }
     }
 
