@@ -165,6 +165,142 @@ func createdAccountsAppearInSummaryAndFetchResults() throws {
 
     #expect(summary.accountCount == 2)
     #expect(accounts.map(\.name) == ["Card", "Checking"])
+    #expect(try store.fetchImportEligibleAccounts().map(\.name) == ["Card", "Checking"])
+    #expect(try store.fetchLedgerFilterAccounts().map(\.name) == ["Card", "Checking"])
+    #expect(try store.fetchPermanentlyDeletableAccountIDs().count == 2)
+}
+
+@Test
+func bootstrapAddsArchivedAccountStateToLegacyWorkspaces() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    let legacyAccountID = UUID(uuidString: "00000000-0000-0000-0000-000000000141")!
+    try queue.write { db in
+        try db.execute(
+            sql: "INSERT INTO accounts (id, name, kind, institution_name, created_at) VALUES (?, ?, ?, ?, ?)",
+            arguments: [
+                legacyAccountID.uuidString,
+                "Checking",
+                "checking",
+                "Local Bank",
+                Date(timeIntervalSince1970: 1_775_171_200),
+            ]
+        )
+    }
+
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let accountColumns = try queue.read { db in
+        Set(try Row.fetchAll(db, sql: "PRAGMA table_info(accounts)").map { row in
+            row["name"] as String
+        })
+    }
+    let managementAccounts = try store.fetchManagementAccounts()
+    let importEligibleAccounts = try store.fetchImportEligibleAccounts()
+
+    #expect(accountColumns.contains("archived_at"))
+    #expect(managementAccounts.map(\.id) == [legacyAccountID])
+    #expect(managementAccounts.allSatisfy { $0.archivedAt == nil })
+    #expect(importEligibleAccounts.map(\.id) == [legacyAccountID])
+}
+
+@Test
+func archivingAndRestoringAccountsUpdatesVisibilityContracts() throws {
+    let store = try WorkspaceStore.inMemory()
+    try store.bootstrap()
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    _ = try store.archiveAccount(
+        id: account.id,
+        archivedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    #expect(try store.fetchSummary().accountCount == 0)
+    #expect(try store.fetchManagementAccounts().map(\.name) == ["Checking"])
+    #expect(try store.fetchImportEligibleAccounts().isEmpty)
+    #expect(try store.fetchLedgerFilterAccounts().map(\.name) == ["Checking"])
+    #expect(try store.fetchPermanentlyDeletableAccountIDs() == Set([account.id]))
+
+    _ = try store.restoreAccount(id: account.id)
+
+    #expect(try store.fetchSummary().accountCount == 1)
+    #expect(try store.fetchImportEligibleAccounts().map(\.name) == ["Checking"])
+}
+
+@Test
+func updateAccountPersistsMetadataChanges() throws {
+    let store = try WorkspaceStore.inMemory()
+    try store.bootstrap()
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    let updated = try store.updateAccount(
+        id: account.id,
+        named: "Primary Checking",
+        kind: .savings,
+        institutionName: "Community Bank"
+    )
+
+    #expect(updated.name == "Primary Checking")
+    #expect(updated.kind == .savings)
+    #expect(updated.institutionName == "Community Bank")
+    #expect(try store.fetchManagementAccounts().map(\.name) == ["Primary Checking"])
+    #expect(try store.fetchPermanentlyDeletableAccountIDs() == Set([account.id]))
+}
+
+@Test
+func deleteUnusedAccountPermanentlyRemovesIt() throws {
+    let store = try WorkspaceStore.inMemory()
+    try store.bootstrap()
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    try store.deleteAccountPermanently(id: account.id)
+
+    #expect(try store.fetchManagementAccounts().isEmpty)
+    #expect(try store.fetchSummary().accountCount == 0)
+}
+
+@Test
+func deleteAccountPermanentlyRejectsDependentHistoryAndLeavesRowsIntact() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let stagedImportAccount = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let transactionAccount = try store.createAccount(named: "Card", kind: .creditCard, institutionName: "Visa")
+    let unusedAccount = try store.createAccount(named: "Savings", kind: .savings, institutionName: "Local Bank")
+    try insertSourceFileAndImportSession(databaseURL: databaseURL, accountID: stagedImportAccount.id)
+    try insertTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000155")!,
+        accountID: transactionAccount.id,
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-4.75),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+
+    #expect(throws: AccountManagementError.deleteBlockedByDependencies(stagedImportAccount.id)) {
+        try store.deleteAccountPermanently(id: stagedImportAccount.id)
+    }
+    #expect(throws: AccountManagementError.deleteBlockedByDependencies(transactionAccount.id)) {
+        try store.deleteAccountPermanently(id: transactionAccount.id)
+    }
+    #expect(try store.fetchPermanentlyDeletableAccountIDs() == Set([unusedAccount.id]))
+
+    let counts = try DatabaseQueue(path: databaseURL.path).read { db in
+        (
+            accounts: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM accounts") ?? 0,
+            sourceFiles: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM source_files WHERE account_id = ?", arguments: [stagedImportAccount.id.uuidString]) ?? 0,
+            importSessions: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM import_sessions WHERE account_id = ?", arguments: [stagedImportAccount.id.uuidString]) ?? 0,
+            transactions: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM transactions WHERE account_id IN (?, ?)", arguments: [stagedImportAccount.id.uuidString, transactionAccount.id.uuidString]) ?? 0
+        )
+    }
+
+    #expect(counts.accounts == 3)
+    #expect(counts.sourceFiles == 1)
+    #expect(counts.importSessions == 1)
+    #expect(counts.transactions == 1)
 }
 
 @Test
@@ -419,6 +555,94 @@ func workspacePreferencesUpgradeExistingWorkspaceWithoutSeededHeuristicAutoAccep
 }
 
 @Test
+func bootstrapDoesNotCreateTargetOverlapWhenSeedingDefaultCategoryMembership() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    try insertLegacyTargetsForBootstrapOverlapRegression(databaseURL: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    let categories = try store.fetchCategories()
+    let managedTargets = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+    let groceries = try #require(categories.first { $0.id == DefaultBudgetTaxonomy.CategoryID.groceries })
+
+    #expect(groceries.groupID == nil)
+    #expect(managedTargets.map(\.name) == ["Food & Drink", "Groceries"])
+    #expect(managedTargets.map(\.scope) == [
+        .categoryGroup(DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink),
+        .category(DefaultBudgetTaxonomy.CategoryID.groceries),
+    ])
+}
+
+@Test
+func bootstrapInstallsDatabaseGuardsForTargetScopeWrites() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    try insertTarget(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000009011")!,
+        categoryID: DefaultBudgetTaxonomy.CategoryID.groceries,
+        categoryGroupID: nil,
+        monthlyLimit: Decimal(125)
+    )
+
+    #expect(throws: (any Error).self) {
+        try insertTarget(
+            databaseURL: databaseURL,
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000009012")!,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.groceries,
+            categoryGroupID: nil,
+            monthlyLimit: Decimal(140)
+        )
+    }
+    #expect(throws: (any Error).self) {
+        try insertTarget(
+            databaseURL: databaseURL,
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000009013")!,
+            categoryID: nil,
+            categoryGroupID: DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink,
+            monthlyLimit: Decimal(150)
+        )
+    }
+
+    try insertTarget(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000009014")!,
+        categoryID: nil,
+        categoryGroupID: DefaultBudgetTaxonomy.CategoryGroupID.autoAndTransit,
+        monthlyLimit: Decimal(90)
+    )
+    #expect(throws: (any Error).self) {
+        try insertTarget(
+            databaseURL: databaseURL,
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000009015")!,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.publicTransitAndRideShare,
+            categoryGroupID: nil,
+            monthlyLimit: Decimal(90)
+        )
+    }
+}
+
+@Test
+func fetchManagedTargetsRejectsAmbiguousStoredTargetScopeRows() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    try insertAmbiguousLegacyTargetForReadRegression(databaseURL: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    #expect(throws: (any Error).self) {
+        _ = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+    }
+}
+
+@Test
 func workspacePreferencesRoundTripThroughSQLite() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -533,6 +757,45 @@ func stagedImportRecordsRoundTripThroughOnDiskWorkspace() throws {
         #"["2026-04-01","Coffee","-4.50"]"#,
         #"["","Missing date","-10.00"]"#,
     ])
+}
+
+@Test
+func createStagedImportSessionRejectsArchivedAccounts() throws {
+    let store = try WorkspaceStore.inMemory()
+    try store.bootstrap()
+    let archivedAccount = try store.createAccount(named: "Travel Card", kind: .creditCard, institutionName: "Visa")
+    _ = try store.archiveAccount(
+        id: archivedAccount.id,
+        archivedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    #expect(throws: (any Error).self) {
+        _ = try store.createStagedImportSession(
+            StagedImportSessionDraft(
+                accountID: archivedAccount.id,
+                originalFilename: "travel-card.csv",
+                contentHash: "content-hash",
+                importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+                rows: [
+                    StagedSourceRowDraft(
+                        sourceLineNumber: 2,
+                        rawPayload: "[\"2026-04-01\",\"Coffee Shop\",\"-4.75\"]",
+                        rowHash: "row-hash",
+                        validationStatus: .valid,
+                        importDecision: .imported(reason: "New source row.")
+                    ),
+                ],
+                mapping: CSVColumnMapping(
+                    dateColumnIndex: 0,
+                    descriptionColumnIndex: 1,
+                    amount: .singleSignedAmount(columnIndex: 2)
+                ),
+                validRowCount: 1,
+                invalidRowCount: 0,
+                status: .staged
+            )
+        )
+    }
 }
 
 @Test
@@ -1241,6 +1504,39 @@ func updateTransactionLedgerFieldsAcceptsPendingTransactionWithCategory() throws
 }
 
 @Test
+func fetchTransactionDetailAcceptsCuratedPrefillDecisionSource() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Groceries", kind: "expense")
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000414")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: transactionID,
+        accountID: account.id,
+        categoryID: categoryID,
+        importSessionID: nil,
+        rawDescription: "Market",
+        normalizedMerchantName: "market",
+        amount: Decimal(-31.25),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.curatedPrefill.rawValue,
+        decisionSourceReference: "starter:market",
+        confidence: nil
+    )
+
+    let detail = try #require(try store.fetchTransactionDetail(id: transactionID))
+
+    #expect(detail.decisionSource == .curatedPrefill)
+    #expect(detail.decisionSourceReference == "starter:market")
+    #expect(detail.confidence == nil)
+}
+
+@Test
 func bootstrapAcceptsPreviouslyUserCategorizedPendingTransactions() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -1353,18 +1649,20 @@ func targetProgressSupportsCategoryAndCategoryGroupTargets() throws {
     try store.bootstrap()
 
     let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
-    let groupID = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+    let foodGroupID = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+    let travelGroupID = UUID(uuidString: "00000000-0000-0000-0000-000000000702")!
     let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000711")!
     let dining = UUID(uuidString: "00000000-0000-0000-0000-000000000712")!
     let travel = UUID(uuidString: "00000000-0000-0000-0000-000000000713")!
     let groceryTarget = UUID(uuidString: "00000000-0000-0000-0000-000000000721")!
-    let foodTarget = UUID(uuidString: "00000000-0000-0000-0000-000000000722")!
-    try insertCategoryGroup(databaseURL: databaseURL, id: groupID, name: "Food")
-    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: groupID)
-    try insertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense", categoryGroupID: groupID)
-    try insertCategory(databaseURL: databaseURL, id: travel, name: "Travel", kind: "expense")
+    let travelTarget = UUID(uuidString: "00000000-0000-0000-0000-000000000722")!
+    try insertCategoryGroup(databaseURL: databaseURL, id: foodGroupID, name: "Food")
+    try insertCategoryGroup(databaseURL: databaseURL, id: travelGroupID, name: "Travel")
+    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: foodGroupID)
+    try insertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense", categoryGroupID: foodGroupID)
+    try insertCategory(databaseURL: databaseURL, id: travel, name: "Flights", kind: "expense", categoryGroupID: travelGroupID)
     try insertTarget(databaseURL: databaseURL, id: groceryTarget, categoryID: groceries, categoryGroupID: nil, monthlyLimit: Decimal(100))
-    try insertTarget(databaseURL: databaseURL, id: foodTarget, categoryID: nil, categoryGroupID: groupID, monthlyLimit: Decimal(250))
+    try insertTarget(databaseURL: databaseURL, id: travelTarget, categoryID: nil, categoryGroupID: travelGroupID, monthlyLimit: Decimal(250))
     try insertLedgerTransaction(
         databaseURL: databaseURL,
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000731")!,
@@ -1404,10 +1702,10 @@ func targetProgressSupportsCategoryAndCategoryGroupTargets() throws {
 
     let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
 
-    #expect(report.targets.map(\.name) == ["Food", "Groceries"])
-    #expect(report.targets.map(\.spent) == [Decimal(100), Decimal(40)])
-    #expect(report.targets.map(\.remaining) == [Decimal(150), Decimal(60)])
-    #expect(report.targets.map(\.monthlyLimit) == [Decimal(250), Decimal(100)])
+    #expect(report.targets.map(\.name) == ["Groceries", "Travel"])
+    #expect(report.targets.map(\.spent) == [Decimal(40), Decimal(200)])
+    #expect(report.targets.map(\.remaining) == [Decimal(60), Decimal(50)])
+    #expect(report.targets.map(\.monthlyLimit) == [Decimal(100), Decimal(250)])
 }
 
 @Test
@@ -1465,6 +1763,59 @@ func stagedImportCreatesClassificationReviewItemsForRowsNeedingReview() throws {
     #expect(reviewItems[0].classification?.prefill?.categoryID == categoryID)
     #expect(reviewItems[0].classification?.prefill?.merchantName == "Coffee Shop")
     #expect(reviewItems[0].reason == "Deterministic heuristic requires review.")
+}
+
+@Test
+func fetchPendingReviewItemsAcceptsCuratedPrefillClassificationSource() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","SQ *Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: ClassificationAssignment(
+                            categoryID: categoryID,
+                            merchantName: "Coffee Shop"
+                        ),
+                        source: .curatedPrefill,
+                        sourceReference: "starter:coffee-shop",
+                        confidence: nil,
+                        reason: "Curated starter match requires review before acceptance."
+                    ),
+                    normalizedMerchantName: "coffee shop"
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let reviewItem = try #require(try store.fetchPendingReviewItems().first)
+
+    #expect(reviewItem.classification?.source == .curatedPrefill)
+    #expect(reviewItem.classification?.sourceReference == "starter:coffee-shop")
+    #expect(reviewItem.classification?.confidence == nil)
 }
 
 @Test
@@ -1948,7 +2299,29 @@ private func createWorkspaceAfterWorkspacePreferencesMigration(at databaseURL: U
         try db.execute(sql: "CREATE TABLE source_files (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, original_filename TEXT NOT NULL, content_hash TEXT NOT NULL, imported_at DATETIME NOT NULL, row_count INTEGER NOT NULL)")
         try db.execute(sql: "CREATE TABLE source_rows (id INTEGER PRIMARY KEY AUTOINCREMENT, source_file_id INTEGER NOT NULL, row_hash TEXT NOT NULL, raw_payload TEXT NOT NULL, source_line_number INTEGER NOT NULL DEFAULT 0, validation_status TEXT NOT NULL DEFAULT 'valid', import_decision_kind TEXT NOT NULL DEFAULT 'imported', decision_reason TEXT NOT NULL DEFAULT 'New source row.', duplicate_transaction_id TEXT)")
         try db.execute(sql: "CREATE TABLE import_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, source_file_id INTEGER, mapping_json TEXT NOT NULL, valid_row_count INTEGER NOT NULL, invalid_row_count INTEGER NOT NULL, status TEXT NOT NULL, created_at DATETIME NOT NULL)")
-        try db.execute(sql: "CREATE TABLE transactions (id TEXT PRIMARY KEY, category_id TEXT)")
+        try db.execute(
+            sql: """
+            CREATE TABLE transactions (
+                id TEXT PRIMARY KEY,
+                account_id TEXT,
+                import_session_id INTEGER,
+                merchant_id TEXT,
+                category_id TEXT,
+                raw_description TEXT NOT NULL DEFAULT '',
+                normalized_merchant_name TEXT,
+                amount DOUBLE NOT NULL DEFAULT 0,
+                transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                posted_date DATE,
+                direction TEXT NOT NULL DEFAULT 'expense',
+                decision_source TEXT NOT NULL DEFAULT 'user',
+                decision_source_reference TEXT,
+                confidence DOUBLE,
+                review_status TEXT NOT NULL DEFAULT 'accepted',
+                duplicate_status TEXT NOT NULL DEFAULT 'none',
+                notes TEXT
+            )
+            """
+        )
         try db.execute(sql: "CREATE TABLE review_items (id TEXT PRIMARY KEY, transaction_id TEXT, source_row_id INTEGER, duplicate_transaction_id TEXT, type TEXT NOT NULL, status TEXT NOT NULL, reason TEXT, normalized_merchant_name TEXT, suggested_category_id TEXT, suggested_merchant_name TEXT, classification_source TEXT, classification_source_reference TEXT, classification_confidence DOUBLE, created_at DATETIME NOT NULL)")
         try db.execute(sql: "CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, category_group_id TEXT)")
         try db.execute(sql: "CREATE TABLE category_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
@@ -1960,6 +2333,70 @@ private func createWorkspaceAfterWorkspacePreferencesMigration(at databaseURL: U
         try db.execute(
             sql: "INSERT INTO workspace_preferences (key, value) VALUES (?, ?)",
             arguments: ["suggestions_enabled", "true"]
+        )
+    }
+}
+
+private func insertLegacyTargetsForBootstrapOverlapRegression(databaseURL: URL) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: "INSERT INTO categories (id, name, kind, category_group_id) VALUES (?, ?, ?, ?)",
+            arguments: [
+                DefaultBudgetTaxonomy.CategoryID.groceries.uuidString,
+                "Groceries",
+                "expense",
+                nil as String?,
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO targets (id, category_id, category_group_id, monthly_limit, created_at)
+            VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                UUID(uuidString: "00000000-0000-0000-0000-000000009001")!.uuidString,
+                DefaultBudgetTaxonomy.CategoryID.groceries.uuidString,
+                nil as String?,
+                125.0,
+                Date(timeIntervalSince1970: 1_775_171_200),
+                UUID(uuidString: "00000000-0000-0000-0000-000000009002")!.uuidString,
+                nil as String?,
+                DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink.uuidString,
+                250.0,
+                Date(timeIntervalSince1970: 1_775_171_201),
+            ]
+        )
+    }
+}
+
+private func insertAmbiguousLegacyTargetForReadRegression(databaseURL: URL) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO categories (id, name, kind, category_group_id)
+            VALUES (?, ?, ?, ?)
+            """,
+            arguments: [
+                DefaultBudgetTaxonomy.CategoryID.groceries.uuidString,
+                "Groceries",
+                "expense",
+                nil as String?,
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO targets (id, category_id, category_group_id, monthly_limit, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                UUID(uuidString: "00000000-0000-0000-0000-000000009021")!.uuidString,
+                DefaultBudgetTaxonomy.CategoryID.groceries.uuidString,
+                DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink.uuidString,
+                125.0,
+                Date(timeIntervalSince1970: 1_775_171_200),
+            ]
         )
     }
 }
@@ -2248,6 +2685,44 @@ private func insertTransaction(
                 "heuristic",
                 "accepted",
                 "none",
+            ]
+        )
+    }
+}
+
+private func insertSourceFileAndImportSession(databaseURL: URL, accountID: UUID) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO source_files (id, account_id, original_filename, content_hash, imported_at, row_count)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                "checking-april.csv",
+                "source-file-hash",
+                Date(timeIntervalSince1970: 1_775_171_200),
+                2,
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO import_sessions (
+                id, account_id, source_file_id, mapping_json, valid_row_count, invalid_row_count, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                1,
+                #"{"dateColumnIndex":0,"descriptionColumnIndex":1}"#,
+                2,
+                0,
+                "staged",
+                Date(timeIntervalSince1970: 1_775_171_200),
             ]
         )
     }

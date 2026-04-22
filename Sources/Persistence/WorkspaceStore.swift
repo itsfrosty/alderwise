@@ -5,7 +5,7 @@ import GRDB
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetWriting, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -38,6 +38,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 table.column("kind", .text).notNull()
                 table.column("institution_name", .text)
                 table.column("created_at", .datetime).notNull()
+                table.column("archived_at", .datetime)
             }
 
             try db.create(table: "source_files") { table in
@@ -381,6 +382,22 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 ]
             )
         }
+        migrator.registerMigration("enforce-target-scope-invariants") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+            try installTargetScopeWriteGuards(db: db)
+        }
+        migrator.registerMigration("add-account-archive-state") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            guard try db.tableExists("accounts") else {
+                return
+            }
+
+            let accountColumns = try columnNames(in: "accounts", db: db)
+            if !accountColumns.contains("archived_at") {
+                try db.execute(sql: "ALTER TABLE accounts ADD COLUMN archived_at DATETIME")
+            }
+        }
 
         try migrator.migrate(databaseQueue)
         try seedDefaultBudgetTaxonomy()
@@ -388,7 +405,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
 
     public func fetchSummary() throws -> WorkspaceSummary {
         try databaseQueue.read { db in
-            let accountCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM accounts") ?? 0
+            let accountCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM accounts WHERE archived_at IS NULL"
+            ) ?? 0
             let transactionCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM transactions") ?? 0
             let reviewCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_items WHERE status = 'pending'") ?? 0
             let targetCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM targets") ?? 0
@@ -403,25 +423,72 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
     }
 
     public func fetchAccounts() throws -> [Account] {
+        try fetchManagementAccounts()
+    }
+
+    public func fetchManagementAccounts() throws -> [Account] {
         try databaseQueue.read { db in
-            let rows = try Row.fetchAll(
-                db,
+            try fetchAccountRows(
+                db: db,
                 sql: """
-                SELECT id, name, kind, institution_name, created_at
+                SELECT id, name, kind, institution_name, created_at, archived_at
+                FROM accounts
+                ORDER BY CASE WHEN archived_at IS NULL THEN 0 ELSE 1 END, name ASC
+                """
+            )
+        }
+    }
+
+    public func fetchImportEligibleAccounts() throws -> [Account] {
+        try databaseQueue.read { db in
+            try fetchAccountRows(
+                db: db,
+                sql: """
+                SELECT id, name, kind, institution_name, created_at, archived_at
+                FROM accounts
+                WHERE archived_at IS NULL
+                ORDER BY name ASC
+                """
+            )
+        }
+    }
+
+    public func fetchLedgerFilterAccounts() throws -> [Account] {
+        try databaseQueue.read { db in
+            try fetchAccountRows(
+                db: db,
+                sql: """
+                SELECT id, name, kind, institution_name, created_at, archived_at
                 FROM accounts
                 ORDER BY name ASC
                 """
             )
+        }
+    }
 
-            return rows.map { row in
-                Account(
-                    id: UUID(uuidString: row["id"]) ?? UUID(),
-                    name: row["name"],
-                    kind: AccountKind(rawValue: row["kind"]) ?? .checking,
-                    institutionName: row["institution_name"],
-                    createdAt: row["created_at"]
+    public func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT id
+                FROM accounts
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM source_files WHERE source_files.account_id = accounts.id
                 )
-            }
+                  AND NOT EXISTS (
+                    SELECT 1 FROM import_sessions WHERE import_sessions.account_id = accounts.id
+                )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM transactions WHERE transactions.account_id = accounts.id
+                )
+                """
+            )
+
+            return Set(rows.compactMap { row in
+                let idText: String = row["id"]
+                return UUID(uuidString: idText)
+            })
         }
     }
 
@@ -502,6 +569,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             }
 
             for category in defaultBudgetCategories {
+                let groupID = try seededCategoryGroupIDPreservingTargetDisjointness(
+                    for: category,
+                    db: db
+                )
                 try db.execute(
                     sql: """
                     INSERT INTO categories (id, name, kind, category_group_id)
@@ -515,7 +586,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                         category.id.uuidString,
                         category.name,
                         category.kind.rawValue,
-                        category.groupID.uuidString,
+                        groupID?.uuidString,
                     ]
                 )
             }
@@ -1255,24 +1326,22 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         }
     }
 
-    public func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
-        guard draft.monthlyLimit > 0 else {
-            throw WorkspaceStoreError.invalidMonthlyTargetLimit(draft.monthlyLimit)
+    public func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget] {
+        let interval = monthInterval(containing: referenceDate)
+        let paceRatio = monthElapsedRatio(referenceDate: referenceDate, interval: interval)
+        return try databaseQueue.read { db in
+            try managedTargetRows(db: db).map { row in
+                try managedMonthlyTarget(from: row, db: db, interval: interval, paceRatio: paceRatio)
+            }
         }
+    }
 
+    public func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
         let id = UUID()
-        let categoryID: UUID?
-        let categoryGroupID: UUID?
-        switch draft.scope {
-        case .category(let id):
-            categoryID = id
-            categoryGroupID = nil
-        case .categoryGroup(let id):
-            categoryID = nil
-            categoryGroupID = id
-        }
 
         try databaseQueue.write { db in
+            try validateMonthlyTargetDraft(draft, excluding: nil, db: db)
+            let persistedScope = persistedTargetScope(from: draft.scope)
             try db.execute(
                 sql: """
                 INSERT INTO targets (id, category_id, category_group_id, monthly_limit, created_at)
@@ -1280,8 +1349,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 """,
                 arguments: [
                     id.uuidString,
-                    categoryID?.uuidString,
-                    categoryGroupID?.uuidString,
+                    persistedScope.categoryID?.uuidString,
+                    persistedScope.categoryGroupID?.uuidString,
                     NSDecimalNumber(decimal: draft.monthlyLimit).doubleValue,
                     createdAt,
                 ]
@@ -1296,13 +1365,52 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         )
     }
 
+    public func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget {
+        try databaseQueue.write { db in
+            let createdAt = try existingMonthlyTargetCreatedAt(id: id, db: db)
+            try validateMonthlyTargetDraft(draft, excluding: id, db: db)
+            let persistedScope = persistedTargetScope(from: draft.scope)
+            try db.execute(
+                sql: """
+                UPDATE targets
+                SET category_id = ?, category_group_id = ?, monthly_limit = ?
+                WHERE id = ?
+                """,
+                arguments: [
+                    persistedScope.categoryID?.uuidString,
+                    persistedScope.categoryGroupID?.uuidString,
+                    NSDecimalNumber(decimal: draft.monthlyLimit).doubleValue,
+                    id.uuidString,
+                ]
+            )
+            return MonthlyTarget(
+                id: id,
+                scope: draft.scope,
+                monthlyLimit: draft.monthlyLimit,
+                createdAt: createdAt
+            )
+        }
+    }
+
+    public func deleteMonthlyTarget(id: UUID) throws {
+        try databaseQueue.write { db in
+            guard try targetExists(id: id, db: db) else {
+                throw MonthlyTargetManagementError.targetNotFound(id)
+            }
+            try db.execute(
+                sql: "DELETE FROM targets WHERE id = ?",
+                arguments: [id.uuidString]
+            )
+        }
+    }
+
     public func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
         let account = Account(name: named, kind: kind, institutionName: institutionName)
         try databaseQueue.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO accounts (id, name, kind, institution_name, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO accounts (id, name, kind, institution_name, created_at, archived_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     account.id.uuidString,
@@ -1310,10 +1418,99 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     account.kind.rawValue,
                     account.institutionName,
                     account.createdAt,
+                    account.archivedAt,
                 ]
             )
         }
         return account
+    }
+
+    public func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try databaseQueue.write { db in
+            let existing = try fetchAccount(id: id, db: db)
+            guard let existing else {
+                throw AccountManagementError.accountNotFound(id)
+            }
+
+            try db.execute(
+                sql: """
+                UPDATE accounts
+                SET name = ?, kind = ?, institution_name = ?
+                WHERE id = ?
+                """,
+                arguments: [named, kind.rawValue, institutionName, id.uuidString]
+            )
+
+            return Account(
+                id: existing.id,
+                name: named,
+                kind: kind,
+                institutionName: institutionName,
+                createdAt: existing.createdAt,
+                archivedAt: existing.archivedAt
+            )
+        }
+    }
+
+    public func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        try databaseQueue.write { db in
+            let existing = try fetchAccount(id: id, db: db)
+            guard let existing else {
+                throw AccountManagementError.accountNotFound(id)
+            }
+
+            try db.execute(
+                sql: "UPDATE accounts SET archived_at = ? WHERE id = ?",
+                arguments: [archivedAt, id.uuidString]
+            )
+
+            return Account(
+                id: existing.id,
+                name: existing.name,
+                kind: existing.kind,
+                institutionName: existing.institutionName,
+                createdAt: existing.createdAt,
+                archivedAt: archivedAt
+            )
+        }
+    }
+
+    public func restoreAccount(id: UUID) throws -> Account {
+        try databaseQueue.write { db in
+            let existing = try fetchAccount(id: id, db: db)
+            guard let existing else {
+                throw AccountManagementError.accountNotFound(id)
+            }
+
+            try db.execute(
+                sql: "UPDATE accounts SET archived_at = NULL WHERE id = ?",
+                arguments: [id.uuidString]
+            )
+
+            return Account(
+                id: existing.id,
+                name: existing.name,
+                kind: existing.kind,
+                institutionName: existing.institutionName,
+                createdAt: existing.createdAt,
+                archivedAt: nil
+            )
+        }
+    }
+
+    public func deleteAccountPermanently(id: UUID) throws {
+        try databaseQueue.write { db in
+            guard try fetchAccount(id: id, db: db) != nil else {
+                throw AccountManagementError.accountNotFound(id)
+            }
+            guard try accountCanBeDeleted(id: id, db: db) else {
+                throw AccountManagementError.deleteBlockedByDependencies(id)
+            }
+            try db.execute(
+                sql: "DELETE FROM accounts WHERE id = ?",
+                arguments: [id.uuidString]
+            )
+        }
     }
 
     public func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
@@ -1623,6 +1820,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
     }
 
     private func insertSourceFile(_ draft: StagedImportSessionDraft, db: Database) throws {
+        guard try accountIsImportEligible(id: draft.accountID, db: db) else {
+            throw WorkspaceStoreError.accountNotImportEligible(draft.accountID)
+        }
+
         let sourceFileColumns = try columnNames(in: "source_files", db: db)
         if sourceFileColumns.contains("filename") {
             try db.execute(
@@ -2330,14 +2531,20 @@ private func targetProgress(
     let scope: TargetScope
     let name: String
     let spent: Decimal
-    if let categoryIDText = row["category_id"] as String? {
+    let categoryIDText = row["category_id"] as String?
+    let categoryGroupIDText = row["category_group_id"] as String?
+    if categoryIDText != nil && categoryGroupIDText != nil {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.scope", value: "MULTIPLE")
+    }
+
+    if let categoryIDText {
         guard let categoryID = UUID(uuidString: categoryIDText) else {
             throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.category_id", value: categoryIDText)
         }
         scope = .category(categoryID)
         name = (row["category_name"] as String?) ?? "Uncategorized"
         spent = try acceptedExpenseSpend(db: db, interval: interval, categoryID: categoryID)
-    } else if let categoryGroupIDText = row["category_group_id"] as String? {
+    } else if let categoryGroupIDText {
         guard let categoryGroupID = UUID(uuidString: categoryGroupIDText) else {
             throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.category_group_id", value: categoryGroupIDText)
         }
@@ -2358,6 +2565,544 @@ private func targetProgress(
         remaining: monthlyLimit - spent,
         paceDelta: spent - expectedSpend
     )
+}
+
+private func installTargetScopeWriteGuards(db: Database) throws {
+    guard try db.tableExists("targets") else {
+        return
+    }
+
+    let targetColumns = try columnNames(in: "targets", db: db)
+    guard targetColumns.contains("category_id"),
+          targetColumns.contains("category_group_id"),
+          targetColumns.contains("monthly_limit")
+    else {
+        return
+    }
+
+    try db.execute(
+        sql: """
+        CREATE TRIGGER IF NOT EXISTS validate_targets_before_insert
+        BEFORE INSERT ON targets
+        BEGIN
+            SELECT CASE
+                WHEN ((NEW.category_id IS NULL AND NEW.category_group_id IS NULL)
+                   OR (NEW.category_id IS NOT NULL AND NEW.category_group_id IS NOT NULL))
+                THEN RAISE(ABORT, 'invalid target scope')
+            END;
+            SELECT CASE
+                WHEN NEW.monthly_limit <= 0
+                THEN RAISE(ABORT, 'invalid target limit')
+            END;
+            SELECT CASE
+                WHEN NEW.category_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM targets
+                    WHERE category_id = NEW.category_id
+                      AND category_group_id IS NULL
+                )
+                THEN RAISE(ABORT, 'duplicate target category scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM categories
+                    WHERE categories.id = NEW.category_id
+                      AND categories.category_group_id IS NOT NULL
+                      AND EXISTS(
+                        SELECT 1
+                        FROM targets
+                        WHERE targets.category_group_id = categories.category_group_id
+                          AND targets.category_id IS NULL
+                      )
+                )
+                THEN RAISE(ABORT, 'overlapping target scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_group_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM targets
+                    WHERE category_group_id = NEW.category_group_id
+                      AND category_id IS NULL
+                )
+                THEN RAISE(ABORT, 'duplicate target group scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_group_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM categories
+                    JOIN targets ON targets.category_id = categories.id
+                    WHERE categories.category_group_id = NEW.category_group_id
+                      AND targets.category_group_id IS NULL
+                )
+                THEN RAISE(ABORT, 'overlapping target scope')
+            END;
+        END
+        """
+    )
+    try db.execute(
+        sql: """
+        CREATE TRIGGER IF NOT EXISTS validate_targets_before_update
+        BEFORE UPDATE ON targets
+        BEGIN
+            SELECT CASE
+                WHEN ((NEW.category_id IS NULL AND NEW.category_group_id IS NULL)
+                   OR (NEW.category_id IS NOT NULL AND NEW.category_group_id IS NOT NULL))
+                THEN RAISE(ABORT, 'invalid target scope')
+            END;
+            SELECT CASE
+                WHEN NEW.monthly_limit <= 0
+                THEN RAISE(ABORT, 'invalid target limit')
+            END;
+            SELECT CASE
+                WHEN NEW.category_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM targets
+                    WHERE category_id = NEW.category_id
+                      AND category_group_id IS NULL
+                      AND id != NEW.id
+                )
+                THEN RAISE(ABORT, 'duplicate target category scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM categories
+                    WHERE categories.id = NEW.category_id
+                      AND categories.category_group_id IS NOT NULL
+                      AND EXISTS(
+                        SELECT 1
+                        FROM targets
+                        WHERE targets.category_group_id = categories.category_group_id
+                          AND targets.category_id IS NULL
+                          AND targets.id != NEW.id
+                      )
+                )
+                THEN RAISE(ABORT, 'overlapping target scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_group_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM targets
+                    WHERE category_group_id = NEW.category_group_id
+                      AND category_id IS NULL
+                      AND id != NEW.id
+                )
+                THEN RAISE(ABORT, 'duplicate target group scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_group_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM categories
+                    JOIN targets ON targets.category_id = categories.id
+                    WHERE categories.category_group_id = NEW.category_group_id
+                      AND targets.category_group_id IS NULL
+                      AND targets.id != NEW.id
+                )
+                THEN RAISE(ABORT, 'overlapping target scope')
+            END;
+        END
+        """
+    )
+
+    if try canCreateUniqueCategoryScopeIndex(db: db) {
+        try db.execute(
+            sql: """
+            CREATE UNIQUE INDEX IF NOT EXISTS targets_unique_category_scope
+            ON targets(category_id)
+            WHERE category_id IS NOT NULL AND category_group_id IS NULL
+            """
+        )
+    }
+    if try canCreateUniqueCategoryGroupScopeIndex(db: db) {
+        try db.execute(
+            sql: """
+            CREATE UNIQUE INDEX IF NOT EXISTS targets_unique_category_group_scope
+            ON targets(category_group_id)
+            WHERE category_group_id IS NOT NULL AND category_id IS NULL
+            """
+        )
+    }
+}
+
+private func canCreateUniqueCategoryScopeIndex(db: Database) throws -> Bool {
+    try String.fetchOne(
+        db,
+        sql: """
+        SELECT category_id
+        FROM targets
+        WHERE category_id IS NOT NULL AND category_group_id IS NULL
+        GROUP BY category_id
+        HAVING COUNT(*) > 1
+        LIMIT 1
+        """
+    ) == nil
+}
+
+private func canCreateUniqueCategoryGroupScopeIndex(db: Database) throws -> Bool {
+    try String.fetchOne(
+        db,
+        sql: """
+        SELECT category_group_id
+        FROM targets
+        WHERE category_group_id IS NOT NULL AND category_id IS NULL
+        GROUP BY category_group_id
+        HAVING COUNT(*) > 1
+        LIMIT 1
+        """
+    ) == nil
+}
+
+private func seededCategoryGroupIDPreservingTargetDisjointness(
+    for category: DefaultBudgetCategoryDefinition,
+    db: Database
+) throws -> UUID? {
+    guard let row = try Row.fetchOne(
+        db,
+        sql: "SELECT category_group_id FROM categories WHERE id = ?",
+        arguments: [category.id.uuidString]
+    ) else {
+        return category.groupID
+    }
+
+    let currentGroupID: UUID?
+    if let currentGroupIDText = row["category_group_id"] as String? {
+        guard let parsedGroupID = UUID(uuidString: currentGroupIDText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(
+                field: "categories.category_group_id",
+                value: currentGroupIDText
+            )
+        }
+        currentGroupID = parsedGroupID
+    } else {
+        currentGroupID = nil
+    }
+
+    if currentGroupID == category.groupID {
+        return currentGroupID
+    }
+
+    // Bootstrap may normalize seeded memberships, but it must not implicitly create
+    // an overlap between an existing category target and an existing group target.
+    if try targetExists(categoryID: category.id, excluding: nil, db: db),
+       try targetExists(categoryGroupID: category.groupID, excluding: nil, db: db) {
+        return currentGroupID
+    }
+
+    return category.groupID
+}
+
+private struct PersistedTargetScope {
+    let categoryID: UUID?
+    let categoryGroupID: UUID?
+}
+
+private func managedTargetRows(db: Database) throws -> [Row] {
+    try Row.fetchAll(
+        db,
+        sql: """
+        SELECT
+            targets.id,
+            targets.category_id,
+            targets.category_group_id,
+            targets.monthly_limit,
+            targets.created_at,
+            categories.name AS category_name,
+            category_groups.name AS category_group_name
+        FROM targets
+        LEFT JOIN categories ON categories.id = targets.category_id
+        LEFT JOIN category_groups ON category_groups.id = targets.category_group_id
+        ORDER BY COALESCE(category_groups.name, categories.name) ASC, targets.id ASC
+        """
+    )
+}
+
+private func managedMonthlyTarget(
+    from row: Row,
+    db: Database,
+    interval: DateInterval,
+    paceRatio: Decimal
+) throws -> ManagedMonthlyTarget {
+    let progress = try targetProgress(from: row, db: db, interval: interval, paceRatio: paceRatio)
+    let createdAt: Date = row["created_at"]
+    return ManagedMonthlyTarget(
+        id: progress.id,
+        name: progress.name,
+        scope: progress.scope,
+        monthlyLimit: progress.monthlyLimit,
+        spent: progress.spent,
+        remaining: progress.remaining,
+        paceDelta: progress.paceDelta,
+        createdAt: createdAt
+    )
+}
+
+private func validateMonthlyTargetDraft(
+    _ draft: MonthlyTargetDraft,
+    excluding excludedID: UUID?,
+    db: Database
+) throws {
+    guard draft.monthlyLimit > 0 else {
+        throw MonthlyTargetManagementError.invalidLimit(draft.monthlyLimit)
+    }
+
+    let persistedScope = persistedTargetScope(from: draft.scope)
+    switch draft.scope {
+    case .category(let categoryID):
+        if try targetExists(
+            categoryID: categoryID,
+            excluding: excludedID,
+            db: db
+        ) {
+            throw MonthlyTargetManagementError.conflict(.duplicateScope(.category(categoryID)))
+        }
+
+        if let categoryGroupID = try categoryGroupID(for: categoryID, db: db),
+           try targetExists(
+               categoryGroupID: categoryGroupID,
+               excluding: excludedID,
+               db: db
+           ) {
+            throw MonthlyTargetManagementError.conflict(
+                .categoryGroupOverlap(categoryID: categoryID, categoryGroupID: categoryGroupID)
+            )
+        }
+
+    case .categoryGroup(let categoryGroupID):
+        if try targetExists(
+            categoryGroupID: categoryGroupID,
+            excluding: excludedID,
+            db: db
+        ) {
+            throw MonthlyTargetManagementError.conflict(.duplicateScope(.categoryGroup(categoryGroupID)))
+        }
+
+        // Scope edits are allowed as long as the resulting target does not overlap another target.
+        if let overlappingCategoryID = try overlappingCategoryTargetID(
+            in: categoryGroupID,
+            excluding: excludedID,
+            db: db
+        ) {
+            throw MonthlyTargetManagementError.conflict(
+                .categoryGroupOverlap(categoryID: overlappingCategoryID, categoryGroupID: categoryGroupID)
+            )
+        }
+    }
+
+    if persistedScope.categoryID == nil && persistedScope.categoryGroupID == nil {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.scope", value: "NULL")
+    }
+}
+
+private func persistedTargetScope(from scope: TargetScope) -> PersistedTargetScope {
+    switch scope {
+    case .category(let categoryID):
+        PersistedTargetScope(categoryID: categoryID, categoryGroupID: nil)
+    case .categoryGroup(let categoryGroupID):
+        PersistedTargetScope(categoryID: nil, categoryGroupID: categoryGroupID)
+    }
+}
+
+private func existingMonthlyTargetCreatedAt(id: UUID, db: Database) throws -> Date {
+    guard let createdAt = try Date.fetchOne(
+        db,
+        sql: "SELECT created_at FROM targets WHERE id = ?",
+        arguments: [id.uuidString]
+    ) else {
+        throw MonthlyTargetManagementError.targetNotFound(id)
+    }
+    return createdAt
+}
+
+private func fetchAccountRows(db: Database, sql: String, arguments: StatementArguments = StatementArguments()) throws -> [Account] {
+    let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+    return rows.map(account(from:))
+}
+
+private func account(from row: Row) -> Account {
+    Account(
+        id: UUID(uuidString: row["id"]) ?? UUID(),
+        name: row["name"],
+        kind: AccountKind(rawValue: row["kind"]) ?? .checking,
+        institutionName: row["institution_name"],
+        createdAt: row["created_at"],
+        archivedAt: row["archived_at"]
+    )
+}
+
+private func fetchAccount(id: UUID, db: Database) throws -> Account? {
+    guard let row = try Row.fetchOne(
+        db,
+        sql: """
+        SELECT id, name, kind, institution_name, created_at, archived_at
+        FROM accounts
+        WHERE id = ?
+        """,
+        arguments: [id.uuidString]
+    ) else {
+        return nil
+    }
+    return account(from: row)
+}
+
+private func accountCanBeDeleted(id: UUID, db: Database) throws -> Bool {
+    let accountID = id.uuidString
+    let hasSourceFiles = try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM source_files WHERE account_id = ?)",
+        arguments: [accountID]
+    ) ?? false
+    if hasSourceFiles {
+        return false
+    }
+
+    let hasImportSessions = try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM import_sessions WHERE account_id = ?)",
+        arguments: [accountID]
+    ) ?? false
+    if hasImportSessions {
+        return false
+    }
+
+    let hasTransactions = try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM transactions WHERE account_id = ?)",
+        arguments: [accountID]
+    ) ?? false
+    return !hasTransactions
+}
+
+private func accountIsImportEligible(id: UUID, db: Database) throws -> Bool {
+    try Bool.fetchOne(
+        db,
+        sql: """
+        SELECT EXISTS(
+            SELECT 1
+            FROM accounts
+            WHERE id = ?
+              AND archived_at IS NULL
+        )
+        """,
+        arguments: [id.uuidString]
+    ) ?? false
+}
+
+private func targetExists(id: UUID, db: Database) throws -> Bool {
+    try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM targets WHERE id = ?)",
+        arguments: [id.uuidString]
+    ) ?? false
+}
+
+private func targetExists(
+    categoryID: UUID,
+    excluding excludedID: UUID?,
+    db: Database
+) throws -> Bool {
+    var arguments: StatementArguments = [categoryID.uuidString]
+    var exclusionClause = ""
+    if let excludedID {
+        exclusionClause = " AND id != ?"
+        appendArgument(excludedID.uuidString, to: &arguments)
+    }
+
+    return try Bool.fetchOne(
+        db,
+        sql: """
+        SELECT EXISTS(
+            SELECT 1
+            FROM targets
+            WHERE category_id = ?\(exclusionClause)
+        )
+        """,
+        arguments: arguments
+    ) ?? false
+}
+
+private func targetExists(
+    categoryGroupID: UUID,
+    excluding excludedID: UUID?,
+    db: Database
+) throws -> Bool {
+    var arguments: StatementArguments = [categoryGroupID.uuidString]
+    var exclusionClause = ""
+    if let excludedID {
+        exclusionClause = " AND id != ?"
+        appendArgument(excludedID.uuidString, to: &arguments)
+    }
+
+    return try Bool.fetchOne(
+        db,
+        sql: """
+        SELECT EXISTS(
+            SELECT 1
+            FROM targets
+            WHERE category_group_id = ?\(exclusionClause)
+        )
+        """,
+        arguments: arguments
+    ) ?? false
+}
+
+private func categoryGroupID(for categoryID: UUID, db: Database) throws -> UUID? {
+    guard let categoryGroupIDText = try String.fetchOne(
+        db,
+        sql: "SELECT category_group_id FROM categories WHERE id = ?",
+        arguments: [categoryID.uuidString]
+    ) else {
+        return nil
+    }
+
+    guard let categoryGroupID = UUID(uuidString: categoryGroupIDText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(
+            field: "categories.category_group_id",
+            value: categoryGroupIDText
+        )
+    }
+    return categoryGroupID
+}
+
+private func overlappingCategoryTargetID(
+    in categoryGroupID: UUID,
+    excluding excludedID: UUID?,
+    db: Database
+) throws -> UUID? {
+    var arguments: StatementArguments = [categoryGroupID.uuidString]
+    var exclusionClause = ""
+    if let excludedID {
+        exclusionClause = " AND targets.id != ?"
+        appendArgument(excludedID.uuidString, to: &arguments)
+    }
+
+    guard let categoryIDText = try String.fetchOne(
+        db,
+        sql: """
+        SELECT targets.category_id
+        FROM targets
+        JOIN categories ON categories.id = targets.category_id
+        WHERE categories.category_group_id = ?\(exclusionClause)
+        ORDER BY categories.name ASC, targets.id ASC
+        LIMIT 1
+        """,
+        arguments: arguments
+    ) else {
+        return nil
+    }
+
+    guard let categoryID = UUID(uuidString: categoryIDText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.category_id", value: categoryIDText)
+    }
+    return categoryID
 }
 
 private func backfillLedgerTransactionsForLegacyStagedImports(db: Database) throws {
@@ -2774,10 +3519,10 @@ private func pendingReviewClassification(from row: Row) throws -> PendingReviewC
 
 private enum WorkspaceStoreError: Error {
     case insertedStagedSessionNotFound(Int64)
+    case accountNotImportEligible(UUID)
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
     case invalidStoredReviewItem(field: String, value: String)
-    case invalidMonthlyTargetLimit(Decimal)
     case reviewItemNotFound(UUID)
     case reviewItemNotPending(UUID)
     case transactionNotFound(UUID)
@@ -2787,8 +3532,8 @@ private enum WorkspaceStoreError: Error {
 extension WorkspaceStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
-        case .invalidMonthlyTargetLimit:
-            "Monthly targets must be greater than zero."
+        case .accountNotImportEligible:
+            "Archived accounts can't accept new imports."
         default:
             nil
         }

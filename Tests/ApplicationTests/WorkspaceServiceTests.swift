@@ -16,6 +16,22 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
         accounts
     }
 
+    func fetchManagementAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchImportEligibleAccounts() throws -> [Account] {
+        accounts.filter { !$0.isArchived }
+    }
+
+    func fetchLedgerFilterAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        Set(accounts.map(\.id))
+    }
+
     func fetchCategories() throws -> [BudgetCategory] {
         []
     }
@@ -35,6 +51,35 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
             institutionName: institutionName
         )
     }
+
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(id: id, name: named, kind: kind, institutionName: institutionName)
+    }
+
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        let existing = try #require(accounts.first { $0.id == id })
+        return Account(
+            id: existing.id,
+            name: existing.name,
+            kind: existing.kind,
+            institutionName: existing.institutionName,
+            createdAt: existing.createdAt,
+            archivedAt: archivedAt
+        )
+    }
+
+    func restoreAccount(id: UUID) throws -> Account {
+        let existing = try #require(accounts.first { $0.id == id })
+        return Account(
+            id: existing.id,
+            name: existing.name,
+            kind: existing.kind,
+            institutionName: existing.institutionName,
+            createdAt: existing.createdAt
+        )
+    }
+
+    func deleteAccountPermanently(id: UUID) throws {}
 
     func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
         StagedImportSession(
@@ -80,7 +125,7 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, TargetWriting, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var categories: [BudgetCategory] = []
@@ -92,7 +137,12 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     var classificationRules: [ClassificationRule] = []
     var createdTargets: [MonthlyTarget] = []
     var monthlyReport = MonthlyReport.empty
+    var managedTargets: [ManagedMonthlyTarget] = []
     var preferences = WorkspacePreferences()
+    var createMonthlyTargetError: (any Error)?
+    var updateMonthlyTargetError: (any Error)?
+    var deleteMonthlyTargetError: (any Error)?
+    var deleteAccountPermanentlyError: (any Error)?
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -104,7 +154,30 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     }
 
     func fetchAccounts() throws -> [Account] {
+        try fetchManagementAccounts()
+    }
+
+    func fetchManagementAccounts() throws -> [Account] {
+        accounts.sorted {
+            if $0.isArchived == $1.isArchived {
+                return $0.name < $1.name
+            }
+            return !$0.isArchived && $1.isArchived
+        }
+    }
+
+    func fetchImportEligibleAccounts() throws -> [Account] {
+        accounts
+            .filter { !$0.isArchived }
+            .sorted { $0.name < $1.name }
+    }
+
+    func fetchLedgerFilterAccounts() throws -> [Account] {
         accounts.sorted { $0.name < $1.name }
+    }
+
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        Set(accounts.filter { !$0.isArchived }.map(\.id))
     }
 
     func fetchCategories() throws -> [BudgetCategory] {
@@ -126,8 +199,38 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
             institutionName: institutionName
         )
         accounts.append(account)
-        summary.accountCount = accounts.count
+        summary.accountCount = accounts.filter { !$0.isArchived }.count
         return account
+    }
+
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        let existingIndex = try #require(accounts.firstIndex { $0.id == id })
+        accounts[existingIndex].name = named
+        accounts[existingIndex].kind = kind
+        accounts[existingIndex].institutionName = institutionName
+        return accounts[existingIndex]
+    }
+
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        let existingIndex = try #require(accounts.firstIndex { $0.id == id })
+        accounts[existingIndex].archivedAt = archivedAt
+        summary.accountCount = accounts.filter { !$0.isArchived }.count
+        return accounts[existingIndex]
+    }
+
+    func restoreAccount(id: UUID) throws -> Account {
+        let existingIndex = try #require(accounts.firstIndex { $0.id == id })
+        accounts[existingIndex].archivedAt = nil
+        summary.accountCount = accounts.filter { !$0.isArchived }.count
+        return accounts[existingIndex]
+    }
+
+    func deleteAccountPermanently(id: UUID) throws {
+        if let deleteAccountPermanentlyError {
+            throw deleteAccountPermanentlyError
+        }
+        accounts.removeAll { $0.id == id }
+        summary.accountCount = accounts.filter { !$0.isArchived }.count
     }
 
     func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
@@ -200,10 +303,29 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
         self.preferences = preferences
     }
 
+    func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget] {
+        managedTargets
+    }
+
     func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
+        if let createMonthlyTargetError {
+            throw createMonthlyTargetError
+        }
         let target = MonthlyTarget(id: UUID(), scope: draft.scope, monthlyLimit: draft.monthlyLimit, createdAt: createdAt)
         createdTargets.append(target)
         summary.targetCount = createdTargets.count
+        managedTargets.append(
+            ManagedMonthlyTarget(
+                id: target.id,
+                name: "Groceries",
+                scope: target.scope,
+                monthlyLimit: target.monthlyLimit,
+                spent: Decimal(40),
+                remaining: target.monthlyLimit - Decimal(40),
+                paceDelta: Decimal(0),
+                createdAt: createdAt
+            )
+        )
         monthlyReport.targets.append(
             TargetProgress(
                 id: target.id,
@@ -216,6 +338,61 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
             )
         )
         return target
+    }
+
+    func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget {
+        if let updateMonthlyTargetError {
+            throw updateMonthlyTargetError
+        }
+
+        let existingIndex = try #require(createdTargets.firstIndex { $0.id == id })
+        let existingTarget = createdTargets[existingIndex]
+        let updatedTarget = MonthlyTarget(
+            id: id,
+            scope: draft.scope,
+            monthlyLimit: draft.monthlyLimit,
+            createdAt: existingTarget.createdAt
+        )
+        createdTargets[existingIndex] = updatedTarget
+
+        if let managedIndex = managedTargets.firstIndex(where: { $0.id == id }) {
+            managedTargets[managedIndex] = ManagedMonthlyTarget(
+                id: id,
+                name: "Groceries",
+                scope: draft.scope,
+                monthlyLimit: draft.monthlyLimit,
+                spent: Decimal(40),
+                remaining: draft.monthlyLimit - Decimal(40),
+                paceDelta: Decimal(0),
+                createdAt: existingTarget.createdAt
+            )
+        }
+        if let reportIndex = monthlyReport.targets.firstIndex(where: { $0.id == id }) {
+            monthlyReport.targets[reportIndex] = TargetProgress(
+                id: id,
+                name: "Groceries",
+                scope: draft.scope,
+                monthlyLimit: draft.monthlyLimit,
+                spent: Decimal(40),
+                remaining: draft.monthlyLimit - Decimal(40),
+                paceDelta: Decimal(0)
+            )
+        }
+
+        return updatedTarget
+    }
+
+    func deleteMonthlyTarget(id: UUID) throws {
+        if let deleteMonthlyTargetError {
+            throw deleteMonthlyTargetError
+        }
+        guard createdTargets.contains(where: { $0.id == id }) else {
+            throw MonthlyTargetManagementError.targetNotFound(id)
+        }
+        createdTargets.removeAll { $0.id == id }
+        managedTargets.removeAll { $0.id == id }
+        monthlyReport.targets.removeAll { $0.id == id }
+        summary.targetCount = createdTargets.count
     }
 
     func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {
@@ -256,6 +433,22 @@ private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWri
         accounts
     }
 
+    func fetchManagementAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchImportEligibleAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchLedgerFilterAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        Set(accounts.map(\.id))
+    }
+
     func fetchCategories() throws -> [BudgetCategory] {
         []
     }
@@ -276,6 +469,20 @@ private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWri
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
         Account(name: named, kind: kind, institutionName: institutionName)
     }
+
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(id: id, name: named, kind: kind, institutionName: institutionName)
+    }
+
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        Account(id: id, name: "Archived", kind: .checking, institutionName: nil, archivedAt: archivedAt)
+    }
+
+    func restoreAccount(id: UUID) throws -> Account {
+        Account(id: id, name: "Restored", kind: .checking, institutionName: nil)
+    }
+
+    func deleteAccountPermanently(id: UUID) throws {}
 
     func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
         StagedImportSession(
@@ -391,6 +598,22 @@ private final class DefaultResetBridgeMaintenanceStore: WorkspaceStoring, Staged
         []
     }
 
+    func fetchManagementAccounts() throws -> [Account] {
+        []
+    }
+
+    func fetchImportEligibleAccounts() throws -> [Account] {
+        []
+    }
+
+    func fetchLedgerFilterAccounts() throws -> [Account] {
+        []
+    }
+
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        []
+    }
+
     func fetchCategories() throws -> [BudgetCategory] {
         []
     }
@@ -411,6 +634,20 @@ private final class DefaultResetBridgeMaintenanceStore: WorkspaceStoring, Staged
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
         Account(name: named, kind: kind, institutionName: institutionName)
     }
+
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(id: id, name: named, kind: kind, institutionName: institutionName)
+    }
+
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        Account(id: id, name: "Archived", kind: .checking, institutionName: nil, archivedAt: archivedAt)
+    }
+
+    func restoreAccount(id: UUID) throws -> Account {
+        Account(id: id, name: "Restored", kind: .checking, institutionName: nil)
+    }
+
+    func deleteAccountPermanently(id: UUID) throws {}
 
     func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
         StagedImportSession(
@@ -536,8 +773,39 @@ func loadSnapshotReturnsSummaryAndAccountsFromStore() throws {
 
     #expect(snapshot.summary.accountCount == 1)
     #expect(snapshot.summary.reviewCount == 3)
-    #expect(snapshot.accounts.map(\.name) == ["Checking"])
+    #expect(snapshot.managementAccounts.map(\.name) == ["Checking"])
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Checking"])
+    #expect(snapshot.ledgerFilterAccounts.map(\.name) == ["Checking"])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set(store.accounts.map(\.id)))
     #expect(snapshot.pendingReviewItems == [reviewItem])
+}
+
+@Test
+func loadSnapshotSeparatesArchivedAccountVisibility() throws {
+    let archivedAt = Date(timeIntervalSince1970: 1_775_171_260)
+    let activeAccount = Account(name: "Checking", kind: .checking, institutionName: "Local Bank")
+    let archivedAccount = Account(
+        name: "Travel Card",
+        kind: .creditCard,
+        institutionName: "Visa",
+        archivedAt: archivedAt
+    )
+    let store = StubWorkspaceStore(
+        summary: WorkspaceSummary(
+            accountCount: 1,
+            transactionCount: 0,
+            reviewCount: 0,
+            targetCount: 0
+        ),
+        accounts: [activeAccount, archivedAccount]
+    )
+
+    let snapshot = try WorkspaceService(store: store).loadSnapshot()
+
+    #expect(snapshot.managementAccounts.map(\.name) == ["Checking", "Travel Card"])
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Checking"])
+    #expect(snapshot.ledgerFilterAccounts.map(\.name) == ["Checking", "Travel Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set([activeAccount.id, archivedAccount.id]))
 }
 
 @Test
@@ -554,7 +822,9 @@ func createAccountReturnsCreatedAccountAndUpdatedSnapshot() throws {
 
     #expect(created.name == "Travel Card")
     #expect(snapshot.summary.accountCount == 1)
-    #expect(snapshot.accounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.managementAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set([created.id]))
 }
 
 @Test
@@ -568,7 +838,86 @@ func seedSampleDataCreatesStarterAccountsOnlyOnce() throws {
     let snapshot = try service.loadSnapshot()
 
     #expect(snapshot.summary.accountCount == 2)
-    #expect(snapshot.accounts.map(\.name) == ["Checking", "Daily Card"])
+    #expect(snapshot.managementAccounts.map(\.name) == ["Checking", "Daily Card"])
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Checking", "Daily Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs.count == 2)
+}
+
+@Test
+func archiveAndRestoreAccountUpdateVisibilityContracts() throws {
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+    let created = try service.createAccount(
+        named: "Travel Card",
+        kind: .creditCard,
+        institutionName: "Visa"
+    )
+
+    _ = try service.archiveAccount(
+        id: created.id,
+        archivedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    var snapshot = try service.loadSnapshot()
+    #expect(snapshot.summary.accountCount == 0)
+    #expect(snapshot.managementAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.importEligibleAccounts.isEmpty)
+    #expect(snapshot.ledgerFilterAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs.isEmpty)
+
+    _ = try service.restoreAccount(id: created.id)
+
+    snapshot = try service.loadSnapshot()
+    #expect(snapshot.summary.accountCount == 1)
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set([created.id]))
+}
+
+@Test
+func deleteAccountPermanentlySurfacesDependencyGuard() throws {
+    let store = MutableWorkspaceStore()
+    store.deleteAccountPermanentlyError = AccountManagementError.deleteBlockedByDependencies(
+        UUID(uuidString: "00000000-0000-0000-0000-000000000444")!
+    )
+    let service = WorkspaceService(store: store)
+
+    #expect(throws: WorkspaceServiceError.accountDeleteBlocked) {
+        try service.deleteAccountPermanently(id: UUID(uuidString: "00000000-0000-0000-0000-000000000444")!)
+    }
+}
+
+@Test
+func stageCSVImportRejectsArchivedAccountsEvenForStaleCallers() throws {
+    let archivedAccountID = UUID(uuidString: "00000000-0000-0000-0000-000000000555")!
+    let staleAccount = Account(
+        id: archivedAccountID,
+        name: "Travel Card",
+        kind: .creditCard,
+        institutionName: "Visa"
+    )
+    let archivedStoreAccount = Account(
+        id: archivedAccountID,
+        name: "Travel Card",
+        kind: .creditCard,
+        institutionName: "Visa",
+        archivedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+    let store = MutableWorkspaceStore(accounts: [archivedStoreAccount])
+    let service = WorkspaceService(store: store)
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,Coffee Shop,-4.75
+    """
+
+    #expect(throws: WorkspaceServiceError.archivedAccountImportUnavailable) {
+        _ = try service.stageCSVImport(
+            preview: try CSVImportPreviewService().makePreview(from: csv),
+            account: staleAccount,
+            originalFilename: "travel-card.csv",
+            csvText: csv
+        )
+    }
+    #expect(store.stagedImportDrafts.isEmpty)
 }
 
 @Test
@@ -588,6 +937,96 @@ func createMonthlyTargetReturnsTargetAndReloadsSnapshot() throws {
     #expect(snapshot.summary.targetCount == 1)
     #expect(snapshot.monthlyReport.targets.map(\.id) == [target.id])
     #expect(snapshot.monthlyReport.targets.map(\.remaining) == [Decimal(85)])
+}
+
+@Test
+func createMonthlyTargetSurfacesTypedConflictErrors() throws {
+    let store = MutableWorkspaceStore()
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000911")!
+    store.createMonthlyTargetError = MonthlyTargetManagementError.conflict(.duplicateScope(.category(categoryID)))
+    let service = WorkspaceService(store: store)
+
+    #expect(throws: WorkspaceServiceError.monthlyTargetConflict(.duplicateScope(.category(categoryID)))) {
+        try service.createMonthlyTarget(
+            MonthlyTargetDraft(scope: .category(categoryID), monthlyLimit: Decimal(125)),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+        )
+    }
+}
+
+@Test
+func updateMonthlyTargetSurfacesTypedConflictErrors() throws {
+    let store = MutableWorkspaceStore()
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000912")!
+    let groupID = UUID(uuidString: "00000000-0000-0000-0000-000000000913")!
+    store.updateMonthlyTargetError = MonthlyTargetManagementError.conflict(
+        .categoryGroupOverlap(categoryID: categoryID, categoryGroupID: groupID)
+    )
+    let service = WorkspaceService(store: store)
+
+    #expect(
+        throws: WorkspaceServiceError.monthlyTargetConflict(
+            .categoryGroupOverlap(categoryID: categoryID, categoryGroupID: groupID)
+        )
+    ) {
+        try service.updateMonthlyTarget(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000914")!,
+            MonthlyTargetDraft(scope: .categoryGroup(groupID), monthlyLimit: Decimal(250))
+        )
+    }
+}
+
+@Test
+func fetchManagedTargetsReturnsManagedTargets() throws {
+    let store = MutableWorkspaceStore()
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000915")!
+    store.managedTargets = [
+        ManagedMonthlyTarget(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000916")!,
+            name: "Groceries",
+            scope: .category(categoryID),
+            monthlyLimit: Decimal(125),
+            spent: Decimal(40),
+            remaining: Decimal(85),
+            paceDelta: Decimal(5),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+        ),
+    ]
+    let service = WorkspaceService(store: store)
+
+    let managedTargets = try service.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+
+    #expect(managedTargets == store.managedTargets)
+}
+
+@Test
+func deleteMonthlyTargetRemovesTargetAndReloadsSnapshot() throws {
+    let store = MutableWorkspaceStore()
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000917")!
+    store.categories = [BudgetCategory(id: categoryID, name: "Groceries", kind: .expense)]
+    let service = WorkspaceService(store: store)
+    let target = try service.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(categoryID), monthlyLimit: Decimal(125)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    try service.deleteMonthlyTarget(id: target.id)
+    let snapshot = try service.loadSnapshot()
+
+    #expect(snapshot.summary.targetCount == 0)
+    #expect(snapshot.monthlyReport.targets.isEmpty)
+    #expect(try service.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200)).isEmpty)
+}
+
+@Test
+func deleteMonthlyTargetPropagatesStaleIDError() throws {
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+    let missingID = UUID(uuidString: "00000000-0000-0000-0000-000000000918")!
+
+    #expect(throws: MonthlyTargetManagementError.targetNotFound(missingID)) {
+        try service.deleteMonthlyTarget(id: missingID)
+    }
 }
 
 @Test

@@ -26,18 +26,30 @@ public struct Account: Identifiable, Codable, Equatable, Sendable {
     public var kind: AccountKind
     public var institutionName: String?
     public let createdAt: Date
+    public var archivedAt: Date?
+
+    public var isArchived: Bool {
+        archivedAt != nil
+    }
 
     public init(
         id: UUID = UUID(),
         name: String,
         kind: AccountKind,
         institutionName: String?,
-        createdAt: Date = .now
+        createdAt: Date = .now,
+        archivedAt: Date? = nil
     ) {
         self.id = id
         self.name = name
         self.kind = kind
         self.institutionName = institutionName
         self.createdAt = createdAt
+        self.archivedAt = archivedAt
     }
+}
+
+public enum AccountManagementError: Error, Equatable, Sendable {
+    case accountNotFound(UUID)
+    case deleteBlockedByDependencies(UUID)
 }

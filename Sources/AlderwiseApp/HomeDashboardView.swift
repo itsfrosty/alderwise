@@ -4,9 +4,7 @@ import SwiftUI
 
 struct HomeDashboardView: View {
     let snapshot: WorkspaceSnapshot
-    let openReview: () -> Void
-    let openTargets: () -> Void
-    let openTransactions: (TransactionLedgerFilter) -> Void
+    let navigate: (HomeDashboardDestination) -> Void
 
     @EnvironmentObject private var model: WorkspaceShellModel
 
@@ -53,7 +51,7 @@ struct HomeDashboardView: View {
             .buttonStyle(.borderedProminent)
 
             Button {
-                model.isPresentingAccountSheet = true
+                model.beginAccountCreation()
             } label: {
                 Label("Create Account", systemImage: "plus")
             }
@@ -111,7 +109,7 @@ struct HomeDashboardView: View {
             Text("No active targets")
                 .font(.title3.weight(.semibold))
 
-            Text("Compare this month with last month, then add a target when you’re ready to track pace.")
+            Text("Compare this month with last month, then add a monthly limit when you’re ready to track pace.")
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 16) {
@@ -134,7 +132,7 @@ struct HomeDashboardView: View {
 
                     ForEach(driverRows) { driver in
                         DriverRow(driver: driver.driver, action: {
-                            openTransactions(transactionFilter(for: driver.driver))
+                            navigate(.transactions(transactionFilter(for: driver.driver)))
                         }, currency: currency)
                     }
                 }
@@ -147,7 +145,7 @@ struct HomeDashboardView: View {
             Button {
                 model.beginTargetCreation()
             } label: {
-                Label("Create Target", systemImage: "plus")
+                Label("Create Monthly Limit", systemImage: "plus")
             }
             .buttonStyle(.borderedProminent)
         }
@@ -156,17 +154,17 @@ struct HomeDashboardView: View {
 
     private var targetsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Target Progress")
+            Text("Tracked Limits")
                 .font(.headline)
 
             if snapshot.monthlyReport.targets.isEmpty {
-                Text("Create a monthly category target to track accepted spending.")
+                Text("Create a monthly limit to track accepted spending.")
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(snapshot.monthlyReport.targets) { target in
                         Button {
-                            openTargets()
+                            navigate(.targets(target.id))
                         } label: {
                             TargetRow(target: target, currency: currency)
                                 .contentShape(Rectangle())
@@ -195,7 +193,7 @@ struct HomeDashboardView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(driverRows) { driver in
                         DriverRow(driver: driver.driver, action: {
-                            openTransactions(transactionFilter(for: driver.driver))
+                            navigate(.transactions(transactionFilter(for: driver.driver)))
                         }, currency: currency)
                     }
                 }
@@ -235,7 +233,7 @@ struct HomeDashboardView: View {
 
     private var confidenceNote: String? {
         if snapshot.monthlyReport.hasActiveTargets == false {
-            return "Create a target to compare current spending against a monthly pace."
+            return "Create a monthly limit to compare current spending against pace."
         }
         return "Based on accepted expense activity only."
     }
@@ -279,12 +277,8 @@ struct HomeDashboardView: View {
 
     private func perform(_ destination: HomeDashboardDestination) {
         switch destination {
-        case .review:
-            openReview()
-        case .targets:
-            openTargets()
-        case .transactions(let filter):
-            openTransactions(filter)
+        case .review, .targets, .transactions:
+            navigate(destination)
         }
     }
 

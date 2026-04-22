@@ -1,4 +1,5 @@
 import AppKit
+import Application
 import Domain
 import SwiftUI
 import UniformTypeIdentifiers
@@ -54,7 +55,7 @@ struct WorkspaceRootView: View {
         }
         .sheet(isPresented: $model.isPresentingAccountSheet) {
             AccountCreationSheet { name, kind, institutionName in
-                model.createAccount(
+                _ = try model.createAccount(
                     name: name,
                     kind: kind,
                     institutionName: institutionName
@@ -69,7 +70,7 @@ struct WorkspaceRootView: View {
                     model.isPresentingTargetSheet = false
                 },
                 onCreate: { draft in
-                    model.createMonthlyTarget(draft)
+                    _ = try model.createMonthlyTarget(draft)
                 }
             )
         }
@@ -109,7 +110,7 @@ struct WorkspaceRootView: View {
             if let preview = model.csvImportPreview {
                 CSVImportPreviewSheet(
                     preview: preview,
-                    accounts: model.snapshot.accounts,
+                    accounts: model.snapshot.importEligibleAccounts,
                     originalFilename: model.pendingCSVImport?.originalFilename ?? "CSV file",
                     onCancel: {
                         model.dismissCSVImportPreview()
@@ -187,23 +188,6 @@ struct WorkspaceRootView: View {
             }
         } message: {
             Text(model.reviewErrorMessage ?? "")
-        }
-        .alert(
-            "Target Not Created",
-            isPresented: Binding(
-                get: { model.targetErrorMessage != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        model.targetErrorMessage = nil
-                    }
-                }
-            )
-        ) {
-            Button("OK") {
-                model.targetErrorMessage = nil
-            }
-        } message: {
-            Text(model.targetErrorMessage ?? "")
         }
         .alert(
             "Sample Data",
@@ -433,7 +417,7 @@ struct WorkspaceRootView: View {
             .keyboardShortcut("t", modifiers: [.command])
         case .accounts:
             Button {
-                model.isPresentingAccountSheet = true
+                model.beginAccountCreation()
             } label: {
                 Label("Create Account", systemImage: "plus")
             }
@@ -485,23 +469,70 @@ struct WorkspaceRootView: View {
             if section == .home {
                 HomeDashboardView(
                     snapshot: snapshot,
-                    openReview: {
-                        selectedSectionRawValue = AppSection.review.rawValue
+                    navigate: { destination in
+                        let intent = destination.workspaceNavigationIntent
+                        selectedSectionRawValue = intent.section.rawValue
+                        model.selectTarget(id: intent.targetID)
+                        if let filter = intent.transactionFilter {
+                            model.updateTransactionFilter(filter)
+                        }
+                    }
+                )
+            } else if WorkspaceDetailRoute.make(for: section) == .transactions {
+                TransactionLedgerView(snapshot: snapshot, model: model)
+            } else if WorkspaceDetailRoute.make(for: section) == .review {
+                ReviewQueueView(snapshot: snapshot, model: model)
+            } else if WorkspaceDetailRoute.make(for: section) == .targetsManager {
+                TargetsManagementView(
+                    targets: model.managedTargets,
+                    categories: snapshot.categories,
+                    categoryGroups: snapshot.categoryGroups,
+                    monthStart: snapshot.monthlyReport.monthStart,
+                    selectedTargetID: Binding(
+                        get: { model.selectedTargetID },
+                        set: { model.selectTarget(id: $0) }
+                    ),
+                    onCreate: {
+                        model.beginTargetCreation()
                     },
-                    openTargets: {
-                        selectedSectionRawValue = AppSection.targets.rawValue
+                    onSaveEdit: { id, draft in
+                        try model.updateMonthlyTarget(id: id, draft: draft)
                     },
-                    openTransactions: { filter in
+                    onDelete: { id in
+                        try model.deleteMonthlyTarget(id: id)
+                    },
+                    onViewTransactions: { filter in
                         selectedSectionRawValue = AppSection.transactions.rawValue
                         model.updateTransactionFilter(filter)
                     }
                 )
-            } else if section == .transactions {
-                TransactionLedgerView(snapshot: snapshot, model: model)
-            } else if section == .review {
-                ReviewQueueView(snapshot: snapshot, model: model)
-            } else if section == .settings {
+            } else if WorkspaceDetailRoute.make(for: section) == .settings {
                 SettingsView(model: model)
+            } else if WorkspaceDetailRoute.make(for: section) == .accountsManager {
+                AccountsManagementView(
+                    accounts: snapshot.managementAccounts,
+                    permanentlyDeletableAccountIDs: snapshot.permanentlyDeletableAccountIDs,
+                    onCreate: {
+                        model.beginAccountCreation()
+                    },
+                    onSaveEdit: { id, name, kind, institutionName in
+                        try model.updateAccount(
+                            id: id,
+                            name: name,
+                            kind: kind,
+                            institutionName: institutionName
+                        )
+                    },
+                    onArchive: { id in
+                        try model.archiveAccount(id: id)
+                    },
+                    onRestore: { id in
+                        try model.restoreAccount(id: id)
+                    },
+                    onDeletePermanently: { id in
+                        try model.deleteAccountPermanently(id: id)
+                    }
+                )
             } else {
                 SectionPlaceholderView(section: section, snapshot: snapshot)
             }

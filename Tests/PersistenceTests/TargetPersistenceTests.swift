@@ -5,7 +5,7 @@ import Persistence
 import Testing
 
 @Test
-func createMonthlyCategoryTargetAppearsInMonthlyReport() throws {
+func createMonthlyTargetStoresManagedTarget() throws {
     let databaseURL = try targetTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
@@ -20,65 +20,203 @@ func createMonthlyCategoryTargetAppearsInMonthlyReport() throws {
         amount: Decimal(-42),
         reviewStatus: "accepted"
     )
-    try targetInsertLedgerTransaction(
-        databaseURL: databaseURL,
-        accountID: account.id,
-        categoryID: groceries,
-        amount: Decimal(-100),
-        reviewStatus: "pending"
-    )
 
     let created = try store.createMonthlyTarget(
         MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(125)),
         createdAt: Date(timeIntervalSince1970: 1_775_171_260)
     )
-    let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+    let managedTargets = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+    let expectedPaceDelta = Decimal(42) - (Decimal(125) * Decimal(2) / Decimal(30))
 
-    #expect(report.targets.map(\.id) == [created.id])
-    #expect(report.targets.map(\.name) == ["Groceries"])
-    #expect(report.targets.map(\.spent) == [Decimal(42)])
-    #expect(report.targets.map(\.remaining) == [Decimal(83)])
-    #expect(report.targets.map(\.monthlyLimit) == [Decimal(125)])
+    #expect(managedTargets.count == 1)
+    #expect(managedTargets.map(\.id) == [created.id])
+    #expect(managedTargets.map(\.name) == ["Groceries"])
+    #expect(managedTargets.map(\.scope) == [.category(groceries)])
+    #expect(managedTargets.map(\.monthlyLimit) == [Decimal(125)])
+    #expect(managedTargets.map(\.spent) == [Decimal(42)])
+    #expect(managedTargets.map(\.remaining) == [Decimal(83)])
+    #expect(managedTargets.map(\.paceDelta) == [expectedPaceDelta])
+    #expect(managedTargets.map(\.createdAt) == [Date(timeIntervalSince1970: 1_775_171_260)])
 }
 
 @Test
-func createMonthlyCategoryGroupTargetAppearsInMonthlyReport() throws {
+func updateMonthlyTargetUpdatesAmount() throws {
     let databaseURL = try targetTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
 
-    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
-    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
-    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000211")!
-    let dining = UUID(uuidString: "00000000-0000-0000-0000-000000000212")!
-    try targetInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
-    try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
-    try targetInsertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense", categoryGroupID: food)
-    try targetInsertLedgerTransaction(
-        databaseURL: databaseURL,
-        accountID: account.id,
-        categoryID: groceries,
-        amount: Decimal(-40),
-        reviewStatus: "accepted"
-    )
-    try targetInsertLedgerTransaction(
-        databaseURL: databaseURL,
-        accountID: account.id,
-        categoryID: dining,
-        amount: Decimal(-35),
-        reviewStatus: "accepted"
-    )
-
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000121")!
+    try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
     let created = try store.createMonthlyTarget(
-        MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(150)),
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(125)),
         createdAt: Date(timeIntervalSince1970: 1_775_171_260)
     )
-    let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
 
-    #expect(report.targets.map(\.id) == [created.id])
-    #expect(report.targets.map(\.name) == ["Food"])
-    #expect(report.targets.map(\.spent) == [Decimal(75)])
-    #expect(report.targets.map(\.remaining) == [Decimal(75)])
+    let updated = try store.updateMonthlyTarget(
+        id: created.id,
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(200))
+    )
+    let managedTargets = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+
+    #expect(updated == MonthlyTarget(
+        id: created.id,
+        scope: .category(groceries),
+        monthlyLimit: Decimal(200),
+        createdAt: created.createdAt
+    ))
+    #expect(managedTargets.map(\.monthlyLimit) == [Decimal(200)])
+}
+
+@Test
+func updateMonthlyTargetAllowsScopeChangesWhenNewScopeDoesNotConflict() throws {
+    let databaseURL = try targetTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
+    let dining = UUID(uuidString: "00000000-0000-0000-0000-000000000202")!
+    let travel = UUID(uuidString: "00000000-0000-0000-0000-000000000203")!
+    try targetInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try targetInsertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense", categoryGroupID: food)
+    try targetInsertCategory(databaseURL: databaseURL, id: travel, name: "Travel", kind: "expense")
+    let created = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(travel), monthlyLimit: Decimal(80)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    let updatedToGroup = try store.updateMonthlyTarget(
+        id: created.id,
+        MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(150))
+    )
+    let updatedBackToCategory = try store.updateMonthlyTarget(
+        id: created.id,
+        MonthlyTargetDraft(scope: .category(dining), monthlyLimit: Decimal(90))
+    )
+    let managedTargets = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+
+    #expect(updatedToGroup.scope == .categoryGroup(food))
+    #expect(updatedBackToCategory.scope == .category(dining))
+    #expect(managedTargets.map(\.scope) == [.category(dining)])
+    #expect(managedTargets.map(\.monthlyLimit) == [Decimal(90)])
+}
+
+@Test
+func createMonthlyTargetRejectsExactScopeDuplicates() throws {
+    let databaseURL = try targetTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000301")!
+    try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+    _ = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(125)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    #expect(throws: MonthlyTargetManagementError.conflict(.duplicateScope(.category(groceries)))) {
+        try store.createMonthlyTarget(
+            MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(200)),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_300)
+        )
+    }
+}
+
+@Test
+func updateMonthlyTargetRejectsExactScopeDuplicates() throws {
+    let databaseURL = try targetTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000401")!
+    let dining = UUID(uuidString: "00000000-0000-0000-0000-000000000402")!
+    try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+    try targetInsertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense")
+    _ = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(125)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+    let diningTarget = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(dining), monthlyLimit: Decimal(80)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_261)
+    )
+
+    #expect(throws: MonthlyTargetManagementError.conflict(.duplicateScope(.category(groceries)))) {
+        try store.updateMonthlyTarget(
+            id: diningTarget.id,
+            MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(90))
+        )
+    }
+}
+
+@Test
+func createMonthlyTargetRejectsCategoryGroupOverlap() throws {
+    let databaseURL = try targetTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000501")!
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000502")!
+    try targetInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    _ = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(250)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    #expect(throws: MonthlyTargetManagementError.conflict(.categoryGroupOverlap(categoryID: groceries, categoryGroupID: food))) {
+        try store.createMonthlyTarget(
+            MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(90)),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_261)
+        )
+    }
+}
+
+@Test
+func updateMonthlyTargetRejectsCategoryGroupOverlap() throws {
+    let databaseURL = try targetTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000601")!
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000602")!
+    let travel = UUID(uuidString: "00000000-0000-0000-0000-000000000603")!
+    try targetInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try targetInsertCategory(databaseURL: databaseURL, id: travel, name: "Travel", kind: "expense")
+    _ = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(125)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+    let travelTarget = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(travel), monthlyLimit: Decimal(80)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_261)
+    )
+
+    #expect(throws: MonthlyTargetManagementError.conflict(.categoryGroupOverlap(categoryID: groceries, categoryGroupID: food))) {
+        try store.updateMonthlyTarget(
+            id: travelTarget.id,
+            MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(180))
+        )
+    }
+}
+
+@Test
+func deleteMonthlyTargetRemovesManagedTarget() throws {
+    let databaseURL = try targetTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+    try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+    let created = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(125)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    try store.deleteMonthlyTarget(id: created.id)
+
+    #expect(try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200)).isEmpty)
+    #expect(try targetCount(databaseURL: databaseURL) == 0)
 }
 
 @Test
@@ -90,13 +228,13 @@ func createMonthlyTargetRejectsNonPositiveLimits() throws {
     let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
 
-    #expect(throws: (any Error).self) {
+    #expect(throws: MonthlyTargetManagementError.invalidLimit(Decimal(0))) {
         try store.createMonthlyTarget(
             MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(0)),
             createdAt: Date(timeIntervalSince1970: 1_775_171_260)
         )
     }
-    #expect(throws: (any Error).self) {
+    #expect(throws: MonthlyTargetManagementError.invalidLimit(Decimal(-25))) {
         try store.createMonthlyTarget(
             MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(-25)),
             createdAt: Date(timeIntervalSince1970: 1_775_171_260)

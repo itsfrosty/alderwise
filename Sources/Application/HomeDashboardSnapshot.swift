@@ -9,8 +9,46 @@ public enum HomeHeroStatus: Equatable, Sendable {
 
 public enum HomeDashboardDestination: Equatable, Sendable {
     case review
-    case targets
+    case targets(UUID?)
     case transactions(TransactionLedgerFilter)
+}
+
+public struct WorkspaceNavigationIntent: Equatable, Sendable {
+    public var section: AppSection
+    public var targetID: UUID?
+    public var transactionFilter: TransactionLedgerFilter?
+
+    public init(section: AppSection, targetID: UUID? = nil, transactionFilter: TransactionLedgerFilter? = nil) {
+        self.section = section
+        self.targetID = targetID
+        self.transactionFilter = transactionFilter
+    }
+}
+
+public enum WorkspaceDetailRoute: Equatable, Sendable {
+    case home
+    case transactions
+    case review
+    case targetsManager
+    case accountsManager
+    case settings
+
+    public static func make(for section: AppSection) -> WorkspaceDetailRoute {
+        switch section {
+        case .home:
+            .home
+        case .transactions:
+            .transactions
+        case .review:
+            .review
+        case .targets:
+            .targetsManager
+        case .accounts:
+            .accountsManager
+        case .settings:
+            .settings
+        }
+    }
 }
 
 public struct HomeDashboardAction: Equatable, Sendable {
@@ -80,7 +118,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             .max(by: compareTargetPressure) {
             return HomeDashboardAction(
                 title: "Review \(overLimitTarget.name) target",
-                destination: .targets
+                destination: .targets(overLimitTarget.id)
             )
         }
 
@@ -89,7 +127,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             .max(by: compareTargetPressure) {
             return HomeDashboardAction(
                 title: "Review \(pressuredTarget.name) target",
-                destination: .targets
+                destination: .targets(pressuredTarget.id)
             )
         }
 
@@ -146,6 +184,19 @@ private extension SpendingDriverScope {
             return nil
         case .categoryGroup(let id):
             return id
+        }
+    }
+}
+
+public extension HomeDashboardDestination {
+    var workspaceNavigationIntent: WorkspaceNavigationIntent {
+        switch self {
+        case .review:
+            WorkspaceNavigationIntent(section: .review)
+        case .targets(let targetID):
+            WorkspaceNavigationIntent(section: .targets, targetID: targetID)
+        case .transactions(let filter):
+            WorkspaceNavigationIntent(section: .transactions, transactionFilter: filter)
         }
     }
 }
