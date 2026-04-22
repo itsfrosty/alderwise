@@ -897,7 +897,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     db: db,
                     learnedRuleID: learnedRuleID,
                     learnedRule: sanitizedRuleLearning,
-                    assignment: assignment
+                    assignment: assignment,
+                    resolvedAt: resolvedAt
                 )
             }
 
@@ -976,17 +977,19 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         db: Database,
         learnedRuleID: UUID,
         learnedRule: ReviewRuleLearningOption,
-        assignment: ClassificationAssignment
+        assignment: ClassificationAssignment,
+        resolvedAt: Date
     ) throws {
         let candidateRows = try Row.fetchAll(
             db,
             sql: """
-            SELECT id, normalized_merchant_name, raw_description
+            SELECT id, normalized_merchant_name, raw_description, review_status
             FROM transactions
-            WHERE review_status = ?
+            WHERE review_status IN (?, ?)
               AND decision_source IN (?, ?)
             """,
             arguments: [
+                TransactionReviewStatus.pending.rawValue,
                 TransactionReviewStatus.accepted.rawValue,
                 ClassificationDecisionSource.heuristic.rawValue,
                 ClassificationDecisionSource.curatedPrefill.rawValue,
@@ -1028,6 +1031,98 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             """,
             arguments: arguments
         )
+
+        let siblingReviewItems = try fetchPendingSiblingReviewItems(
+            db: db,
+            matchedTransactionIDs: matchedTransactionIDs
+        )
+        try resolveSiblingReviewItemsResolvedByBackfill(
+            db: db,
+            siblingReviewItems: siblingReviewItems,
+            resolvedAt: resolvedAt
+        )
+    }
+
+    private func fetchPendingSiblingReviewItems(
+        db: Database,
+        matchedTransactionIDs: [String]
+    ) throws -> [(reviewItemID: String, sourceRowID: Int64)] {
+        guard !matchedTransactionIDs.isEmpty else {
+            return []
+        }
+
+        let placeholders = Array(repeating: "?", count: matchedTransactionIDs.count).joined(separator: ", ")
+        let arguments = StatementArguments(matchedTransactionIDs)
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+            SELECT id, source_row_id
+            FROM review_items
+            WHERE transaction_id IN (\(placeholders))
+              AND status = ?
+              AND type = ?
+            """,
+            arguments: {
+                var argumentsWithFilters = arguments
+                _ = argumentsWithFilters.append(contentsOf: StatementArguments([
+                    ReviewItemStatus.pending.rawValue,
+                    ReviewItemType.lowConfidenceCategory.rawValue,
+                ]))
+                return argumentsWithFilters
+            }()
+        )
+
+        return rows.map { row in
+            (
+                reviewItemID: row["id"],
+                sourceRowID: row["source_row_id"]
+            )
+        }
+    }
+
+    private func resolveSiblingReviewItemsResolvedByBackfill(
+        db: Database,
+        siblingReviewItems: [(reviewItemID: String, sourceRowID: Int64)],
+        resolvedAt: Date
+    ) throws {
+        guard !siblingReviewItems.isEmpty else {
+            return
+        }
+
+        let reviewItemIDs = siblingReviewItems.map(\.reviewItemID)
+        let placeholders = Array(repeating: "?", count: reviewItemIDs.count).joined(separator: ", ")
+        try db.execute(
+            sql: """
+            UPDATE review_items
+            SET status = ?
+            WHERE id IN (\(placeholders))
+            """,
+            arguments: StatementArguments([ReviewItemStatus.resolved.rawValue] + reviewItemIDs)
+        )
+
+        for siblingReviewItem in siblingReviewItems {
+            try db.execute(
+                sql: """
+                INSERT INTO review_decision_events (
+                    id,
+                    review_item_id,
+                    source_row_id,
+                    action,
+                    details,
+                    created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    UUID().uuidString,
+                    siblingReviewItem.reviewItemID,
+                    siblingReviewItem.sourceRowID,
+                    ReviewDecisionAction.autoResolvedByLearnedRuleBackfill.rawValue,
+                    "Automatically resolved after learned-rule backfill.",
+                    resolvedAt,
+                ]
+            )
+        }
     }
 
     public func fetchTransactionLedger(filter: TransactionLedgerFilter = .empty) throws -> [TransactionLedgerRow] {

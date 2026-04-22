@@ -1989,6 +1989,101 @@ func approveClassificationReviewItemBackfillMatchesRawDescriptionWithoutOverwrit
 }
 
 @Test
+func approveClassificationReviewItemResolvesMatchingPendingSiblingReviewItemsDuringBackfill() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Donations", kind: "expense")
+
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_344_000),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-04","99PLEDG*ANOTHER DONOR","-18.00"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: ClassificationAssignment(categoryID: categoryID, merchantName: "99PLEDG"),
+                        source: .curatedPrefill,
+                        sourceReference: "starter.99pledg.family",
+                        confidence: nil,
+                        reason: "Curated starter match requires review before acceptance."
+                    ),
+                    normalizedMerchantName: "99pledg another donor",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_344_000),
+                        rawDescription: "99PLEDG*ANOTHER DONOR",
+                        normalizedMerchantName: "99pledg another donor",
+                        amount: Decimal(-18)
+                    )
+                ),
+                StagedSourceRowDraft(
+                    sourceLineNumber: 3,
+                    rawPayload: #"["2026-04-05","99PLEDG*ONIR BAWEJA","-25.00"]"#,
+                    rowHash: "row-2-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: ClassificationAssignment(categoryID: categoryID, merchantName: "99PLEDG"),
+                        source: .curatedPrefill,
+                        sourceReference: "starter.99pledg.family",
+                        confidence: nil,
+                        reason: "Curated starter match requires review before acceptance."
+                    ),
+                    normalizedMerchantName: "99pledg onir baweja",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_344_060),
+                        rawDescription: "99PLEDG*ONIR BAWEJA",
+                        normalizedMerchantName: "99pledg onir baweja",
+                        amount: Decimal(-25)
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 2,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let reviewItems = try store.fetchPendingReviewItems().sorted { $0.sourceRow.sourceLineNumber < $1.sourceRow.sourceLineNumber }
+    let currentReviewItem = try #require(reviewItems.first)
+    let siblingReviewItem = try #require(reviewItems.last)
+    let resolvedAt = Date(timeIntervalSince1970: 1_775_344_120)
+
+    _ = try store.approveClassificationReviewItem(
+        id: currentReviewItem.id,
+        assignment: ClassificationAssignment(categoryID: categoryID, merchantName: "99Pledg"),
+        ruleLearning: .prefixNormalizedMerchant(pattern: "99pledg"),
+        resolvedAt: resolvedAt
+    )
+
+    #expect(try store.fetchPendingReviewItems().isEmpty)
+    #expect(try fetchReviewItemStatus(databaseURL: databaseURL, reviewItemID: siblingReviewItem.id) == .resolved)
+
+    let siblingEvents = try store.fetchReviewDecisionEvents(reviewItemID: siblingReviewItem.id)
+    #expect(siblingEvents.count == 1)
+    #expect(siblingEvents[0].reviewItemID == siblingReviewItem.id)
+    #expect(siblingEvents[0].sourceRowID == siblingReviewItem.sourceRow.id)
+    #expect(siblingEvents[0].action == .autoResolvedByLearnedRuleBackfill)
+    #expect(siblingEvents[0].details == "Automatically resolved after learned-rule backfill.")
+    #expect(siblingEvents[0].createdAt == resolvedAt)
+}
+
+@Test
 func approveClassificationReviewItemWithoutRuleLearningDoesNotBackfillMatchingExistingTransactions() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
