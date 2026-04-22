@@ -110,6 +110,59 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
 }
 
 @Test
+func monthlyReportExposesAcceptedSpendReviewCountTargetsPaceAndDriversForHome() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000611")!
+    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+    try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try homeDashboardInsertAcceptedExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-42),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 5)
+    )
+    try homeDashboardInsertPendingReviewItem(
+        databaseURL: databaseURL,
+        createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 6)
+    )
+
+    _ = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(300)),
+        createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 1)
+    )
+    let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
+
+    #expect(report.currentMonthAcceptedSpend >= 0)
+    #expect(report.lastMonthAcceptedSpend >= 0)
+    #expect(report.pendingReviewCount >= 0)
+    #expect(report.paceSeries.isEmpty == false || report.currentMonthAcceptedSpend == 0)
+    #expect(report.targets.isEmpty == false || report.hasActiveTargets == false)
+    #expect(report.biggestShift == nil || report.drivers.isEmpty == false)
+}
+
+@Test
+func monthlyReportKeepsPendingReviewCountAvailableForAcceptedOnlyQualifier() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    try homeDashboardInsertPendingReviewItem(
+        databaseURL: databaseURL,
+        createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 6)
+    )
+
+    let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
+
+    #expect(report.pendingReviewCount == 1)
+}
+
+@Test
 func monthlyReportLeavesDriversEmptyWhenNoPriorComparisonExists() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -244,6 +297,29 @@ private func homeDashboardInsertAcceptedExpense(
                 1.0,
                 "accepted",
                 "none",
+            ]
+        )
+    }
+}
+
+private func homeDashboardInsertPendingReviewItem(databaseURL: URL, createdAt: Date) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO review_items (
+                id,
+                type,
+                status,
+                created_at
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            arguments: [
+                UUID().uuidString,
+                ReviewItemType.lowConfidenceCategory.rawValue,
+                ReviewItemStatus.pending.rawValue,
+                createdAt,
             ]
         )
     }
