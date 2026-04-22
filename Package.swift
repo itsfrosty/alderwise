@@ -57,7 +57,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AlderwiseAppTests",
-            dependencies: ["AlderwiseApp", "Domain"],
+            dependencies: ["AlderwiseApp", "Application", "Domain"],
             path: "Tests/AlderwiseAppTests"
         ),
         .testTarget(
