@@ -163,6 +163,34 @@ func dirtyDeselectionIsTrackedExplicitlyAndAppliedAfterSave() {
     #expect(appliedSelection == .selection(nil))
 }
 
+@Test
+func dirtyFilterDrivenSelectionLossIsDeferredUntilUserResolvesPrompt() {
+    let currentID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    let fallbackID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+    var coordinator = TransactionDetailDraftCoordinator(
+        selectionID: currentID,
+        detail: makeDetail(id: currentID)
+    )
+    let editedDraft = TransactionLedgerEditDraft(
+        merchantName: "Updated Merchant",
+        categoryID: nil,
+        notes: "Edited notes"
+    )
+
+    coordinator.updateDraft(editedDraft)
+
+    let decision = coordinator.reloadDecision(
+        for: fallbackID,
+        detail: makeDetail(id: fallbackID)
+    )
+
+    #expect(decision == .preserveCurrentDraftAndPrompt)
+    #expect(coordinator.currentSelectionID == currentID)
+    #expect(coordinator.currentDraft == editedDraft)
+    #expect(coordinator.pendingSelection == .selection(fallbackID))
+    #expect(coordinator.isDirty == true)
+}
+
 private func makeDetail(id: UUID) -> TransactionDetail {
     TransactionDetail(
         row: TransactionLedgerRow(

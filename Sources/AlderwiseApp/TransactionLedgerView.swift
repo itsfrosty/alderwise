@@ -390,10 +390,17 @@ struct TransactionLedgerView: View {
     }
 
     private func syncDraftCoordinator() {
-        draftCoordinator.load(
-            selectionID: model.selectedTransactionID,
+        switch draftCoordinator.reloadDecision(
+            for: model.selectedTransactionID,
             detail: model.selectedTransactionDetail
-        )
+        ) {
+        case .applyLoadedSelection:
+            break
+        case .preserveCurrentDraftAndPrompt:
+            if model.selectedTransactionID != draftCoordinator.currentSelectionID {
+                model.selectTransaction(id: draftCoordinator.currentSelectionID)
+            }
+        }
     }
 
     private func handleSelectionChange(to selectionID: UUID?) {

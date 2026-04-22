@@ -7,6 +7,11 @@ struct TransactionDetailDraftCoordinator {
         case promptToSaveDiscardOrCancel
     }
 
+    enum ReloadDecision: Equatable {
+        case applyLoadedSelection
+        case preserveCurrentDraftAndPrompt
+    }
+
     enum PendingSelectionChange: Equatable {
         case none
         case selection(UUID?)
@@ -54,6 +59,21 @@ struct TransactionDetailDraftCoordinator {
 
         pendingSelection = .selection(proposedSelectionID)
         return .promptToSaveDiscardOrCancel
+    }
+
+    mutating func reloadDecision(for selectionID: UUID?, detail: TransactionDetail?) -> ReloadDecision {
+        guard selectionID != currentSelectionID else {
+            load(selectionID: selectionID, detail: detail)
+            return .applyLoadedSelection
+        }
+
+        guard isDirty else {
+            load(selectionID: selectionID, detail: detail)
+            return .applyLoadedSelection
+        }
+
+        pendingSelection = .selection(selectionID)
+        return .preserveCurrentDraftAndPrompt
     }
 
     mutating func discardChanges() -> PendingSelectionChange {
