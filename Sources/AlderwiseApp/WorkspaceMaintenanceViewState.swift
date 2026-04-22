@@ -2,6 +2,7 @@ import Domain
 import Foundation
 
 enum PendingWorkspaceMaintenanceAction: Equatable {
+    case retryWorkspaceRecovery
     case restoreBackup(URL)
     case reset
 }

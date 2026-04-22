@@ -101,6 +101,11 @@ final class WorkspaceShellModel: ObservableObject {
         }
     }
 
+    func retryFailedWorkspaceRecovery() {
+        pendingMaintenanceAction = .retryWorkspaceRecovery
+        confirmPendingMaintenanceAction()
+    }
+
     func updateSuggestionsEnabled(_ isEnabled: Bool) {
         guard let service else {
             return
@@ -176,6 +181,9 @@ final class WorkspaceShellModel: ObservableObject {
 
     func confirmPendingMaintenanceAction() {
         switch pendingMaintenanceAction {
+        case .retryWorkspaceRecovery:
+            pendingMaintenanceAction = nil
+            reload()
         case .restoreBackup(let backupURL):
             restoreWorkspace(backupURL: backupURL)
         case .reset:
@@ -185,14 +193,8 @@ final class WorkspaceShellModel: ObservableObject {
         }
     }
 
-    func restoreWorkspace(from result: Result<URL, Error>) {
-        do {
-            let url = try result.get()
-            beginWorkspaceRestoreConfirmation(backupURL: url)
-            confirmPendingMaintenanceAction()
-        } catch {
-            recordMaintenanceFailure(.restore, error: error)
-        }
+    func recordWorkspaceRestoreSelectionFailure(error: any Error) {
+        recordMaintenanceFailure(.restore, error: error)
     }
 
     func updateTransactionFilter(_ filter: TransactionLedgerFilter) {

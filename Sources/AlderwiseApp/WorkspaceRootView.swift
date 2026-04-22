@@ -30,6 +30,14 @@ struct WorkspaceRootView: View {
         )
     }
 
+    private var pendingRestoreBackupURL: URL? {
+        if case .restoreBackup(let backupURL) = model.pendingMaintenanceAction {
+            backupURL
+        } else {
+            nil
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -77,7 +85,12 @@ struct WorkspaceRootView: View {
             case .csv:
                 model.importCSV(from: selectedFileURL(from: result))
             case .workspaceRestore:
-                model.restoreWorkspace(from: selectedFileURL(from: result))
+                switch selectedFileURL(from: result) {
+                case .success(let backupURL):
+                    model.beginWorkspaceRestoreConfirmation(backupURL: backupURL)
+                case .failure(let error):
+                    model.recordWorkspaceRestoreSelectionFailure(error: error)
+                }
             case nil:
                 break
             }
@@ -208,40 +221,12 @@ struct WorkspaceRootView: View {
         } message: {
             Text(model.sampleDataMessage ?? "")
         }
-        .alert(
-            "Workspace Updated",
-            isPresented: Binding(
-                get: { model.latestMaintenanceOutcome != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        model.dismissLatestMaintenanceOutcome()
-                    }
-                }
+        .modifier(
+            WorkspaceRecoveryFeedbackModifier(
+                model: model,
+                pendingRestoreBackupURL: pendingRestoreBackupURL
             )
-        ) {
-            Button("OK") {
-                model.dismissLatestMaintenanceOutcome()
-            }
-        } message: {
-            Text(model.latestMaintenanceOutcome?.message ?? "")
-        }
-        .alert(
-            "Workspace Maintenance Failed",
-            isPresented: Binding(
-                get: { model.latestMaintenanceFailure != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        model.dismissLatestMaintenanceFailure()
-                    }
-                }
-            )
-        ) {
-            Button("OK") {
-                model.dismissLatestMaintenanceFailure()
-            }
-        } message: {
-            Text(model.latestMaintenanceFailure?.message ?? "")
-        }
+        )
     }
 
     private var sidebar: some View {
@@ -264,6 +249,74 @@ struct WorkspaceRootView: View {
             return .success(url)
         } catch {
             return .failure(error)
+        }
+    }
+
+    private struct WorkspaceRecoveryFeedbackModifier: ViewModifier {
+        let model: WorkspaceShellModel
+        let pendingRestoreBackupURL: URL?
+
+        func body(content: Content) -> some View {
+            content
+                .confirmationDialog(
+                    "Restore Workspace Backup?",
+                    isPresented: Binding(
+                        get: { pendingRestoreBackupURL != nil },
+                        set: { isPresented in
+                            if !isPresented {
+                                model.cancelPendingMaintenanceAction()
+                            }
+                        }
+                    ),
+                    titleVisibility: .visible,
+                    presenting: pendingRestoreBackupURL
+                ) { _ in
+                    Button("Cancel", role: .cancel) {
+                        model.cancelPendingMaintenanceAction()
+                    }
+
+                    Button("Overwrite Workspace", role: .destructive) {
+                        model.confirmPendingMaintenanceAction()
+                    }
+                } message: { backupURL in
+                    Text(
+                        "A safety backup of the current workspace will be created before \(backupURL.lastPathComponent) overwrites it."
+                    )
+                }
+                .alert(
+                    "Workspace Updated",
+                    isPresented: Binding(
+                        get: { model.latestMaintenanceOutcome != nil },
+                        set: { isPresented in
+                            if !isPresented {
+                                model.dismissLatestMaintenanceOutcome()
+                            }
+                        }
+                    )
+                ) {
+                    Button("OK") {
+                        model.dismissLatestMaintenanceOutcome()
+                    }
+                } message: {
+                    Text(model.latestMaintenanceOutcome?.message ?? "")
+                }
+                .alert(
+                    "Workspace Maintenance Failed",
+                    isPresented: Binding(
+                        get: { model.latestMaintenanceFailure != nil },
+                        set: { isPresented in
+                            if !isPresented {
+                                model.dismissLatestMaintenanceFailure()
+                            }
+                        }
+                    )
+                ) {
+                    Button("OK") {
+                        model.dismissLatestMaintenanceFailure()
+                    }
+                } message: {
+                    Text(model.latestMaintenanceFailure?.message ?? "")
+                }
         }
     }
 
@@ -325,7 +378,7 @@ struct WorkspaceRootView: View {
                     .frame(maxWidth: 560)
                 HStack(spacing: 12) {
                     Button {
-                        model.reload()
+                        model.retryFailedWorkspaceRecovery()
                     } label: {
                         Label("Try Again", systemImage: "arrow.clockwise")
                     }
