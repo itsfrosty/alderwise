@@ -287,9 +287,7 @@ private struct ReviewQueueDetail: View {
             ?? item.classification?.normalizedMerchantName
             ?? ""
         createRule = presentation.initialCreateRuleValue(for: item)
-        selectedRuleLearning = ReviewRuleLearningOption.defaultOption(
-            forNormalizedMerchantName: item.classification?.normalizedMerchantName ?? ""
-        )
+        selectedRuleLearning = presentation.initialRuleLearningSelection(for: item)
     }
 
     private func ruleLearningOptions(for item: PendingReviewItem) -> [ReviewRuleLearningOption] {
@@ -299,11 +297,10 @@ private struct ReviewQueueDetail: View {
     }
 
     private func resolvedRuleLearning(for item: PendingReviewItem) -> ReviewRuleLearningOption? {
-        selectedRuleLearning
-            ?? ReviewRuleLearningOption.defaultOption(
-                forNormalizedMerchantName: item.classification?.normalizedMerchantName ?? ""
-            )
-            ?? ruleLearningOptions(for: item).first
+        presentation.resolvedRuleLearningSelection(
+            for: item,
+            selectedRuleLearning: selectedRuleLearning
+        ) ?? ruleLearningOptions(for: item).first
     }
 
     private func optionPickerLabel(_ option: ReviewRuleLearningOption) -> String {

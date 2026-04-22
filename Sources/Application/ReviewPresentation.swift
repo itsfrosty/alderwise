@@ -33,6 +33,18 @@ public struct ReviewPresentation: Sendable {
         !isCuratedPrefill(item)
     }
 
+    public func initialRuleLearningSelection(for item: PendingReviewItem) -> ReviewRuleLearningOption? {
+        let normalizedMerchantName = item.classification?.normalizedMerchantName ?? ""
+        return ReviewRuleLearningOption.defaultOption(forNormalizedMerchantName: normalizedMerchantName)
+    }
+
+    public func resolvedRuleLearningSelection(
+        for item: PendingReviewItem,
+        selectedRuleLearning: ReviewRuleLearningOption?
+    ) -> ReviewRuleLearningOption? {
+        selectedRuleLearning ?? initialRuleLearningSelection(for: item)
+    }
+
     public static func sourceLabel(for source: ClassificationDecisionSource?) -> String {
         switch source {
         case .rule:
