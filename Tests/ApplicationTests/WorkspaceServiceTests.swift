@@ -3,10 +3,11 @@ import Domain
 import Foundation
 import Testing
 
-private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading {
+private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, LearnedRuleReading {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var pendingReviewItems: [PendingReviewItem] = []
+    var learnedRuleSummaries: [LearnedRuleSummary] = []
 
     func fetchSummary() throws -> WorkspaceSummary {
         summary
@@ -42,6 +43,29 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
 
     func fetchPendingReviewItems() throws -> [PendingReviewItem] {
         pendingReviewItems
+    }
+
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
+        learnedRuleSummaries
+    }
+
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
+        learnedRuleSummaries.first { $0.id == id }
+    }
+
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
+        guard let summary = learnedRuleSummaries.first(where: { $0.id == id }) else {
+            return nil
+        }
+        return ManagedLearnedRule(
+            id: summary.id,
+            merchantPattern: summary.merchantPattern,
+            categoryID: summary.categoryID,
+            merchantName: summary.merchantName,
+            matchKind: summary.matchKind,
+            createdAt: summary.createdAt,
+            lifecycle: summary.lifecycle
+        )
     }
 
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
@@ -125,12 +149,13 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, LearnedRuleReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var categories: [BudgetCategory] = []
     var categoryGroups: [BudgetCategoryGroup] = []
     var pendingReviewItems: [PendingReviewItem] = []
+    var learnedRuleSummaries: [LearnedRuleSummary] = []
     var stagedImportDrafts: [StagedImportSessionDraft] = []
     var likelyDuplicateCandidates: [LikelyDuplicateCandidate] = []
     var existingSourceRowHashes: Set<String> = []
@@ -295,6 +320,29 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
         classificationRules
     }
 
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
+        learnedRuleSummaries
+    }
+
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
+        learnedRuleSummaries.first { $0.id == id }
+    }
+
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
+        guard let summary = learnedRuleSummaries.first(where: { $0.id == id }) else {
+            return nil
+        }
+        return ManagedLearnedRule(
+            id: summary.id,
+            merchantPattern: summary.merchantPattern,
+            categoryID: summary.categoryID,
+            merchantName: summary.merchantName,
+            matchKind: summary.matchKind,
+            createdAt: summary.createdAt,
+            lifecycle: summary.lifecycle
+        )
+    }
+
     func fetchWorkspacePreferences() throws -> WorkspacePreferences {
         preferences
     }
@@ -400,7 +448,7 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     }
 }
 
-private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
+private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
     var summary: WorkspaceSummary = .empty
     var accounts: [Account] = []
     var backupCallCount = 0
@@ -527,6 +575,18 @@ private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWri
         []
     }
 
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
+        []
+    }
+
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
+        nil
+    }
+
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
+        nil
+    }
+
     func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup {
         backupCallCount += 1
         return backup
@@ -589,7 +649,7 @@ func restoreWorkspaceBackupReturnsTypedOutcomeData() throws {
     #expect(store.resetCallCount == 0)
 }
 
-private final class DefaultResetBridgeMaintenanceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
+private final class DefaultResetBridgeMaintenanceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
     func fetchSummary() throws -> WorkspaceSummary {
         .empty
     }
@@ -690,6 +750,18 @@ private final class DefaultResetBridgeMaintenanceStore: WorkspaceStoring, Staged
         candidates: [NormalizedImportCandidate]
     ) throws -> [LikelyDuplicateCandidate] {
         []
+    }
+
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
+        []
+    }
+
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
+        nil
+    }
+
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
+        nil
     }
 
     func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup {
@@ -1812,4 +1884,60 @@ private struct FixedSuggestionProvider: SuggestionProvider {
     func suggestion(for candidate: NormalizedImportCandidate) -> ClassificationSuggestion? {
         suggestion
     }
+}
+
+@Test
+func workspaceServiceReturnsDistinctLearnedAndSeededManagerSections() throws {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let store = MutableWorkspaceStore()
+    store.learnedRuleSummaries = [
+        LearnedRuleSummary(
+            id: learnedRuleID,
+            merchantPattern: "local market",
+            categoryID: UUID(uuidString: "00000000-0000-0000-0000-000000000211"),
+            merchantName: "Local Market",
+            matchKind: .contains,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lifecycle: .active
+        )
+    ]
+
+    let service = WorkspaceService(store: store, classifier: SeededClassification.liveClassifier())
+    let snapshot = try service.loadLearnedRuleManagerSnapshot()
+
+    #expect(snapshot.learned.mode == .learned)
+    #expect(snapshot.seeded.mode == .seeded)
+    #expect(snapshot.learned.rows.map(\.id) == [learnedRuleID])
+    #expect(snapshot.seeded.rows.isEmpty == false)
+}
+
+@Test
+func seededManagerRowsAreAssembledFromSeededClassification() throws {
+    let service = WorkspaceService(
+        store: MutableWorkspaceStore(),
+        classifier: SeededClassification.liveClassifier()
+    )
+
+    let snapshot = try service.loadLearnedRuleManagerSnapshot()
+    let expectedSeededCount = SeededClassification.deterministicRules.count + SeededClassification.curatedReviewPrefills.count
+
+    #expect(snapshot.seeded.rows.count == expectedSeededCount)
+    #expect(snapshot.seeded.rows.contains(where: { $0.sourceKind == .deterministicRule }) == true)
+    #expect(snapshot.seeded.rows.contains(where: { $0.sourceKind == .curatedPrefill }) == true)
+}
+
+@Test
+func seededHeuristicsDoNotAppearInTheManagerSnapshot() throws {
+    let service = WorkspaceService(
+        store: MutableWorkspaceStore(),
+        classifier: SeededClassification.liveClassifier()
+    )
+
+    let snapshot = try service.loadLearnedRuleManagerSnapshot()
+    let seededPatterns = Set(snapshot.seeded.rows.map(\.merchantPattern))
+    let heuristicOnlyPatterns = Set(SeededClassification.heuristics.map(\.merchantPattern))
+        .subtracting(Set(SeededClassification.deterministicRules.map(\.merchantPattern)))
+        .subtracting(Set(SeededClassification.curatedReviewPrefills.map(\.merchantPattern)))
+
+    #expect(heuristicOnlyPatterns.allSatisfy { seededPatterns.contains($0) == false })
 }

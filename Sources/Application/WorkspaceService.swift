@@ -78,12 +78,12 @@ public struct StagedCSVImportResult: Equatable, Sendable {
 }
 
 public struct WorkspaceService: Sendable {
-    private let store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading
+    private let store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading & LearnedRuleReading
     private let merchantNormalizer: MerchantNormalizer
     private let classifier: ClassificationEngine
 
     public init(
-        store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading,
+        store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading & LearnedRuleReading,
         merchantNormalizer: MerchantNormalizer = MerchantNormalizer(),
         classifier: ClassificationEngine = ClassificationEngine()
     ) {
@@ -115,6 +115,21 @@ public struct WorkspaceService: Sendable {
             transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
             monthlyReport: monthlyReport,
             homeDashboard: HomeDashboardSnapshot.make(summary: summary, monthlyReport: monthlyReport)
+        )
+    }
+
+    public func loadLearnedRuleManagerSnapshot() throws -> LearnedRuleManagerSnapshot {
+        let learnedRules = try store.fetchLearnedRuleSummaries()
+        let learnedRows = learnedRules.map { ManagedLearnedRuleRow(summary: $0) }
+        return LearnedRuleManagerSnapshot(
+            learned: LearnedRuleManagerSectionSnapshot(
+                mode: .learned,
+                rows: learnedRows
+            ),
+            seeded: LearnedRuleManagerSectionSnapshot(
+                mode: .seeded,
+                rows: seededRuleSourceRows()
+            )
         )
     }
 
@@ -505,6 +520,31 @@ public struct WorkspaceService: Sendable {
             throw WorkspaceServiceError.workspaceMaintenanceUnavailable
         }
         return manager
+    }
+
+    private func seededRuleSourceRows() -> [SeededRuleSourceRow] {
+        let deterministicRows = SeededClassification.deterministicRules.map { rule in
+            SeededRuleSourceRow(
+                id: rule.id.uuidString,
+                merchantPattern: rule.merchantPattern,
+                categoryID: rule.categoryID,
+                merchantName: rule.merchantName,
+                matchKind: rule.matchKind,
+                sourceKind: .deterministicRule
+            )
+        }
+        let curatedPrefillRows = SeededClassification.curatedReviewPrefills.map { prefill in
+            SeededRuleSourceRow(
+                id: prefill.id,
+                merchantPattern: prefill.merchantPattern,
+                categoryID: prefill.assignment.categoryID,
+                merchantName: prefill.assignment.merchantName,
+                matchKind: prefill.matchKind,
+                sourceKind: .curatedPrefill
+            )
+        }
+
+        return deterministicRows + curatedPrefillRows
     }
 
     private static func rawPayload(for row: CSVRow) throws -> String {
