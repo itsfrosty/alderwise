@@ -2,8 +2,8 @@ import Foundation
 
 public enum ClassificationDecisionSource: String, Codable, Equatable, Sendable {
     case rule
-    case heuristic
     case curatedPrefill
+    case heuristic
     case suggestion
     case user
 }
@@ -58,6 +58,25 @@ public struct ClassificationHeuristic: Equatable, Sendable {
     }
 }
 
+public struct CuratedReviewPrefill: Equatable, Sendable {
+    public var id: String
+    public var merchantPattern: String
+    public var assignment: ClassificationAssignment
+    public var matchKind: ClassificationRuleMatchKind
+
+    public init(
+        id: String,
+        merchantPattern: String,
+        assignment: ClassificationAssignment,
+        matchKind: ClassificationRuleMatchKind = .contains
+    ) {
+        self.id = id
+        self.merchantPattern = merchantPattern
+        self.assignment = assignment
+        self.matchKind = matchKind
+    }
+}
+
 public enum ReviewRuleLearningOption: Hashable, Codable, Equatable, Sendable {
     case exactNormalizedMerchant(pattern: String)
     case prefixNormalizedMerchant(pattern: String)
@@ -94,6 +113,28 @@ public enum ReviewRuleLearningOption: Hashable, Codable, Equatable, Sendable {
             "Will match only \(pattern)."
         case .prefixNormalizedMerchant(let pattern):
             "Will match future merchants starting with \(pattern)."
+        }
+    }
+
+    public func matchesMerchantName(_ merchantName: String) -> Bool {
+        merchantName
+            .normalizedClassificationPattern
+            .matchesClassificationPattern(pattern, matchKind: matchKind)
+    }
+
+    public func resolvingEmptyPattern(fallbackPattern: String) -> ReviewRuleLearningOption {
+        let resolvedPattern = pattern
+            .normalizedClassificationPattern
+            .nilIfEmpty
+            ?? fallbackPattern.normalizedClassificationPattern
+
+        switch matchKind {
+        case .exactNormalizedMerchant:
+            return .exactNormalizedMerchant(pattern: resolvedPattern)
+        case .prefixNormalizedMerchant:
+            return .prefixNormalizedMerchant(pattern: resolvedPattern)
+        case .contains:
+            return .exactNormalizedMerchant(pattern: resolvedPattern)
         }
     }
 
@@ -229,6 +270,7 @@ public struct ImportRowClassification: Equatable, Sendable {
 
 public struct ClassificationEngine: Sendable {
     private let explicitRules: [ClassificationRule]
+    private let curatedReviewPrefills: [CuratedReviewPrefill]
     private let heuristics: [ClassificationHeuristic]
     private let suggestionProvider: any SuggestionProvider
     private let suggestionsEnabled: Bool
@@ -238,6 +280,7 @@ public struct ClassificationEngine: Sendable {
 
     public init(
         explicitRules: [ClassificationRule] = [],
+        curatedReviewPrefills: [CuratedReviewPrefill] = [],
         heuristics: [ClassificationHeuristic] = [],
         suggestionProvider: any SuggestionProvider = NoOpSuggestionProvider(),
         suggestionsEnabled: Bool = true,
@@ -245,7 +288,8 @@ public struct ClassificationEngine: Sendable {
         priorAcceptedMerchantNames: Set<String> = [],
         suggestionAutoAcceptThreshold: Double = 0.92
     ) {
-        self.explicitRules = explicitRules
+        self.explicitRules = orderedExplicitRules(explicitRules)
+        self.curatedReviewPrefills = orderedCuratedReviewPrefills(curatedReviewPrefills)
         self.heuristics = heuristics
         self.suggestionProvider = suggestionProvider
         self.suggestionsEnabled = suggestionsEnabled
@@ -257,6 +301,7 @@ public struct ClassificationEngine: Sendable {
     public func appendingExplicitRules(_ rules: [ClassificationRule]) -> ClassificationEngine {
         ClassificationEngine(
             explicitRules: orderedExplicitRules(rules) + explicitRules,
+            curatedReviewPrefills: curatedReviewPrefills,
             heuristics: heuristics,
             suggestionProvider: suggestionProvider,
             suggestionsEnabled: suggestionsEnabled,
@@ -269,6 +314,7 @@ public struct ClassificationEngine: Sendable {
     public func settingSuggestionsEnabled(_ enabled: Bool) -> ClassificationEngine {
         ClassificationEngine(
             explicitRules: explicitRules,
+            curatedReviewPrefills: curatedReviewPrefills,
             heuristics: heuristics,
             suggestionProvider: suggestionProvider,
             suggestionsEnabled: enabled,
@@ -281,6 +327,7 @@ public struct ClassificationEngine: Sendable {
     public func settingSeededHeuristicAutoAcceptEnabled(_ enabled: Bool) -> ClassificationEngine {
         ClassificationEngine(
             explicitRules: explicitRules,
+            curatedReviewPrefills: curatedReviewPrefills,
             heuristics: heuristics,
             suggestionProvider: suggestionProvider,
             suggestionsEnabled: suggestionsEnabled,
@@ -312,6 +359,16 @@ public struct ClassificationEngine: Sendable {
                 sourceReference: rule.id.uuidString,
                 confidence: 1.0,
                 reason: "Matched explicit merchant rule."
+            )
+        }
+
+        if let curatedReviewPrefill = curatedReviewPrefills.first(where: { $0.matches(candidate) }) {
+            return .reviewRequired(
+                prefill: curatedReviewPrefill.assignment,
+                source: .curatedPrefill,
+                sourceReference: curatedReviewPrefill.id,
+                confidence: nil,
+                reason: "Curated starter match requires review before acceptance."
             )
         }
 
@@ -369,7 +426,15 @@ public struct ClassificationEngine: Sendable {
 }
 
 private func orderedExplicitRules(_ rules: [ClassificationRule]) -> [ClassificationRule] {
-    rules.enumerated()
+    orderedMatchKindItems(rules)
+}
+
+private func orderedCuratedReviewPrefills(_ prefills: [CuratedReviewPrefill]) -> [CuratedReviewPrefill] {
+    orderedMatchKindItems(prefills)
+}
+
+private func orderedMatchKindItems<Item: MatchKindOrdered>(_ items: [Item]) -> [Item] {
+    items.enumerated()
         .sorted { lhs, rhs in
             let lhsPriority = lhs.element.matchPriority
             let rhsPriority = rhs.element.matchPriority
@@ -381,7 +446,11 @@ private func orderedExplicitRules(_ rules: [ClassificationRule]) -> [Classificat
         .map(\.element)
 }
 
-private extension ClassificationRule {
+private protocol MatchKindOrdered {
+    var matchKind: ClassificationRuleMatchKind { get }
+}
+
+private extension MatchKindOrdered {
     var matchPriority: Int {
         switch matchKind {
         case .exactNormalizedMerchant:
@@ -392,22 +461,23 @@ private extension ClassificationRule {
             2
         }
     }
+}
 
+private extension ClassificationRule {
     func matches(_ candidate: NormalizedImportCandidate) -> Bool {
-        let pattern = merchantPattern.normalizedClassificationPattern
-        guard !pattern.isEmpty else {
-            return false
-        }
+        candidate.normalizedMerchantName.matchesClassificationPattern(
+            merchantPattern,
+            matchKind: matchKind
+        )
+    }
+}
 
-        switch matchKind {
-        case .contains:
-            return candidate.normalizedMerchantName.contains(pattern)
-        case .exactNormalizedMerchant:
-            return candidate.normalizedMerchantName == pattern
-        case .prefixNormalizedMerchant:
-            return candidate.normalizedMerchantName == pattern
-                || candidate.normalizedMerchantName.hasPrefix(pattern + " ")
-        }
+private extension CuratedReviewPrefill {
+    func matches(_ candidate: NormalizedImportCandidate) -> Bool {
+        candidate.normalizedMerchantName.matchesClassificationPattern(
+            merchantPattern,
+            matchKind: matchKind
+        )
     }
 }
 
@@ -418,9 +488,35 @@ private extension ClassificationHeuristic {
     }
 }
 
+extension ClassificationRule: MatchKindOrdered {}
+extension CuratedReviewPrefill: MatchKindOrdered {}
+
 private extension String {
     var normalizedClassificationPattern: String {
         trimmingCharacters(in: .whitespacesAndNewlines)
             .lowercased()
+    }
+
+    func matchesClassificationPattern(
+        _ merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind
+    ) -> Bool {
+        let pattern = merchantPattern.normalizedClassificationPattern
+        guard !pattern.isEmpty else {
+            return false
+        }
+
+        switch matchKind {
+        case .contains:
+            return contains(pattern)
+        case .exactNormalizedMerchant:
+            return self == pattern
+        case .prefixNormalizedMerchant:
+            return self == pattern || hasPrefix(pattern + " ")
+        }
+    }
+
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

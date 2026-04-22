@@ -938,6 +938,172 @@ func stageCSVImportHonorsSeededHeuristicAutoAcceptPreference() throws {
 }
 
 @Test
+func stageCSVImportCarriesCuratedReviewPrefillForLive99PLEDGFamily() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store, classifier: SeededClassification.liveClassifier())
+    let csv = """
+    Date,Description,Amount
+    2026-04-02,99PLEDG*ONIR BAWEJA,-25.00
+    """
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-curated.csv",
+        csvText: csv
+    )
+
+    #expect(result.classifications.count == 1)
+    let classification = result.classifications[0]
+    let expectedRowHash = try WorkspaceService.rowHash(for: preview.sourceRows[0])
+    let expectedDecision = TransactionClassificationDecision.reviewRequired(
+        prefill: ClassificationAssignment(
+            categoryID: DefaultBudgetTaxonomy.CategoryID.donations,
+            merchantName: "99PLEDG"
+        ),
+        source: .curatedPrefill,
+        sourceReference: "starter.99pledg.family",
+        confidence: nil,
+        reason: "Curated starter match requires review before acceptance."
+    )
+    let stagedDraft = try #require(store.stagedImportDrafts.first)
+    let stagedRow = try #require(stagedDraft.rows.first)
+
+    #expect(classification.rowHash == expectedRowHash)
+    #expect(classification.sourceLineNumber == 2)
+    #expect(classification.decision.isAutoAccepted == false)
+    #expect(classification.decision == expectedDecision)
+    #expect(result.summary.importedRowCount == 1)
+    #expect(result.summary.pendingClassificationReviewRowCount == 1)
+    #expect(stagedDraft.rows.count == 1)
+    #expect(stagedRow.importDecision == .imported(reason: "New source row."))
+    #expect(stagedRow.classification == expectedDecision)
+}
+
+@Test
+func stageCSVImportAppliesHeuristicPreferenceWithoutChangingCuratedReviewPrefillBehavior() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let csv = """
+    Date,Description,Amount
+    2026-04-02,99PLEDG*ONIR BAWEJA,-25.00
+    2026-04-03,SQ *Coffee Shop,-4.75
+    """
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+    let aggressiveStore = MutableWorkspaceStore(accounts: [account])
+    aggressiveStore.preferences = WorkspacePreferences(
+        suggestionsEnabled: true,
+        seededHeuristicAutoAcceptEnabled: true
+    )
+    let aggressiveService = WorkspaceService(
+        store: aggressiveStore,
+        classifier: SeededClassification.liveClassifier()
+    )
+
+    let aggressiveResult = try aggressiveService.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-curated-aggressive.csv",
+        csvText: csv
+    )
+
+    let conservativeStore = MutableWorkspaceStore(accounts: [account])
+    conservativeStore.preferences = WorkspacePreferences(
+        suggestionsEnabled: true,
+        seededHeuristicAutoAcceptEnabled: false
+    )
+    let conservativeService = WorkspaceService(
+        store: conservativeStore,
+        classifier: SeededClassification.liveClassifier()
+    )
+
+    let conservativeResult = try conservativeService.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-curated-conservative.csv",
+        csvText: csv
+    )
+
+    let expectedDecision = TransactionClassificationDecision.reviewRequired(
+        prefill: ClassificationAssignment(
+            categoryID: DefaultBudgetTaxonomy.CategoryID.donations,
+            merchantName: "99PLEDG"
+        ),
+        source: .curatedPrefill,
+        sourceReference: "starter.99pledg.family",
+        confidence: nil,
+        reason: "Curated starter match requires review before acceptance."
+    )
+    let aggressiveHeuristicDecision = TransactionClassificationDecision.autoAccepted(
+        assignment: ClassificationAssignment(
+            categoryID: DefaultBudgetTaxonomy.CategoryID.coffeeShops,
+            merchantName: nil
+        ),
+        source: .heuristic,
+        sourceReference: nil,
+        confidence: 0.65,
+        reason: "Aggressive seeded heuristic matched."
+    )
+    let conservativeHeuristicDecision = TransactionClassificationDecision.reviewRequired(
+        prefill: ClassificationAssignment(
+            categoryID: DefaultBudgetTaxonomy.CategoryID.coffeeShops,
+            merchantName: nil
+        ),
+        source: .heuristic,
+        sourceReference: nil,
+        confidence: 0.65,
+        reason: "Deterministic heuristic requires review."
+    )
+    let aggressiveDraft = try #require(aggressiveStore.stagedImportDrafts.first)
+    let conservativeDraft = try #require(conservativeStore.stagedImportDrafts.first)
+
+    #expect(aggressiveResult.classifications.count == 2)
+    #expect(aggressiveResult.summary.importedRowCount == 2)
+    #expect(aggressiveResult.summary.pendingClassificationReviewRowCount == 1)
+    #expect(aggressiveDraft.rows.count == 2)
+    #expect(aggressiveDraft.rows.map(\.classification) == [
+        expectedDecision,
+        aggressiveHeuristicDecision,
+    ])
+    #expect(aggressiveDraft.rows.map(\.importDecision) == [
+        .imported(reason: "New source row."),
+        .imported(reason: "New source row."),
+    ])
+    #expect(aggressiveResult.classifications.map(\.decision) == [
+        expectedDecision,
+        aggressiveHeuristicDecision,
+    ])
+
+    #expect(conservativeResult.classifications.count == 2)
+    #expect(conservativeResult.summary.importedRowCount == 2)
+    #expect(conservativeResult.summary.pendingClassificationReviewRowCount == 2)
+    #expect(conservativeDraft.rows.count == 2)
+    #expect(conservativeDraft.rows.map(\.classification) == [
+        expectedDecision,
+        conservativeHeuristicDecision,
+    ])
+    #expect(conservativeDraft.rows.map(\.importDecision) == [
+        .imported(reason: "New source row."),
+        .imported(reason: "New source row."),
+    ])
+    #expect(conservativeResult.classifications.map(\.decision) == [
+        expectedDecision,
+        conservativeHeuristicDecision,
+    ])
+}
+
+@Test
 func stageCSVImportTreatsRenamedExactReimportAsNoOp() throws {
     let account = Account(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,

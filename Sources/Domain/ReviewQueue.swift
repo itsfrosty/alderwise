@@ -19,6 +19,7 @@ public enum ReviewDecisionAction: String, Codable, Equatable, Sendable {
     case changeCategory = "change_category"
     case renameMerchant = "rename_merchant"
     case createRule = "create_rule"
+    case autoResolvedByLearnedRuleBackfill = "auto_resolved_by_learned_rule_backfill"
 }
 
 public struct PendingReviewSourceFile: Equatable, Sendable {

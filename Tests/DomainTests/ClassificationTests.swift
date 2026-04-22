@@ -161,6 +161,208 @@ func heuristicCanAutoAcceptWhenAggressivePolicyIsEnabled() {
 }
 
 @Test
+func curatedReviewPrefillRequiresReviewWithStableSeedReference() {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let engine = ClassificationEngine(
+        curatedReviewPrefills: [
+            CuratedReviewPrefill(
+                id: "starter.coffee-family",
+                merchantPattern: "coffee",
+                assignment: ClassificationAssignment(
+                    categoryID: categoryID,
+                    merchantName: "Coffee Family"
+                ),
+                matchKind: .contains
+            ),
+        ]
+    )
+
+    let decision = engine.classify(candidate: coffeeCandidate())
+
+    #expect(decision == .reviewRequired(
+        prefill: ClassificationAssignment(
+            categoryID: categoryID,
+            merchantName: "Coffee Family"
+        ),
+        source: .curatedPrefill,
+        sourceReference: "starter.coffee-family",
+        confidence: nil,
+        reason: "Curated starter match requires review before acceptance."
+    ))
+}
+
+@Test
+func curatedReviewPrefillTakesPrecedenceOverHeuristicAndSuggestion() {
+    let curatedCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let heuristicCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let suggestedCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000333")!
+    let engine = ClassificationEngine(
+        curatedReviewPrefills: [
+            CuratedReviewPrefill(
+                id: "starter.coffee-family",
+                merchantPattern: "coffee",
+                assignment: ClassificationAssignment(
+                    categoryID: curatedCategoryID,
+                    merchantName: "Curated Coffee"
+                ),
+                matchKind: .contains
+            ),
+        ],
+        heuristics: [
+            ClassificationHeuristic(
+                merchantPattern: "coffee",
+                categoryID: heuristicCategoryID,
+                merchantName: "Heuristic Coffee"
+            ),
+        ],
+        suggestionProvider: FixedSuggestionProvider(
+            suggestion: ClassificationSuggestion(
+                assignment: ClassificationAssignment(
+                    categoryID: suggestedCategoryID,
+                    merchantName: "Suggested Coffee"
+                ),
+                confidence: 0.99,
+                sourceReference: "fixture"
+            )
+        ),
+        priorAcceptedMerchantNames: ["coffee shop"]
+    )
+
+    let decision = engine.classify(candidate: coffeeCandidate())
+
+    #expect(decision.assignment?.categoryID == curatedCategoryID)
+    #expect(decision.assignment?.merchantName == "Curated Coffee")
+    #expect(decision.source == .curatedPrefill)
+    #expect(decision.isAutoAccepted == false)
+}
+
+@Test
+func explicitRulesStillTakePrecedenceOverCuratedReviewPrefills() {
+    let explicitCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let curatedCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let ruleID = UUID(uuidString: "00000000-0000-0000-0000-000000000333")!
+    let engine = ClassificationEngine(
+        explicitRules: [
+            ClassificationRule(
+                id: ruleID,
+                merchantPattern: "coffee",
+                categoryID: explicitCategoryID,
+                merchantName: "Explicit Coffee"
+            ),
+        ],
+        curatedReviewPrefills: [
+            CuratedReviewPrefill(
+                id: "starter.coffee-family",
+                merchantPattern: "coffee",
+                assignment: ClassificationAssignment(
+                    categoryID: curatedCategoryID,
+                    merchantName: "Curated Coffee"
+                ),
+                matchKind: .contains
+            ),
+        ]
+    )
+
+    let decision = engine.classify(candidate: coffeeCandidate())
+
+    #expect(decision == .autoAccepted(
+        assignment: ClassificationAssignment(
+            categoryID: explicitCategoryID,
+            merchantName: "Explicit Coffee"
+        ),
+        source: .rule,
+        sourceReference: ruleID.uuidString,
+        confidence: 1.0,
+        reason: "Matched explicit merchant rule."
+    ))
+}
+
+@Test
+func curatedReviewPrefillsIgnoreSeededHeuristicAutoAcceptPreference() {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let engine = ClassificationEngine(
+        curatedReviewPrefills: [
+            CuratedReviewPrefill(
+                id: "starter.coffee-family",
+                merchantPattern: "coffee",
+                assignment: ClassificationAssignment(
+                    categoryID: categoryID,
+                    merchantName: "Curated Coffee"
+                ),
+                matchKind: .contains
+            ),
+        ],
+        seededHeuristicAutoAcceptEnabled: true
+    )
+
+    let decision = engine.classify(candidate: coffeeCandidate())
+
+    #expect(decision.isAutoAccepted == false)
+    #expect(decision.source == .curatedPrefill)
+    #expect(decision.reason == "Curated starter match requires review before acceptance.")
+}
+
+@Test
+func curatedReviewPrefillsUseExactThenPrefixThenContainsOrdering() {
+    let containsCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let prefixCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let exactCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000333")!
+    let engine = ClassificationEngine(
+        curatedReviewPrefills: [
+            CuratedReviewPrefill(
+                id: "starter.contains",
+                merchantPattern: "99pledg",
+                assignment: ClassificationAssignment(
+                    categoryID: containsCategoryID,
+                    merchantName: "Contains Match"
+                ),
+                matchKind: .contains
+            ),
+            CuratedReviewPrefill(
+                id: "starter.prefix",
+                merchantPattern: "99pledg",
+                assignment: ClassificationAssignment(
+                    categoryID: prefixCategoryID,
+                    merchantName: "Prefix Match"
+                ),
+                matchKind: .prefixNormalizedMerchant
+            ),
+            CuratedReviewPrefill(
+                id: "starter.exact",
+                merchantPattern: "99pledg onir baweja",
+                assignment: ClassificationAssignment(
+                    categoryID: exactCategoryID,
+                    merchantName: "Exact Match"
+                ),
+                matchKind: .exactNormalizedMerchant
+            ),
+        ]
+    )
+
+    let decision = engine.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "row-1",
+            sourceLineNumber: 2,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+            rawDescription: "99PLEDG*ONIR BAWEJA",
+            normalizedMerchantName: "99pledg onir baweja",
+            amount: Decimal(-25)
+        )
+    )
+
+    #expect(decision == .reviewRequired(
+        prefill: ClassificationAssignment(
+            categoryID: exactCategoryID,
+            merchantName: "Exact Match"
+        ),
+        source: .curatedPrefill,
+        sourceReference: "starter.exact",
+        confidence: nil,
+        reason: "Curated starter match requires review before acceptance."
+    ))
+}
+
+@Test
 func exactRulesMatchOnlyExactNormalizedMerchantNames() {
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let engine = ClassificationEngine(
@@ -266,6 +468,19 @@ func ordinaryMerchantsOnlyOfferExactLearning() {
         ReviewRuleLearningOption.defaultOption(forNormalizedMerchantName: "dishdash 408 7741889 ca")
             == .exactNormalizedMerchant(pattern: "dishdash 408 7741889 ca")
     )
+}
+
+@Test
+func learnedRuleFallbackPatternNormalizesWhitespaceOnlyInput() {
+    let exactRule = ReviewRuleLearningOption
+        .exactNormalizedMerchant(pattern: "   ")
+        .resolvingEmptyPattern(fallbackPattern: "Coffee Shop")
+    let prefixRule = ReviewRuleLearningOption
+        .prefixNormalizedMerchant(pattern: "   ")
+        .resolvingEmptyPattern(fallbackPattern: "99PLEDG Onir Baweja")
+
+    #expect(exactRule == .exactNormalizedMerchant(pattern: "coffee shop"))
+    #expect(prefixRule == .prefixNormalizedMerchant(pattern: "99pledg onir baweja"))
 }
 
 @Test
@@ -502,6 +717,33 @@ func seededClassifierMatchesRepresentativeSampleMerchants() {
         #expect(decision.isAutoAccepted == testCase.autoAccepted)
         #expect(decision.assignment?.categoryID == testCase.categoryID)
     }
+}
+
+@Test
+func seededClassifierRoutesRepresentativeCuratedPrefillThroughReview() {
+    let classifier = SeededClassification.liveClassifier()
+
+    let decision = classifier.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "starter-99pledg",
+            sourceLineNumber: 2,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+            rawDescription: "99PLEDG*ONIR BAWEJA",
+            normalizedMerchantName: MerchantNormalizer().normalize("99PLEDG*ONIR BAWEJA"),
+            amount: Decimal(-25)
+        )
+    )
+
+    #expect(decision == .reviewRequired(
+        prefill: ClassificationAssignment(
+            categoryID: DefaultBudgetTaxonomy.CategoryID.donations,
+            merchantName: "99PLEDG"
+        ),
+        source: .curatedPrefill,
+        sourceReference: "starter.99pledg.family",
+        confidence: nil,
+        reason: "Curated starter match requires review before acceptance."
+    ))
 }
 
 @Test

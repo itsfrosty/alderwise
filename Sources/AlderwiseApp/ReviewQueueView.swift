@@ -22,6 +22,8 @@ struct ReviewQueueView: View {
     }
 
     var body: some View {
+        let presentation = ReviewPresentation(categories: snapshot.categories)
+
         HSplitView {
             VStack(spacing: 0) {
                 if snapshot.pendingReviewItems.isEmpty {
@@ -34,7 +36,7 @@ struct ReviewQueueView: View {
                 } else {
                     List(selection: selectedIDBinding) {
                         ForEach(snapshot.pendingReviewItems) { item in
-                            ReviewQueueRow(item: item)
+                            ReviewQueueRow(item: item, presentation: presentation)
                                 .tag(item.id)
                         }
                     }
@@ -45,6 +47,7 @@ struct ReviewQueueView: View {
 
             ReviewQueueDetail(
                 item: selectedItem,
+                presentation: presentation,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
                 onApproveClassification: { item, assignment, ruleLearning in
@@ -128,6 +131,7 @@ struct ReviewQueueView: View {
 
 private struct ReviewQueueRow: View {
     let item: PendingReviewItem
+    let presentation: ReviewPresentation
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -158,18 +162,13 @@ private struct ReviewQueueRow: View {
     }
 
     private var subtitle: String {
-        [
-            item.sourceFile.originalFilename,
-            "Row \(item.sourceRow.sourceLineNumber)",
-            item.reason,
-        ]
-        .compactMap { $0 }
-        .joined(separator: " · ")
+        presentation.queueSubtitle(for: item)
     }
 }
 
 private struct ReviewQueueDetail: View {
     let item: PendingReviewItem?
+    let presentation: ReviewPresentation
     let categories: [BudgetCategory]
     let categoryGroups: [BudgetCategoryGroup]
     var onApproveClassification: (PendingReviewItem, ClassificationAssignment, ReviewRuleLearningOption?) -> Void
@@ -245,6 +244,11 @@ private struct ReviewQueueDetail: View {
                 categoryGroups: categoryGroups,
                 selection: $selectedCategoryID
             )
+            if let starterHint = presentation.starterHintCaption(for: item) {
+                Text(starterHint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Toggle("Learn this merchant rule", isOn: $createRule)
             if createRule, learningOptions.count > 1 {
                 Picker("Learn As", selection: $selectedRuleLearning) {
@@ -282,10 +286,8 @@ private struct ReviewQueueDetail: View {
         merchantName = item.classification?.prefill?.merchantName
             ?? item.classification?.normalizedMerchantName
             ?? ""
-        createRule = true
-        selectedRuleLearning = ReviewRuleLearningOption.defaultOption(
-            forNormalizedMerchantName: item.classification?.normalizedMerchantName ?? ""
-        )
+        createRule = presentation.initialCreateRuleValue(for: item)
+        selectedRuleLearning = presentation.initialRuleLearningSelection(for: item)
     }
 
     private func ruleLearningOptions(for item: PendingReviewItem) -> [ReviewRuleLearningOption] {
@@ -295,11 +297,10 @@ private struct ReviewQueueDetail: View {
     }
 
     private func resolvedRuleLearning(for item: PendingReviewItem) -> ReviewRuleLearningOption? {
-        selectedRuleLearning
-            ?? ReviewRuleLearningOption.defaultOption(
-                forNormalizedMerchantName: item.classification?.normalizedMerchantName ?? ""
-            )
-            ?? ruleLearningOptions(for: item).first
+        presentation.resolvedRuleLearningSelection(
+            for: item,
+            selectedRuleLearning: selectedRuleLearning
+        )
     }
 
     private func optionPickerLabel(_ option: ReviewRuleLearningOption) -> String {
