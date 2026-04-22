@@ -127,9 +127,20 @@ public enum SeededClassification {
         heuristic("market", DefaultBudgetTaxonomy.CategoryID.groceries),
     ]
 
+    public static let curatedReviewPrefills: [CuratedReviewPrefill] = [
+        curatedReviewPrefill(
+            id: "starter.99pledg.family",
+            merchantPattern: "99pledg",
+            categoryID: DefaultBudgetTaxonomy.CategoryID.donations,
+            merchantName: "99PLEDG",
+            matchKind: .prefixNormalizedMerchant
+        ),
+    ]
+
     public static func liveClassifier() -> ClassificationEngine {
         ClassificationEngine(
             explicitRules: deterministicRules,
+            curatedReviewPrefills: curatedReviewPrefills,
             heuristics: heuristics,
             seededHeuristicAutoAcceptEnabled: false
         )
@@ -157,6 +168,24 @@ public enum SeededClassification {
             merchantPattern: pattern,
             categoryID: categoryID,
             merchantName: merchantName
+        )
+    }
+
+    private static func curatedReviewPrefill(
+        id: String,
+        merchantPattern: String,
+        categoryID: UUID,
+        merchantName: String? = nil,
+        matchKind: ClassificationRuleMatchKind = .contains
+    ) -> CuratedReviewPrefill {
+        CuratedReviewPrefill(
+            id: id,
+            merchantPattern: merchantPattern,
+            assignment: ClassificationAssignment(
+                categoryID: categoryID,
+                merchantName: merchantName
+            ),
+            matchKind: matchKind
         )
     }
 }
