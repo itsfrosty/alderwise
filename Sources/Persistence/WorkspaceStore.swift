@@ -5,7 +5,7 @@ import GRDB
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetWriting, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -1241,24 +1241,22 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         }
     }
 
-    public func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
-        guard draft.monthlyLimit > 0 else {
-            throw WorkspaceStoreError.invalidMonthlyTargetLimit(draft.monthlyLimit)
+    public func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget] {
+        let interval = monthInterval(containing: referenceDate)
+        let paceRatio = monthElapsedRatio(referenceDate: referenceDate, interval: interval)
+        return try databaseQueue.read { db in
+            try managedTargetRows(db: db).map { row in
+                try managedMonthlyTarget(from: row, db: db, interval: interval, paceRatio: paceRatio)
+            }
         }
+    }
 
+    public func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
         let id = UUID()
-        let categoryID: UUID?
-        let categoryGroupID: UUID?
-        switch draft.scope {
-        case .category(let id):
-            categoryID = id
-            categoryGroupID = nil
-        case .categoryGroup(let id):
-            categoryID = nil
-            categoryGroupID = id
-        }
 
         try databaseQueue.write { db in
+            try validateMonthlyTargetDraft(draft, excluding: nil, db: db)
+            let persistedScope = persistedTargetScope(from: draft.scope)
             try db.execute(
                 sql: """
                 INSERT INTO targets (id, category_id, category_group_id, monthly_limit, created_at)
@@ -1266,8 +1264,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 """,
                 arguments: [
                     id.uuidString,
-                    categoryID?.uuidString,
-                    categoryGroupID?.uuidString,
+                    persistedScope.categoryID?.uuidString,
+                    persistedScope.categoryGroupID?.uuidString,
                     NSDecimalNumber(decimal: draft.monthlyLimit).doubleValue,
                     createdAt,
                 ]
@@ -1280,6 +1278,45 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             monthlyLimit: draft.monthlyLimit,
             createdAt: createdAt
         )
+    }
+
+    public func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget {
+        try databaseQueue.write { db in
+            let createdAt = try existingMonthlyTargetCreatedAt(id: id, db: db)
+            try validateMonthlyTargetDraft(draft, excluding: id, db: db)
+            let persistedScope = persistedTargetScope(from: draft.scope)
+            try db.execute(
+                sql: """
+                UPDATE targets
+                SET category_id = ?, category_group_id = ?, monthly_limit = ?
+                WHERE id = ?
+                """,
+                arguments: [
+                    persistedScope.categoryID?.uuidString,
+                    persistedScope.categoryGroupID?.uuidString,
+                    NSDecimalNumber(decimal: draft.monthlyLimit).doubleValue,
+                    id.uuidString,
+                ]
+            )
+            return MonthlyTarget(
+                id: id,
+                scope: draft.scope,
+                monthlyLimit: draft.monthlyLimit,
+                createdAt: createdAt
+            )
+        }
+    }
+
+    public func deleteMonthlyTarget(id: UUID) throws {
+        try databaseQueue.write { db in
+            guard try targetExists(id: id, db: db) else {
+                throw MonthlyTargetManagementError.targetNotFound(id)
+            }
+            try db.execute(
+                sql: "DELETE FROM targets WHERE id = ?",
+                arguments: [id.uuidString]
+            )
+        }
     }
 
     public func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
@@ -2346,6 +2383,237 @@ private func targetProgress(
     )
 }
 
+private struct PersistedTargetScope {
+    let categoryID: UUID?
+    let categoryGroupID: UUID?
+}
+
+private func managedTargetRows(db: Database) throws -> [Row] {
+    try Row.fetchAll(
+        db,
+        sql: """
+        SELECT
+            targets.id,
+            targets.category_id,
+            targets.category_group_id,
+            targets.monthly_limit,
+            targets.created_at,
+            categories.name AS category_name,
+            category_groups.name AS category_group_name
+        FROM targets
+        LEFT JOIN categories ON categories.id = targets.category_id
+        LEFT JOIN category_groups ON category_groups.id = targets.category_group_id
+        ORDER BY COALESCE(category_groups.name, categories.name) ASC, targets.id ASC
+        """
+    )
+}
+
+private func managedMonthlyTarget(
+    from row: Row,
+    db: Database,
+    interval: DateInterval,
+    paceRatio: Decimal
+) throws -> ManagedMonthlyTarget {
+    let progress = try targetProgress(from: row, db: db, interval: interval, paceRatio: paceRatio)
+    let createdAt: Date = row["created_at"]
+    return ManagedMonthlyTarget(
+        id: progress.id,
+        name: progress.name,
+        scope: progress.scope,
+        monthlyLimit: progress.monthlyLimit,
+        spent: progress.spent,
+        remaining: progress.remaining,
+        paceDelta: progress.paceDelta,
+        createdAt: createdAt
+    )
+}
+
+private func validateMonthlyTargetDraft(
+    _ draft: MonthlyTargetDraft,
+    excluding excludedID: UUID?,
+    db: Database
+) throws {
+    guard draft.monthlyLimit > 0 else {
+        throw MonthlyTargetManagementError.invalidLimit(draft.monthlyLimit)
+    }
+
+    let persistedScope = persistedTargetScope(from: draft.scope)
+    switch draft.scope {
+    case .category(let categoryID):
+        if try targetExists(
+            categoryID: categoryID,
+            excluding: excludedID,
+            db: db
+        ) {
+            throw MonthlyTargetManagementError.conflict(.duplicateScope(.category(categoryID)))
+        }
+
+        if let categoryGroupID = try categoryGroupID(for: categoryID, db: db),
+           try targetExists(
+               categoryGroupID: categoryGroupID,
+               excluding: excludedID,
+               db: db
+           ) {
+            throw MonthlyTargetManagementError.conflict(
+                .categoryGroupOverlap(categoryID: categoryID, categoryGroupID: categoryGroupID)
+            )
+        }
+
+    case .categoryGroup(let categoryGroupID):
+        if try targetExists(
+            categoryGroupID: categoryGroupID,
+            excluding: excludedID,
+            db: db
+        ) {
+            throw MonthlyTargetManagementError.conflict(.duplicateScope(.categoryGroup(categoryGroupID)))
+        }
+
+        // Scope edits are allowed as long as the resulting target does not overlap another target.
+        if let overlappingCategoryID = try overlappingCategoryTargetID(
+            in: categoryGroupID,
+            excluding: excludedID,
+            db: db
+        ) {
+            throw MonthlyTargetManagementError.conflict(
+                .categoryGroupOverlap(categoryID: overlappingCategoryID, categoryGroupID: categoryGroupID)
+            )
+        }
+    }
+
+    if persistedScope.categoryID == nil && persistedScope.categoryGroupID == nil {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.scope", value: "NULL")
+    }
+}
+
+private func persistedTargetScope(from scope: TargetScope) -> PersistedTargetScope {
+    switch scope {
+    case .category(let categoryID):
+        PersistedTargetScope(categoryID: categoryID, categoryGroupID: nil)
+    case .categoryGroup(let categoryGroupID):
+        PersistedTargetScope(categoryID: nil, categoryGroupID: categoryGroupID)
+    }
+}
+
+private func existingMonthlyTargetCreatedAt(id: UUID, db: Database) throws -> Date {
+    guard let createdAt = try Date.fetchOne(
+        db,
+        sql: "SELECT created_at FROM targets WHERE id = ?",
+        arguments: [id.uuidString]
+    ) else {
+        throw MonthlyTargetManagementError.targetNotFound(id)
+    }
+    return createdAt
+}
+
+private func targetExists(id: UUID, db: Database) throws -> Bool {
+    try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM targets WHERE id = ?)",
+        arguments: [id.uuidString]
+    ) ?? false
+}
+
+private func targetExists(
+    categoryID: UUID,
+    excluding excludedID: UUID?,
+    db: Database
+) throws -> Bool {
+    var arguments: StatementArguments = [categoryID.uuidString]
+    var exclusionClause = ""
+    if let excludedID {
+        exclusionClause = " AND id != ?"
+        appendArgument(excludedID.uuidString, to: &arguments)
+    }
+
+    return try Bool.fetchOne(
+        db,
+        sql: """
+        SELECT EXISTS(
+            SELECT 1
+            FROM targets
+            WHERE category_id = ?\(exclusionClause)
+        )
+        """,
+        arguments: arguments
+    ) ?? false
+}
+
+private func targetExists(
+    categoryGroupID: UUID,
+    excluding excludedID: UUID?,
+    db: Database
+) throws -> Bool {
+    var arguments: StatementArguments = [categoryGroupID.uuidString]
+    var exclusionClause = ""
+    if let excludedID {
+        exclusionClause = " AND id != ?"
+        appendArgument(excludedID.uuidString, to: &arguments)
+    }
+
+    return try Bool.fetchOne(
+        db,
+        sql: """
+        SELECT EXISTS(
+            SELECT 1
+            FROM targets
+            WHERE category_group_id = ?\(exclusionClause)
+        )
+        """,
+        arguments: arguments
+    ) ?? false
+}
+
+private func categoryGroupID(for categoryID: UUID, db: Database) throws -> UUID? {
+    guard let categoryGroupIDText = try String.fetchOne(
+        db,
+        sql: "SELECT category_group_id FROM categories WHERE id = ?",
+        arguments: [categoryID.uuidString]
+    ) else {
+        return nil
+    }
+
+    guard let categoryGroupID = UUID(uuidString: categoryGroupIDText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(
+            field: "categories.category_group_id",
+            value: categoryGroupIDText
+        )
+    }
+    return categoryGroupID
+}
+
+private func overlappingCategoryTargetID(
+    in categoryGroupID: UUID,
+    excluding excludedID: UUID?,
+    db: Database
+) throws -> UUID? {
+    var arguments: StatementArguments = [categoryGroupID.uuidString]
+    var exclusionClause = ""
+    if let excludedID {
+        exclusionClause = " AND targets.id != ?"
+        appendArgument(excludedID.uuidString, to: &arguments)
+    }
+
+    guard let categoryIDText = try String.fetchOne(
+        db,
+        sql: """
+        SELECT targets.category_id
+        FROM targets
+        JOIN categories ON categories.id = targets.category_id
+        WHERE categories.category_group_id = ?\(exclusionClause)
+        ORDER BY categories.name ASC, targets.id ASC
+        LIMIT 1
+        """,
+        arguments: arguments
+    ) else {
+        return nil
+    }
+
+    guard let categoryID = UUID(uuidString: categoryIDText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.category_id", value: categoryIDText)
+    }
+    return categoryID
+}
+
 private func backfillLedgerTransactionsForLegacyStagedImports(db: Database) throws {
     guard
         try db.tableExists("source_rows"),
@@ -2701,7 +2969,6 @@ private enum WorkspaceStoreError: Error {
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
     case invalidStoredReviewItem(field: String, value: String)
-    case invalidMonthlyTargetLimit(Decimal)
     case reviewItemNotFound(UUID)
     case reviewItemNotPending(UUID)
     case transactionNotFound(UUID)
@@ -2710,12 +2977,7 @@ private enum WorkspaceStoreError: Error {
 
 extension WorkspaceStoreError: LocalizedError {
     var errorDescription: String? {
-        switch self {
-        case .invalidMonthlyTargetLimit:
-            "Monthly targets must be greater than zero."
-        default:
-            nil
-        }
+        nil
     }
 }
 

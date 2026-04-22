@@ -60,9 +60,17 @@ public protocol ReportingReading: Sendable {
     func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport
 }
 
+public protocol TargetManagementReading: Sendable {
+    func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget]
+}
+
 public protocol TargetWriting: Sendable {
     func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget
+    func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget
+    func deleteMonthlyTarget(id: UUID) throws
 }
+
+public typealias TargetManaging = TargetManagementReading & TargetWriting
 
 public protocol TransactionLedgerWriting: Sendable {
     func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws

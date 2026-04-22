@@ -8,7 +8,8 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case importPreviewCouldNotNormalizeRow(line: Int)
     case transactionLedgerUnavailable
     case reviewQueueUnavailable
-    case targetWritingUnavailable
+    case monthlyTargetConflict(MonthlyTargetConflict)
+    case targetManagementUnavailable
     case workspaceMaintenanceUnavailable
 }
 
@@ -25,7 +26,14 @@ extension WorkspaceServiceError: LocalizedError {
             "The transaction ledger is unavailable for this workspace."
         case .reviewQueueUnavailable:
             "The review queue is unavailable for this workspace."
-        case .targetWritingUnavailable:
+        case .monthlyTargetConflict(let conflict):
+            switch conflict {
+            case .duplicateScope:
+                "A monthly target already exists for that scope."
+            case .categoryGroupOverlap:
+                "A monthly target cannot overlap a category group and one of its member categories."
+            }
+        case .targetManagementUnavailable:
             "Monthly targets are unavailable for this workspace."
         case .workspaceMaintenanceUnavailable:
             "Workspace maintenance is unavailable for this workspace."
@@ -129,15 +137,37 @@ public struct WorkspaceService: Sendable {
         )
     }
 
+    public func fetchManagedTargets(referenceDate: Date = Date()) throws -> [ManagedMonthlyTarget] {
+        try targetManager().fetchManagedTargets(referenceDate: referenceDate)
+    }
+
     @discardableResult
     public func createMonthlyTarget(
         _ draft: MonthlyTargetDraft,
         createdAt: Date = Date()
     ) throws -> MonthlyTarget {
-        guard let writer = store as? any TargetWriting else {
-            throw WorkspaceServiceError.targetWritingUnavailable
+        do {
+            return try targetManager().createMonthlyTarget(draft, createdAt: createdAt)
+        } catch MonthlyTargetManagementError.conflict(let conflict) {
+            throw WorkspaceServiceError.monthlyTargetConflict(conflict)
         }
-        return try writer.createMonthlyTarget(draft, createdAt: createdAt)
+    }
+
+    @discardableResult
+    public func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget {
+        do {
+            return try targetManager().updateMonthlyTarget(id: id, draft)
+        } catch MonthlyTargetManagementError.conflict(let conflict) {
+            throw WorkspaceServiceError.monthlyTargetConflict(conflict)
+        }
+    }
+
+    public func deleteMonthlyTarget(id: UUID) throws {
+        do {
+            try targetManager().deleteMonthlyTarget(id: id)
+        } catch MonthlyTargetManagementError.conflict(let conflict) {
+            throw WorkspaceServiceError.monthlyTargetConflict(conflict)
+        }
     }
 
     public func loadWorkspaceMetadata() throws -> WorkspaceMetadata {
@@ -396,6 +426,13 @@ public struct WorkspaceService: Sendable {
             throw WorkspaceServiceError.transactionLedgerUnavailable
         }
         return reader
+    }
+
+    private func targetManager() throws -> any TargetManaging {
+        guard let manager = store as? any TargetManaging else {
+            throw WorkspaceServiceError.targetManagementUnavailable
+        }
+        return manager
     }
 
     private func workspaceMaintenanceManager() throws -> any WorkspaceMaintenanceManaging {

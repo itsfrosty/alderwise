@@ -267,6 +267,24 @@ func workspacePreferencesUpgradeExistingWorkspaceWithoutSeededHeuristicAutoAccep
 }
 
 @Test
+func bootstrapKeepsLegacyTargetsDisjointAfterDefaultTaxonomySeeding() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    try insertLegacyDisjointTargetsForBootstrapRegression(databaseURL: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    let managedTargets = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+
+    #expect(managedTargets.map(\.name) == ["Financial", "Groceries"])
+    #expect(managedTargets.map(\.scope) == [
+        .categoryGroup(DefaultBudgetTaxonomy.CategoryGroupID.financial),
+        .category(DefaultBudgetTaxonomy.CategoryID.groceries),
+    ])
+}
+
+@Test
 func workspacePreferencesRoundTripThroughSQLite() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -1796,7 +1814,29 @@ private func createWorkspaceAfterWorkspacePreferencesMigration(at databaseURL: U
         try db.execute(sql: "CREATE TABLE source_files (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, original_filename TEXT NOT NULL, content_hash TEXT NOT NULL, imported_at DATETIME NOT NULL, row_count INTEGER NOT NULL)")
         try db.execute(sql: "CREATE TABLE source_rows (id INTEGER PRIMARY KEY AUTOINCREMENT, source_file_id INTEGER NOT NULL, row_hash TEXT NOT NULL, raw_payload TEXT NOT NULL, source_line_number INTEGER NOT NULL DEFAULT 0, validation_status TEXT NOT NULL DEFAULT 'valid', import_decision_kind TEXT NOT NULL DEFAULT 'imported', decision_reason TEXT NOT NULL DEFAULT 'New source row.', duplicate_transaction_id TEXT)")
         try db.execute(sql: "CREATE TABLE import_sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, account_id TEXT NOT NULL, source_file_id INTEGER, mapping_json TEXT NOT NULL, valid_row_count INTEGER NOT NULL, invalid_row_count INTEGER NOT NULL, status TEXT NOT NULL, created_at DATETIME NOT NULL)")
-        try db.execute(sql: "CREATE TABLE transactions (id TEXT PRIMARY KEY, category_id TEXT)")
+        try db.execute(
+            sql: """
+            CREATE TABLE transactions (
+                id TEXT PRIMARY KEY,
+                account_id TEXT,
+                import_session_id INTEGER,
+                merchant_id TEXT,
+                category_id TEXT,
+                raw_description TEXT NOT NULL DEFAULT '',
+                normalized_merchant_name TEXT,
+                amount DOUBLE NOT NULL DEFAULT 0,
+                transaction_date DATE NOT NULL DEFAULT CURRENT_DATE,
+                posted_date DATE,
+                direction TEXT NOT NULL DEFAULT 'expense',
+                decision_source TEXT NOT NULL DEFAULT 'user',
+                decision_source_reference TEXT,
+                confidence DOUBLE,
+                review_status TEXT NOT NULL DEFAULT 'accepted',
+                duplicate_status TEXT NOT NULL DEFAULT 'none',
+                notes TEXT
+            )
+            """
+        )
         try db.execute(sql: "CREATE TABLE review_items (id TEXT PRIMARY KEY, transaction_id TEXT, source_row_id INTEGER, duplicate_transaction_id TEXT, type TEXT NOT NULL, status TEXT NOT NULL, reason TEXT, normalized_merchant_name TEXT, suggested_category_id TEXT, suggested_merchant_name TEXT, classification_source TEXT, classification_source_reference TEXT, classification_confidence DOUBLE, created_at DATETIME NOT NULL)")
         try db.execute(sql: "CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, category_group_id TEXT)")
         try db.execute(sql: "CREATE TABLE category_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
@@ -1808,6 +1848,46 @@ private func createWorkspaceAfterWorkspacePreferencesMigration(at databaseURL: U
         try db.execute(
             sql: "INSERT INTO workspace_preferences (key, value) VALUES (?, ?)",
             arguments: ["suggestions_enabled", "true"]
+        )
+    }
+}
+
+private func insertLegacyDisjointTargetsForBootstrapRegression(databaseURL: URL) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: "INSERT INTO category_groups (id, name) VALUES (?, ?)",
+            arguments: [
+                DefaultBudgetTaxonomy.CategoryGroupID.financial.uuidString,
+                "Financial",
+            ]
+        )
+        try db.execute(
+            sql: "INSERT INTO categories (id, name, kind, category_group_id) VALUES (?, ?, ?, ?)",
+            arguments: [
+                DefaultBudgetTaxonomy.CategoryID.groceries.uuidString,
+                "Groceries",
+                "expense",
+                nil as String?,
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO targets (id, category_id, category_group_id, monthly_limit, created_at)
+            VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                UUID(uuidString: "00000000-0000-0000-0000-000000009001")!.uuidString,
+                DefaultBudgetTaxonomy.CategoryID.groceries.uuidString,
+                nil as String?,
+                125.0,
+                Date(timeIntervalSince1970: 1_775_171_200),
+                UUID(uuidString: "00000000-0000-0000-0000-000000009002")!.uuidString,
+                nil as String?,
+                DefaultBudgetTaxonomy.CategoryGroupID.financial.uuidString,
+                250.0,
+                Date(timeIntervalSince1970: 1_775_171_201),
+            ]
         )
     }
 }

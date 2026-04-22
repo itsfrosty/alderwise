@@ -80,7 +80,7 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, TargetWriting, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var categories: [BudgetCategory] = []
@@ -92,7 +92,10 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     var classificationRules: [ClassificationRule] = []
     var createdTargets: [MonthlyTarget] = []
     var monthlyReport = MonthlyReport.empty
+    var managedTargets: [ManagedMonthlyTarget] = []
     var preferences = WorkspacePreferences()
+    var createMonthlyTargetError: (any Error)?
+    var updateMonthlyTargetError: (any Error)?
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -200,10 +203,29 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
         self.preferences = preferences
     }
 
+    func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget] {
+        managedTargets
+    }
+
     func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
+        if let createMonthlyTargetError {
+            throw createMonthlyTargetError
+        }
         let target = MonthlyTarget(id: UUID(), scope: draft.scope, monthlyLimit: draft.monthlyLimit, createdAt: createdAt)
         createdTargets.append(target)
         summary.targetCount = createdTargets.count
+        managedTargets.append(
+            ManagedMonthlyTarget(
+                id: target.id,
+                name: "Groceries",
+                scope: target.scope,
+                monthlyLimit: target.monthlyLimit,
+                spent: Decimal(40),
+                remaining: target.monthlyLimit - Decimal(40),
+                paceDelta: Decimal(0),
+                createdAt: createdAt
+            )
+        )
         monthlyReport.targets.append(
             TargetProgress(
                 id: target.id,
@@ -216,6 +238,44 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
             )
         )
         return target
+    }
+
+    func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget {
+        if let updateMonthlyTargetError {
+            throw updateMonthlyTargetError
+        }
+
+        let existingIndex = try #require(createdTargets.firstIndex { $0.id == id })
+        let existingTarget = createdTargets[existingIndex]
+        let updatedTarget = MonthlyTarget(
+            id: id,
+            scope: draft.scope,
+            monthlyLimit: draft.monthlyLimit,
+            createdAt: existingTarget.createdAt
+        )
+        createdTargets[existingIndex] = updatedTarget
+
+        if let managedIndex = managedTargets.firstIndex(where: { $0.id == id }) {
+            managedTargets[managedIndex] = ManagedMonthlyTarget(
+                id: id,
+                name: "Groceries",
+                scope: draft.scope,
+                monthlyLimit: draft.monthlyLimit,
+                spent: Decimal(40),
+                remaining: draft.monthlyLimit - Decimal(40),
+                paceDelta: Decimal(0),
+                createdAt: existingTarget.createdAt
+            )
+        }
+
+        return updatedTarget
+    }
+
+    func deleteMonthlyTarget(id: UUID) throws {
+        createdTargets.removeAll { $0.id == id }
+        managedTargets.removeAll { $0.id == id }
+        monthlyReport.targets.removeAll { $0.id == id }
+        summary.targetCount = createdTargets.count
     }
 
     func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {
@@ -313,6 +373,43 @@ func createMonthlyTargetReturnsTargetAndReloadsSnapshot() throws {
     #expect(snapshot.summary.targetCount == 1)
     #expect(snapshot.monthlyReport.targets.map(\.id) == [target.id])
     #expect(snapshot.monthlyReport.targets.map(\.remaining) == [Decimal(85)])
+}
+
+@Test
+func createMonthlyTargetSurfacesTypedConflictErrors() throws {
+    let store = MutableWorkspaceStore()
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000911")!
+    store.createMonthlyTargetError = MonthlyTargetManagementError.conflict(.duplicateScope(.category(categoryID)))
+    let service = WorkspaceService(store: store)
+
+    #expect(throws: WorkspaceServiceError.monthlyTargetConflict(.duplicateScope(.category(categoryID)))) {
+        try service.createMonthlyTarget(
+            MonthlyTargetDraft(scope: .category(categoryID), monthlyLimit: Decimal(125)),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+        )
+    }
+}
+
+@Test
+func updateMonthlyTargetSurfacesTypedConflictErrors() throws {
+    let store = MutableWorkspaceStore()
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000912")!
+    let groupID = UUID(uuidString: "00000000-0000-0000-0000-000000000913")!
+    store.updateMonthlyTargetError = MonthlyTargetManagementError.conflict(
+        .categoryGroupOverlap(categoryID: categoryID, categoryGroupID: groupID)
+    )
+    let service = WorkspaceService(store: store)
+
+    #expect(
+        throws: WorkspaceServiceError.monthlyTargetConflict(
+            .categoryGroupOverlap(categoryID: categoryID, categoryGroupID: groupID)
+        )
+    ) {
+        try service.updateMonthlyTarget(
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000000914")!,
+            MonthlyTargetDraft(scope: .categoryGroup(groupID), monthlyLimit: Decimal(250))
+        )
+    }
 }
 
 @Test
