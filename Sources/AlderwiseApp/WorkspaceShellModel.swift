@@ -232,10 +232,16 @@ final class WorkspaceShellModel: ObservableObject {
 
         do {
             try service.updateTransactionLedgerFields(id: selectedTransactionID, draft: draft)
+        } catch {
+            transactionDetailErrorMessage = error.localizedDescription
+            return false
+        }
+
+        do {
             try loadWorkspaceState()
             return true
         } catch {
-            transactionDetailErrorMessage = error.localizedDescription
+            applyFailedWorkspaceState(message: error.localizedDescription)
             return false
         }
     }

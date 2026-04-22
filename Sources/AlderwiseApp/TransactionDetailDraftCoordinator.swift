@@ -22,6 +22,7 @@ struct TransactionDetailDraftCoordinator {
     private var savedDraft: TransactionLedgerEditDraft?
     private(set) var pendingSelection: PendingSelectionChange = .none
     private(set) var isSelectionChangePromptPresented = false
+    private var shouldPreservePendingSelectionOnDismissal = false
 
     init(selectionID: UUID? = nil, detail: TransactionDetail? = nil) {
         load(selectionID: selectionID, detail: detail)
@@ -42,6 +43,7 @@ struct TransactionDetailDraftCoordinator {
         savedDraft = draft
         pendingSelection = .none
         isSelectionChangePromptPresented = false
+        shouldPreservePendingSelectionOnDismissal = false
     }
 
     mutating func updateDraft(_ draft: TransactionLedgerEditDraft?) {
@@ -57,11 +59,13 @@ struct TransactionDetailDraftCoordinator {
         guard isDirty else {
             pendingSelection = .none
             isSelectionChangePromptPresented = false
+            shouldPreservePendingSelectionOnDismissal = false
             return .proceed
         }
 
         pendingSelection = .selection(proposedSelectionID)
         isSelectionChangePromptPresented = true
+        shouldPreservePendingSelectionOnDismissal = false
         return .promptToSaveDiscardOrCancel
     }
 
@@ -78,6 +82,7 @@ struct TransactionDetailDraftCoordinator {
 
         pendingSelection = .selection(selectionID)
         isSelectionChangePromptPresented = true
+        shouldPreservePendingSelectionOnDismissal = false
         return .preserveCurrentDraftAndPrompt
     }
 
@@ -86,16 +91,19 @@ struct TransactionDetailDraftCoordinator {
         let pendingSelection = pendingSelection
         self.pendingSelection = .none
         isSelectionChangePromptPresented = false
+        shouldPreservePendingSelectionOnDismissal = false
         return pendingSelection
     }
 
     mutating func cancelPendingSelectionChange() {
         pendingSelection = .none
         isSelectionChangePromptPresented = false
+        shouldPreservePendingSelectionOnDismissal = false
     }
 
     mutating func completeSave(didSucceed: Bool) -> PendingSelectionChange {
         guard didSucceed else {
+            shouldPreservePendingSelectionOnDismissal = true
             return .none
         }
 
@@ -103,11 +111,20 @@ struct TransactionDetailDraftCoordinator {
         let pendingSelection = pendingSelection
         self.pendingSelection = .none
         isSelectionChangePromptPresented = false
+        shouldPreservePendingSelectionOnDismissal = false
         return pendingSelection
     }
 
     mutating func dismissSelectionChangePrompt() {
+        if shouldPreservePendingSelectionOnDismissal {
+            isSelectionChangePromptPresented = false
+            shouldPreservePendingSelectionOnDismissal = false
+            return
+        }
+
+        pendingSelection = .none
         isSelectionChangePromptPresented = false
+        shouldPreservePendingSelectionOnDismissal = false
     }
 
     static func makeDraft(from detail: TransactionDetail) -> TransactionLedgerEditDraft {

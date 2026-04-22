@@ -8,8 +8,7 @@ import Testing
 @Test
 @MainActor
 func failedTransactionSaveDoesNotClearSelectionOrState() {
-    let currentID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
-    let store = SaveFailureWorkspaceStore()
+    let store = WorkspaceShellModelFailureStore(behavior: .writeFails)
     let service = WorkspaceService(store: store)
     let model = WorkspaceShellModel(store: nil, service: service)
     let draft = TransactionLedgerEditDraft(
@@ -18,13 +17,13 @@ func failedTransactionSaveDoesNotClearSelectionOrState() {
         notes: "Edited notes"
     )
 
-    model.selectedTransactionID = currentID
+    let currentID = model.selectedTransactionID!
 
     let didSave = model.updateSelectedTransaction(draft: draft)
 
     #expect(didSave == false)
     #expect(model.selectedTransactionID == currentID)
-    #expect(model.transactionDetailErrorMessage == SaveFailureWorkspaceStore.updateError.localizedDescription)
+    #expect(model.transactionDetailErrorMessage == WorkspaceShellModelFailureStore.updateError.localizedDescription)
     #expect({
         if case .loaded = model.state {
             return true
@@ -33,11 +32,56 @@ func failedTransactionSaveDoesNotClearSelectionOrState() {
     }())
 }
 
-private struct SaveFailureWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging, TransactionLedgerWriting {
+@Test
+@MainActor
+func successfulTransactionSaveFallsBackToWorkspaceFailureWhenReloadFails() {
+    let store = WorkspaceShellModelFailureStore(behavior: .reloadFailsAfterWrite)
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(store: nil, service: service)
+    let draft = TransactionLedgerEditDraft(
+        merchantName: "Updated Merchant",
+        categoryID: nil,
+        notes: "Edited notes"
+    )
+
+    let didSave = model.updateSelectedTransaction(draft: draft)
+
+    #expect(didSave == false)
+    #expect(model.selectedTransactionID == nil)
+    #expect(model.selectedTransactionDetail == nil)
+    #expect(model.transactionDetailErrorMessage == nil)
+    #expect(model.workspaceStatus == .failedToOpen(WorkspaceShellModelFailureStore.reloadError.localizedDescription))
+    #expect({
+        if case .failed = model.state {
+            return true
+        }
+        return false
+    }())
+}
+
+private final class WorkspaceShellModelFailureStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging, TransactionLedgerReading, TransactionLedgerWriting {
+    enum Behavior {
+        case writeFails
+        case reloadFailsAfterWrite
+    }
+
     static let updateError = SaveFailureError()
+    static let reloadError = ReloadFailureError()
+
+    private let behavior: Behavior
+    private var didWriteTransaction = false
+    private let transactionID = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+
+    init(behavior: Behavior) {
+        self.behavior = behavior
+    }
 
     func fetchSummary() throws -> WorkspaceSummary {
-        .empty
+        if behavior == .reloadFailsAfterWrite, didWriteTransaction {
+            throw Self.reloadError
+        }
+
+        return .empty
     }
 
     func fetchAccounts() throws -> [Account] {
@@ -151,12 +195,68 @@ private struct SaveFailureWorkspaceStore: WorkspaceStoring, StagedImportWriting,
     func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {}
 
     func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws {
-        throw SaveFailureError()
+        switch behavior {
+        case .writeFails:
+            throw Self.updateError
+        case .reloadFailsAfterWrite:
+            didWriteTransaction = true
+        }
+    }
+
+    func fetchTransactionLedger(filter: TransactionLedgerFilter) throws -> [TransactionLedgerRow] {
+        [makeRow()]
+    }
+
+    func fetchTransactionDetail(id: UUID) throws -> TransactionDetail? {
+        guard id == transactionID else {
+            return nil
+        }
+
+        return makeDetail()
+    }
+
+    func fetchTransactionImportOrigins() throws -> [TransactionImportOrigin] {
+        []
+    }
+
+    private func makeRow() -> TransactionLedgerRow {
+        TransactionLedgerRow(
+            id: transactionID,
+            accountID: UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!,
+            accountName: "Checking",
+            categoryID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!,
+            categoryName: "Dining",
+            rawDescription: "Memo",
+            merchantName: "Merchant",
+            amount: Decimal(-10),
+            transactionDate: Date(timeIntervalSince1970: 0),
+            postedDate: nil,
+            direction: .expense,
+            reviewStatus: .accepted,
+            importOrigin: nil
+        )
+    }
+
+    private func makeDetail() -> TransactionDetail {
+        TransactionDetail(
+            row: makeRow(),
+            notes: "Original notes",
+            decisionSource: nil,
+            decisionSourceReference: nil,
+            confidence: nil,
+            duplicateStatus: "unique"
+        )
     }
 }
 
 private struct SaveFailureError: LocalizedError {
     var errorDescription: String? {
         "Transaction save failed."
+    }
+}
+
+private struct ReloadFailureError: LocalizedError {
+    var errorDescription: String? {
+        "Transaction reload failed."
     }
 }
