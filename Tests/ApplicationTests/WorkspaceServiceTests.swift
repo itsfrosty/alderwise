@@ -3,10 +3,11 @@ import Domain
 import Foundation
 import Testing
 
-private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading {
+private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, LearnedRuleReading {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var pendingReviewItems: [PendingReviewItem] = []
+    var learnedRuleSummaries: [LearnedRuleSummary] = []
 
     func fetchSummary() throws -> WorkspaceSummary {
         summary
@@ -42,6 +43,29 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
 
     func fetchPendingReviewItems() throws -> [PendingReviewItem] {
         pendingReviewItems
+    }
+
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
+        learnedRuleSummaries
+    }
+
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
+        learnedRuleSummaries.first { $0.id == id }
+    }
+
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
+        guard let summary = learnedRuleSummaries.first(where: { $0.id == id }) else {
+            return nil
+        }
+        return ManagedLearnedRule(
+            id: summary.id,
+            merchantPattern: summary.merchantPattern,
+            categoryID: summary.categoryID,
+            merchantName: summary.merchantName,
+            matchKind: summary.matchKind,
+            createdAt: summary.createdAt,
+            lifecycle: summary.lifecycle
+        )
     }
 
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
@@ -125,12 +149,14 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ClassificationRuleReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var categories: [BudgetCategory] = []
     var categoryGroups: [BudgetCategoryGroup] = []
     var pendingReviewItems: [PendingReviewItem] = []
+    var transactionDetailsByID: [UUID: TransactionDetail] = [:]
+    var learnedRuleSummaries: [LearnedRuleSummary] = []
     var stagedImportDrafts: [StagedImportSessionDraft] = []
     var likelyDuplicateCandidates: [LikelyDuplicateCandidate] = []
     var existingSourceRowHashes: Set<String> = []
@@ -143,6 +169,8 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     var updateMonthlyTargetError: (any Error)?
     var deleteMonthlyTargetError: (any Error)?
     var deleteAccountPermanentlyError: (any Error)?
+    var nextCreatedLearnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
+    var lastApprovedClassificationRequest: ApprovedClassificationRequest?
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -190,6 +218,54 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
 
     func fetchPendingReviewItems() throws -> [PendingReviewItem] {
         pendingReviewItems
+    }
+
+    func keepBothForLikelyDuplicateReviewItem(id: UUID, resolvedAt: Date) throws -> ReviewDecisionEvent {
+        ReviewDecisionEvent(
+            id: UUID(),
+            reviewItemID: id,
+            sourceRowID: 1,
+            action: .keepBoth,
+            details: "Kept both.",
+            createdAt: resolvedAt
+        )
+    }
+
+    func approveClassificationReviewItem(
+        id: UUID,
+        assignment: ClassificationAssignment,
+        ruleLearning: ReviewRuleLearningOption?,
+        resolvedAt: Date
+    ) throws -> ReviewDecisionEvent {
+        lastApprovedClassificationRequest = ApprovedClassificationRequest(
+            id: id,
+            assignment: assignment,
+            ruleLearning: ruleLearning,
+            resolvedAt: resolvedAt
+        )
+
+        if let ruleLearning {
+            learnedRuleSummaries.append(
+                LearnedRuleSummary(
+                    id: nextCreatedLearnedRuleID,
+                    merchantPattern: ruleLearning.pattern,
+                    categoryID: assignment.categoryID,
+                    merchantName: assignment.merchantName,
+                    matchKind: ruleLearning.matchKind,
+                    createdAt: resolvedAt,
+                    lifecycle: .active
+                )
+            )
+        }
+
+        return ReviewDecisionEvent(
+            id: UUID(),
+            reviewItemID: id,
+            sourceRowID: 1,
+            action: .approveSuggestion,
+            details: "Approved.",
+            createdAt: resolvedAt
+        )
     }
 
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
@@ -293,6 +369,41 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
 
     func fetchClassificationRules() throws -> [ClassificationRule] {
         classificationRules
+    }
+
+    func fetchTransactionLedger(filter: TransactionLedgerFilter) throws -> [TransactionLedgerRow] {
+        transactionDetailsByID.values.map(\.row)
+    }
+
+    func fetchTransactionDetail(id: UUID) throws -> TransactionDetail? {
+        transactionDetailsByID[id]
+    }
+
+    func fetchTransactionImportOrigins() throws -> [TransactionImportOrigin] {
+        []
+    }
+
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
+        learnedRuleSummaries
+    }
+
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
+        learnedRuleSummaries.first { $0.id == id }
+    }
+
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
+        guard let summary = learnedRuleSummaries.first(where: { $0.id == id }) else {
+            return nil
+        }
+        return ManagedLearnedRule(
+            id: summary.id,
+            merchantPattern: summary.merchantPattern,
+            categoryID: summary.categoryID,
+            merchantName: summary.merchantName,
+            matchKind: summary.matchKind,
+            createdAt: summary.createdAt,
+            lifecycle: summary.lifecycle
+        )
     }
 
     func fetchWorkspacePreferences() throws -> WorkspacePreferences {
@@ -400,7 +511,14 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     }
 }
 
-private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
+private struct ApprovedClassificationRequest: Equatable {
+    var id: UUID
+    var assignment: ClassificationAssignment
+    var ruleLearning: ReviewRuleLearningOption?
+    var resolvedAt: Date
+}
+
+private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
     var summary: WorkspaceSummary = .empty
     var accounts: [Account] = []
     var backupCallCount = 0
@@ -525,6 +643,18 @@ private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWri
         candidates: [NormalizedImportCandidate]
     ) throws -> [LikelyDuplicateCandidate] {
         []
+    }
+
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
+        []
+    }
+
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
+        nil
+    }
+
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
+        nil
     }
 
     func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup {
@@ -1812,4 +1942,237 @@ private struct FixedSuggestionProvider: SuggestionProvider {
     func suggestion(for candidate: NormalizedImportCandidate) -> ClassificationSuggestion? {
         suggestion
     }
+}
+
+@Test
+func workspaceServiceReturnsDistinctLearnedAndSeededManagerSections() throws {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let store = MutableWorkspaceStore()
+    store.learnedRuleSummaries = [
+        LearnedRuleSummary(
+            id: learnedRuleID,
+            merchantPattern: "local market",
+            categoryID: UUID(uuidString: "00000000-0000-0000-0000-000000000211"),
+            merchantName: "Local Market",
+            matchKind: .contains,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lifecycle: .active
+        )
+    ]
+
+    let service = WorkspaceService(store: store, classifier: SeededClassification.liveClassifier())
+    let snapshot = try service.loadLearnedRuleManagerSnapshot()
+
+    #expect(snapshot.learned.mode == .learned)
+    #expect(snapshot.seeded.mode == .seeded)
+    #expect(snapshot.learned.rows.map(\.id) == [learnedRuleID])
+    #expect(snapshot.seeded.rows.isEmpty == false)
+}
+
+@Test
+func seededManagerRowsAreAssembledFromSeededClassification() throws {
+    let service = WorkspaceService(
+        store: MutableWorkspaceStore(),
+        classifier: SeededClassification.liveClassifier()
+    )
+
+    let snapshot = try service.loadLearnedRuleManagerSnapshot()
+    let expectedSeededCount = SeededClassification.deterministicRules.count + SeededClassification.curatedReviewPrefills.count
+
+    #expect(snapshot.seeded.rows.count == expectedSeededCount)
+    #expect(snapshot.seeded.rows.contains(where: { $0.sourceKind == .deterministicRule }) == true)
+    #expect(snapshot.seeded.rows.contains(where: { $0.sourceKind == .curatedPrefill }) == true)
+}
+
+@Test
+func seededHeuristicsDoNotAppearInTheManagerSnapshot() throws {
+    let service = WorkspaceService(
+        store: MutableWorkspaceStore(),
+        classifier: SeededClassification.liveClassifier()
+    )
+
+    let snapshot = try service.loadLearnedRuleManagerSnapshot()
+    let seededPatterns = Set(snapshot.seeded.rows.map(\.merchantPattern))
+    let heuristicOnlyPatterns = Set(SeededClassification.heuristics.map(\.merchantPattern))
+        .subtracting(Set(SeededClassification.deterministicRules.map(\.merchantPattern)))
+        .subtracting(Set(SeededClassification.curatedReviewPrefills.map(\.merchantPattern)))
+
+    #expect(heuristicOnlyPatterns.allSatisfy { seededPatterns.contains($0) == false })
+}
+
+@Test
+func loadLearnedRuleManagerSnapshotFailsWithoutLearnedRuleReader() throws {
+    let service = WorkspaceService(store: DefaultResetBridgeMaintenanceStore())
+
+    #expect(throws: WorkspaceServiceError.learnedRuleManagementUnavailable) {
+        try service.loadLearnedRuleManagerSnapshot()
+    }
+}
+
+@Test
+func loadTransactionDetailPreservesRawRuleReferenceWhenLearnedRuleCannotBeResolved() throws {
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000511")!
+    let unresolvedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000512")!
+    let store = MutableWorkspaceStore()
+    store.transactionDetailsByID[transactionID] = makeTransactionDetail(
+        id: transactionID,
+        decisionSource: .rule,
+        decisionSourceReference: unresolvedRuleID.uuidString
+    )
+
+    let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
+
+    #expect(detail.learnedRuleProvenance == nil)
+    #expect(detail.decisionSourceReference == unresolvedRuleID.uuidString)
+}
+
+@Test
+func loadTransactionDetailResolvesDisabledLearnedRuleHistoricalProvenance() throws {
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000521")!
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000522")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000523")!
+    let disabledAt = Date(timeIntervalSince1970: 1_776_355_200)
+    let store = MutableWorkspaceStore()
+    store.categories = [
+        BudgetCategory(id: categoryID, name: "Groceries", kind: .expense)
+    ]
+    store.transactionDetailsByID[transactionID] = makeTransactionDetail(
+        id: transactionID,
+        decisionSource: .rule,
+        decisionSourceReference: learnedRuleID.uuidString
+    )
+    store.learnedRuleSummaries = [
+        LearnedRuleSummary(
+            id: learnedRuleID,
+            merchantPattern: "local market",
+            categoryID: categoryID,
+            merchantName: "Local Market",
+            matchKind: .prefixNormalizedMerchant,
+            createdAt: Date(timeIntervalSince1970: 1_776_268_800),
+            lifecycle: .disabled(disabledAt: disabledAt)
+        )
+    ]
+
+    let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
+    let provenance = try #require(detail.learnedRuleProvenance)
+
+    #expect(provenance.id == learnedRuleID)
+    #expect(provenance.merchantPattern == "local market")
+    #expect(provenance.matchKind == .prefixNormalizedMerchant)
+    #expect(provenance.categoryID == categoryID)
+    #expect(provenance.categoryName == "Groceries")
+    #expect(provenance.isDisabled == true)
+    #expect(provenance.disabledAt == disabledAt)
+}
+
+@Test
+func approveClassificationReviewItemReturnsDeepLinkActionForCreatedLearnedRule() throws {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000531")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000532")!
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000533")!
+    let resolvedAt = Date(timeIntervalSince1970: 1_776_355_260)
+    let store = MutableWorkspaceStore()
+    store.nextCreatedLearnedRuleID = learnedRuleID
+    let service = WorkspaceService(store: store)
+
+    let result = try service.approveClassificationReviewItem(
+        id: reviewItemID,
+        assignment: ClassificationAssignment(
+            categoryID: categoryID,
+            merchantName: "Coffee Shop"
+        ),
+        ruleLearning: .exactNormalizedMerchant(pattern: "coffee shop"),
+        resolvedAt: resolvedAt
+    )
+    let action = try #require(result.createdLearnedRuleAction)
+
+    #expect(action.ruleID == learnedRuleID)
+    #expect(action.merchantLabel == "Coffee Shop")
+    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: learnedRuleID))
+}
+
+@Test
+func approveClassificationReviewItemPrefersTheNewlyCreatedRuleOverExistingMatchingRules() throws {
+    let existingRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000536")!
+    let createdRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000537")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000538")!
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000539")!
+    let resolvedAt = Date(timeIntervalSince1970: 1_776_355_260)
+    let store = MutableWorkspaceStore()
+    store.learnedRuleSummaries = [
+        LearnedRuleSummary(
+            id: existingRuleID,
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant,
+            createdAt: resolvedAt,
+            lifecycle: .active
+        )
+    ]
+    store.nextCreatedLearnedRuleID = createdRuleID
+    let service = WorkspaceService(store: store)
+
+    let result = try service.approveClassificationReviewItem(
+        id: reviewItemID,
+        assignment: ClassificationAssignment(
+            categoryID: categoryID,
+            merchantName: "Coffee Shop"
+        ),
+        ruleLearning: .exactNormalizedMerchant(pattern: "coffee shop"),
+        resolvedAt: resolvedAt
+    )
+    let action = try #require(result.createdLearnedRuleAction)
+
+    #expect(action.ruleID == createdRuleID)
+    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: createdRuleID))
+}
+
+@Test
+func approveClassificationReviewItemOmitsDeepLinkActionWhenRuleLearningIsDisabled() throws {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000541")!
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000542")!
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+
+    let result = try service.approveClassificationReviewItem(
+        id: reviewItemID,
+        assignment: ClassificationAssignment(
+            categoryID: categoryID,
+            merchantName: "Coffee Shop"
+        ),
+        ruleLearning: nil,
+        resolvedAt: Date(timeIntervalSince1970: 1_776_355_320)
+    )
+
+    #expect(result.createdLearnedRuleAction == nil)
+}
+
+private func makeTransactionDetail(
+    id: UUID,
+    decisionSource: ClassificationDecisionSource?,
+    decisionSourceReference: String?
+) -> TransactionDetail {
+    TransactionDetail(
+        row: TransactionLedgerRow(
+            id: id,
+            accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000551")!,
+            accountName: "Checking",
+            categoryID: nil,
+            categoryName: nil,
+            rawDescription: "Coffee Shop",
+            merchantName: "Coffee Shop",
+            amount: Decimal(-4.75),
+            transactionDate: Date(timeIntervalSince1970: 1_776_268_800),
+            postedDate: nil,
+            direction: .expense,
+            reviewStatus: .accepted,
+            importOrigin: nil
+        ),
+        notes: nil,
+        decisionSource: decisionSource,
+        decisionSourceReference: decisionSourceReference,
+        confidence: 1,
+        duplicateStatus: "unique"
+    )
 }

@@ -43,7 +43,8 @@ struct TransactionLedgerView: View {
                 detail: model.selectedTransactionDetail,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
-                onSave: model.updateSelectedTransaction(draft:)
+                onSave: model.updateSelectedTransaction(draft:),
+                onViewLearnedRule: { model.showLearnedRules(selectedLearnedRuleID: $0) }
             )
             .frame(idealWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
         }
@@ -332,6 +333,7 @@ private struct TransactionDetailView: View {
     let categories: [BudgetCategory]
     let categoryGroups: [BudgetCategoryGroup]
     var onSave: (TransactionLedgerEditDraft) -> Void
+    var onViewLearnedRule: (UUID) -> Void
     @State private var merchantName = ""
     @State private var categoryID: UUID?
     @State private var notes = ""
@@ -368,7 +370,23 @@ private struct TransactionDetailView: View {
                     Section("Explanation") {
                         LabeledContent("Account", value: detail.row.accountName)
                         LabeledContent("Source", value: ReviewPresentation.sourceLabel(for: detail.decisionSource))
-                        if let reference = detail.decisionSourceReference {
+                        if let provenance = detail.learnedRuleProvenance {
+                            LabeledContent("Merchant Pattern", value: provenance.merchantPattern)
+                            LabeledContent("Match Scope", value: matchScopeLabel(for: provenance.matchKind))
+                            LabeledContent("Assigned Category", value: provenance.categoryName ?? "Unknown Category")
+                            if let merchantName = provenance.merchantName {
+                                LabeledContent("Merchant Name", value: merchantName)
+                            }
+                            if provenance.isDisabled, let disabledAt = provenance.disabledAt {
+                                LabeledContent(
+                                    "Lifecycle",
+                                    value: "Disabled \(disabledAt.formatted(date: .abbreviated, time: .shortened))"
+                                )
+                            }
+                            Button("View in Learned Rules") {
+                                onViewLearnedRule(provenance.id)
+                            }
+                        } else if let reference = detail.decisionSourceReference {
                             LabeledContent("Rule", value: reference)
                         }
                         if let confidence = detail.confidence {
@@ -411,5 +429,16 @@ private struct TransactionDetailView: View {
         merchantName = detail.row.merchantName
         categoryID = detail.row.categoryID
         notes = detail.notes ?? ""
+    }
+
+    private func matchScopeLabel(for matchKind: ClassificationRuleMatchKind) -> String {
+        switch matchKind {
+        case .contains:
+            "Contains"
+        case .exactNormalizedMerchant:
+            "Exact merchant"
+        case .prefixNormalizedMerchant:
+            "Shared prefix"
+        }
     }
 }

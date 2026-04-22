@@ -29,6 +29,11 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var isPresentingTargetSheet = false
     @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
     @Published var selectedTargetID: UUID?
+    @Published private(set) var settingsDestination: SettingsDestination = .overview
+    @Published private(set) var learnedRuleManagerSnapshot: LearnedRuleManagerSnapshot?
+    @Published private(set) var reviewCreatedLearnedRuleAction: ReviewCreatedLearnedRuleAction?
+    @Published private(set) var pendingAppSectionNavigation: AppSection?
+    @Published var learnedRuleManagerActionErrorMessage: String?
     @Published private(set) var csvImportPreview: CSVImportPreview?
     @Published private(set) var pendingCSVImport: PendingCSVImport?
     @Published var importErrorMessage: String?
@@ -245,6 +250,55 @@ final class WorkspaceShellModel: ObservableObject {
         selectedTargetID = id
     }
 
+    func selectSettingsDestination(_ destination: SettingsDestination) {
+        settingsDestination = destination
+    }
+
+    func showLearnedRules(selectedLearnedRuleID: UUID? = nil) {
+        settingsDestination = SettingsDestination.learnedRulesRoute(
+            selectedLearnedRuleID: selectedLearnedRuleID
+        )
+        pendingAppSectionNavigation = .settings
+    }
+
+    func consumePendingAppSectionNavigation() {
+        pendingAppSectionNavigation = nil
+    }
+
+    @discardableResult
+    func disableLearnedRule(id: UUID) -> Bool {
+        guard let service else {
+            return false
+        }
+
+        do {
+            _ = try service.disableLearnedRule(id: id)
+            reload()
+            learnedRuleManagerActionErrorMessage = nil
+            return true
+        } catch {
+            learnedRuleManagerActionErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    @discardableResult
+    func enableLearnedRule(id: UUID) -> Bool {
+        guard let service else {
+            return false
+        }
+
+        do {
+            _ = try service.enableLearnedRule(id: id)
+            reload()
+            learnedRuleManagerActionErrorMessage = nil
+            return true
+        } catch {
+            learnedRuleManagerActionErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
     @discardableResult
     func createMonthlyTarget(_ draft: MonthlyTargetDraft) throws -> UUID {
         guard let service else {
@@ -292,6 +346,7 @@ final class WorkspaceShellModel: ObservableObject {
         do {
             try service.keepBothLikelyDuplicateReviewItem(id: id)
             reload()
+            reviewCreatedLearnedRuleAction = nil
             return true
         } catch {
             reviewErrorMessage = error.localizedDescription
@@ -310,12 +365,13 @@ final class WorkspaceShellModel: ObservableObject {
         }
 
         do {
-            try service.approveClassificationReviewItem(
+            let result = try service.approveClassificationReviewItem(
                 id: id,
                 assignment: assignment,
                 ruleLearning: ruleLearning
             )
             reload()
+            reviewCreatedLearnedRuleAction = result.createdLearnedRuleAction
             return true
         } catch {
             reviewErrorMessage = error.localizedDescription
@@ -499,11 +555,13 @@ final class WorkspaceShellModel: ObservableObject {
         let managedTargets = try service.fetchManagedTargets(referenceDate: snapshot.monthlyReport.monthStart)
         let metadata = try? service.loadWorkspaceMetadata()
         let preferences = (try? service.loadWorkspacePreferences()) ?? .default
+        let learnedRuleManagerSnapshot = try? service.loadLearnedRuleManagerSnapshot()
 
         state = .loaded(snapshot)
         self.managedTargets = managedTargets
         workspaceStatus = .available(metadata)
         workspacePreferences = preferences
+        self.learnedRuleManagerSnapshot = learnedRuleManagerSnapshot
 
         if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
             self.selectedTargetID = nil
@@ -524,6 +582,9 @@ final class WorkspaceShellModel: ObservableObject {
         selectedTransactionID = nil
         selectedTransactionDetail = nil
         transactionDetailErrorMessage = nil
+        learnedRuleManagerSnapshot = nil
+        reviewCreatedLearnedRuleAction = nil
+        pendingAppSectionNavigation = nil
         state = .failed(message)
         workspaceStatus = .failedToOpen(message)
     }

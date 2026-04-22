@@ -40,6 +40,13 @@ struct WorkspaceRootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .environmentObject(model)
+        .onChange(of: model.pendingAppSectionNavigation) { _, section in
+            guard let section else {
+                return
+            }
+            selectedSectionRawValue = section.rawValue
+            model.consumePendingAppSectionNavigation()
+        }
         .toolbar {
             ToolbarItemGroup {
                 toolbarActions
