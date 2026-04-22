@@ -111,6 +111,7 @@ public struct TransactionDetail: Equatable, Sendable {
     public var notes: String?
     public var decisionSource: ClassificationDecisionSource?
     public var decisionSourceReference: String?
+    public var learnedRuleProvenance: TransactionLearnedRuleProvenance?
     public var confidence: Double?
     public var duplicateStatus: String
 
@@ -119,6 +120,7 @@ public struct TransactionDetail: Equatable, Sendable {
         notes: String?,
         decisionSource: ClassificationDecisionSource?,
         decisionSourceReference: String?,
+        learnedRuleProvenance: TransactionLearnedRuleProvenance? = nil,
         confidence: Double?,
         duplicateStatus: String
     ) {
@@ -126,12 +128,53 @@ public struct TransactionDetail: Equatable, Sendable {
         self.notes = notes
         self.decisionSource = decisionSource
         self.decisionSourceReference = decisionSourceReference
+        self.learnedRuleProvenance = learnedRuleProvenance
         self.confidence = confidence
         self.duplicateStatus = duplicateStatus
     }
 
     public var importOrigin: TransactionImportOrigin? {
         row.importOrigin
+    }
+}
+
+public struct TransactionLearnedRuleProvenance: Equatable, Sendable {
+    public var id: UUID
+    public var merchantPattern: String
+    public var categoryID: UUID?
+    public var categoryName: String?
+    public var merchantName: String?
+    public var matchKind: ClassificationRuleMatchKind
+    public var lifecycle: LearnedRuleLifecycle
+
+    public init(
+        id: UUID,
+        merchantPattern: String,
+        categoryID: UUID?,
+        categoryName: String?,
+        merchantName: String?,
+        matchKind: ClassificationRuleMatchKind,
+        lifecycle: LearnedRuleLifecycle
+    ) {
+        self.id = id
+        self.merchantPattern = merchantPattern
+        self.categoryID = categoryID
+        self.categoryName = categoryName
+        self.merchantName = merchantName
+        self.matchKind = matchKind
+        self.lifecycle = lifecycle
+    }
+
+    public var isDisabled: Bool {
+        if case .disabled = lifecycle {
+            true
+        } else {
+            false
+        }
+    }
+
+    public var disabledAt: Date? {
+        lifecycle.disabledAt
     }
 }
 

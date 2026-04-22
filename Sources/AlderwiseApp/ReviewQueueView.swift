@@ -50,6 +50,7 @@ struct ReviewQueueView: View {
                 presentation: presentation,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
+                followUpAction: model.reviewCreatedLearnedRuleAction,
                 onApproveClassification: { item, assignment, ruleLearning in
                     let didResolve = model.approveClassificationReviewItem(
                         id: item.id,
@@ -64,6 +65,9 @@ struct ReviewQueueView: View {
                     if model.keepBothLikelyDuplicateReviewItem(id: item.id) {
                         selectNextItem(after: item.id)
                     }
+                },
+                onManageLearnedRule: { action in
+                    model.showLearnedRules(selectedLearnedRuleID: action.ruleID)
                 }
             )
             .frame(idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
@@ -171,8 +175,10 @@ private struct ReviewQueueDetail: View {
     let presentation: ReviewPresentation
     let categories: [BudgetCategory]
     let categoryGroups: [BudgetCategoryGroup]
+    let followUpAction: ReviewCreatedLearnedRuleAction?
     var onApproveClassification: (PendingReviewItem, ClassificationAssignment, ReviewRuleLearningOption?) -> Void
     var onKeepBoth: (PendingReviewItem) -> Void
+    var onManageLearnedRule: (ReviewCreatedLearnedRuleAction) -> Void
     @State private var selectedCategoryID: UUID?
     @State private var merchantName = ""
     @State private var createRule = true
@@ -208,6 +214,17 @@ private struct ReviewQueueDetail: View {
                         }
                     }
 
+                    if let followUpAction {
+                        Section("Follow Up") {
+                            Button("Manage Rule: \(followUpAction.merchantLabel)") {
+                                onManageLearnedRule(followUpAction)
+                            }
+                            Text("The review approval created a learned rule. You can inspect or disable it from Settings.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     Section("Raw Row") {
                         Text(item.sourceRow.rawPayload)
                             .font(.system(.caption, design: .monospaced))
@@ -222,11 +239,18 @@ private struct ReviewQueueDetail: View {
                     load(newItem)
                 }
             } else {
-                ContentUnavailableView(
-                    "No Review Item Selected",
-                    systemImage: "sidebar.right",
-                    description: Text("Select a review item to inspect its source and record a decision.")
-                )
+                VStack(spacing: 16) {
+                    ContentUnavailableView(
+                        "No Review Item Selected",
+                        systemImage: "sidebar.right",
+                        description: Text("Select a review item to inspect its source and record a decision.")
+                    )
+                    if let followUpAction {
+                        Button("Manage Rule: \(followUpAction.merchantLabel)") {
+                            onManageLearnedRule(followUpAction)
+                        }
+                    }
+                }
             }
         }
         .padding()
