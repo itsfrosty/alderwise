@@ -117,8 +117,8 @@ struct TransactionDetailDraftCoordinator {
 
     mutating func dismissSelectionChangePrompt() {
         if shouldPreservePendingSelectionOnDismissal {
-            isSelectionChangePromptPresented = false
             shouldPreservePendingSelectionOnDismissal = false
+            isSelectionChangePromptPresented = true
             return
         }
 

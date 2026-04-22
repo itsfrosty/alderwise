@@ -148,7 +148,7 @@ func failedSavePreservesDirtyDraftAndPendingSelection() {
 }
 
 @Test
-func failedSaveFollowedByImplicitDismissalKeepsPendingSelection() {
+func failedSaveFollowedByDismissalKeepsPromptPresentedAndPendingSelection() {
     let currentID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
     let nextID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
     var coordinator = TransactionDetailDraftCoordinator(
@@ -167,7 +167,7 @@ func failedSaveFollowedByImplicitDismissalKeepsPendingSelection() {
     coordinator.dismissSelectionChangePrompt()
 
     #expect(coordinator.pendingSelection == .selection(nextID))
-    #expect(coordinator.isSelectionChangePromptPresented == false)
+    #expect(coordinator.isSelectionChangePromptPresented == true)
     #expect(coordinator.currentDraft == editedDraft)
     #expect(coordinator.isDirty == true)
 }
