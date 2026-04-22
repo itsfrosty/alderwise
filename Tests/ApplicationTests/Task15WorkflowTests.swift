@@ -169,11 +169,8 @@ func targetServiceWorkflowSupportsEditDeleteAndHomeActionReference() throws {
 
     #expect(updatedTargets.map(\.id) == [created.id])
     #expect(updatedTargets.map(\.scope) == [.categoryGroup(categoryGroup.id)])
-    #expect(
-        refreshedSnapshot.homeDashboard?.actions.contains(where: {
-            $0.kind == .pressuredTarget && $0.destination == .targets(created.id)
-        }) == true
-    )
+    #expect(refreshedSnapshot.homeDashboard?.actions.first?.kind == .pressuredTarget)
+    #expect(refreshedSnapshot.homeDashboard?.actions.first?.destination == .targets(created.id))
 
     try service.deleteMonthlyTarget(id: created.id)
 
