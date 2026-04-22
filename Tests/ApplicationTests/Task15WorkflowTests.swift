@@ -169,7 +169,11 @@ func targetServiceWorkflowSupportsEditDeleteAndHomeActionReference() throws {
 
     #expect(updatedTargets.map(\.id) == [created.id])
     #expect(updatedTargets.map(\.scope) == [.categoryGroup(categoryGroup.id)])
-    #expect(refreshedSnapshot.homeDashboard?.primaryAction?.destination == .targets(created.id))
+    #expect(
+        refreshedSnapshot.homeDashboard?.actions.contains(where: {
+            $0.kind == .pressuredTarget && $0.destination == .targets(created.id)
+        }) == true
+    )
 
     try service.deleteMonthlyTarget(id: created.id)
 
@@ -200,6 +204,7 @@ func emptyWorkspaceHomeStillExposesOnlyExistingSetupSurfaces() throws {
     let dashboard = try #require(try service.loadSnapshot().homeDashboard)
 
     #expect(dashboard.isEmptyWorkspace)
+    #expect(dashboard.hero == nil)
     #expect(dashboard.reviewQualifier == nil)
     #expect(dashboard.actions.isEmpty)
     #expect(dashboard.summaryCards.isEmpty)
@@ -214,7 +219,7 @@ func populatedHomeWithPendingReviewPrioritizesReviewAndQualifiesAcceptedOnlyStat
     let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
     let csv = """
     Date,Description,Amount
-    2026-04-01,Coffee Shop,-4.75
+    \(task15CSVDate(monthOffset: 0, day: 1)),Coffee Shop,-4.75
     """
     _ = try task15Stage(csv: csv, account: account, service: service)
 
@@ -237,8 +242,8 @@ func populatedHomeWithNoTargetsAndNoPendingReviewSurfacesDriverAndSetupActions()
     let category = try #require(try service.loadSnapshot().categories.first { $0.kind == .expense })
     let csv = """
     Date,Description,Amount
-    2026-03-05,Grocery Mart,-35.00
-    2026-04-03,Grocery Mart,-62.00
+    \(task15CSVDate(monthOffset: -1, day: 5)),Grocery Mart,-35.00
+    \(task15CSVDate(monthOffset: 0, day: 3)),Grocery Mart,-62.00
     """
     _ = try task15Stage(csv: csv, account: account, service: service)
     try task15ApproveAllPending(service: service, categoryID: category.id, merchantName: "Grocery Mart")
@@ -260,14 +265,14 @@ func populatedHomeWithActiveTargetSurfacesTargetPressureAndDrivers() throws {
     let category = try #require(try service.loadSnapshot().categories.first { $0.kind == .expense })
     let csv = """
     Date,Description,Amount
-    2026-03-02,Grocery Mart,-80.00
-    2026-04-02,Grocery Mart,-120.00
+    \(task15CSVDate(monthOffset: -1, day: 2)),Grocery Mart,-80.00
+    \(task15CSVDate(monthOffset: 0, day: 2)),Grocery Mart,-120.00
     """
     _ = try task15Stage(csv: csv, account: account, service: service)
     try task15ApproveAllPending(service: service, categoryID: category.id, merchantName: "Grocery Mart")
     let target = try service.createMonthlyTarget(
         MonthlyTargetDraft(scope: .category(category.id), monthlyLimit: Decimal(100)),
-        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+        createdAt: task15ReferenceDate(monthOffset: 0, day: 10)
     )
 
     let dashboard = try #require(try service.loadSnapshot().homeDashboard)
@@ -400,6 +405,29 @@ private func task15ApproveAllPending(service: WorkspaceService, categoryID: UUID
             resolvedAt: Date(timeIntervalSince1970: 1_775_171_260)
         )
     }
+}
+
+private func task15CSVDate(monthOffset: Int, day: Int) -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = task15UTCCalendar()
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.dateFormat = "yyyy-MM-dd"
+    return formatter.string(from: task15ReferenceDate(monthOffset: monthOffset, day: day))
+}
+
+private func task15ReferenceDate(monthOffset: Int, day: Int) -> Date {
+    let calendar = task15UTCCalendar()
+    let currentMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: .now))!
+    let shiftedMonth = calendar.date(byAdding: .month, value: monthOffset, to: currentMonth)!
+    var components = calendar.dateComponents([.year, .month], from: shiftedMonth)
+    components.day = day
+    return calendar.date(from: components)!
+}
+
+private func task15UTCCalendar() -> Calendar {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    return calendar
 }
 
 private func task15TemporaryDatabaseURL() throws -> URL {
