@@ -110,6 +110,105 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
 }
 
 @Test
+func monthlyReportExposesAcceptedSpendReviewCountTargetsPaceAndDriversForHome() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000611")!
+    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+    try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try homeDashboardInsertAcceptedExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-42),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 5)
+    )
+    try homeDashboardInsertPendingReviewItem(
+        databaseURL: databaseURL,
+        createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 6)
+    )
+
+    let target = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(300)),
+        createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 1)
+    )
+    let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
+
+    #expect(report.monthStart == homeDashboardUTCDate(year: 2026, month: 4, day: 1))
+    #expect(report.currentMonthAcceptedSpend == Decimal(42))
+    #expect(report.lastMonthAcceptedSpend == Decimal(0))
+    #expect(report.pendingReviewCount == 1)
+    #expect(report.targets == [
+        TargetProgress(
+            id: target.id,
+            name: "Food",
+            scope: .categoryGroup(food),
+            monthlyLimit: Decimal(300),
+            spent: Decimal(42),
+            remaining: Decimal(258),
+            paceDelta: Decimal(-108)
+        )
+    ])
+    #expect(report.hasActiveTargets)
+    #expect(report.totalMonthlyTargetLimit == Decimal(300))
+    #expect(report.expectedPaceSpend == Decimal(150))
+    #expect(report.paceDelta == Decimal(-108))
+    #expect(report.paceSeries == [
+        MonthlySpendPoint(day: 1, actualSpend: Decimal(0), expectedSpend: Decimal(10)),
+        MonthlySpendPoint(day: 2, actualSpend: Decimal(0), expectedSpend: Decimal(20)),
+        MonthlySpendPoint(day: 3, actualSpend: Decimal(0), expectedSpend: Decimal(30)),
+        MonthlySpendPoint(day: 4, actualSpend: Decimal(0), expectedSpend: Decimal(40)),
+        MonthlySpendPoint(day: 5, actualSpend: Decimal(42), expectedSpend: Decimal(50)),
+        MonthlySpendPoint(day: 6, actualSpend: Decimal(42), expectedSpend: Decimal(60)),
+        MonthlySpendPoint(day: 7, actualSpend: Decimal(42), expectedSpend: Decimal(70)),
+        MonthlySpendPoint(day: 8, actualSpend: Decimal(42), expectedSpend: Decimal(80)),
+        MonthlySpendPoint(day: 9, actualSpend: Decimal(42), expectedSpend: Decimal(90)),
+        MonthlySpendPoint(day: 10, actualSpend: Decimal(42), expectedSpend: Decimal(100)),
+        MonthlySpendPoint(day: 11, actualSpend: Decimal(42), expectedSpend: Decimal(110)),
+        MonthlySpendPoint(day: 12, actualSpend: Decimal(42), expectedSpend: Decimal(120)),
+        MonthlySpendPoint(day: 13, actualSpend: Decimal(42), expectedSpend: Decimal(130)),
+        MonthlySpendPoint(day: 14, actualSpend: Decimal(42), expectedSpend: Decimal(140)),
+        MonthlySpendPoint(day: 15, actualSpend: Decimal(42), expectedSpend: Decimal(150)),
+    ])
+    #expect(report.drivers == [
+        MonthlySpendingDriver(
+            title: "Food",
+            scope: .categoryGroup(food),
+            currentPeriodSpend: Decimal(42),
+            comparisonPeriodSpend: Decimal(0),
+            delta: Decimal(42)
+        )
+    ])
+    #expect(report.biggestShift == MonthlySpendingDriver(
+        title: "Food",
+        scope: .categoryGroup(food),
+        currentPeriodSpend: Decimal(42),
+        comparisonPeriodSpend: Decimal(0),
+        delta: Decimal(42)
+    ))
+}
+
+@Test
+func monthlyReportKeepsPendingReviewCountAvailableForAcceptedOnlyQualifier() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    try homeDashboardInsertPendingReviewItem(
+        databaseURL: databaseURL,
+        createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 6)
+    )
+
+    let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
+
+    #expect(report.pendingReviewCount == 1)
+}
+
+@Test
 func monthlyReportLeavesDriversEmptyWhenNoPriorComparisonExists() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -244,6 +343,29 @@ private func homeDashboardInsertAcceptedExpense(
                 1.0,
                 "accepted",
                 "none",
+            ]
+        )
+    }
+}
+
+private func homeDashboardInsertPendingReviewItem(databaseURL: URL, createdAt: Date) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO review_items (
+                id,
+                type,
+                status,
+                created_at
+            )
+            VALUES (?, ?, ?, ?)
+            """,
+            arguments: [
+                UUID().uuidString,
+                ReviewItemType.lowConfidenceCategory.rawValue,
+                ReviewItemStatus.pending.rawValue,
+                createdAt,
             ]
         )
     }

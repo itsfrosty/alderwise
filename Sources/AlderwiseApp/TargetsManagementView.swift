@@ -1,3 +1,4 @@
+import Application
 import Domain
 import SwiftUI
 
@@ -212,25 +213,10 @@ struct TargetsManagementView: View {
     }
 
     private func transactionFilter(for target: ManagedMonthlyTarget) -> TransactionLedgerFilter {
-        let endDate = Calendar.alderwiseUTC.date(byAdding: DateComponents(month: 1, second: -1), to: monthStart)
-        switch target.scope {
-        case .category(let categoryID):
-            return TransactionLedgerFilter(
-                startDate: monthStart,
-                endDate: endDate,
-                categoryID: categoryID,
-                direction: .expense,
-                reviewStatus: .accepted
-            )
-        case .categoryGroup(let groupID):
-            return TransactionLedgerFilter(
-                startDate: monthStart,
-                endDate: endDate,
-                categoryGroupID: groupID,
-                direction: .expense,
-                reviewStatus: .accepted
-            )
-        }
+        TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
+            monthStart: monthStart,
+            scope: target.scope
+        )
     }
 
     private func currency(_ amount: Decimal) -> String {
@@ -238,13 +224,5 @@ struct TargetsManagementView: View {
         formatter.numberStyle = .currency
         formatter.currencyCode = Locale.current.currency?.identifier ?? "USD"
         return formatter.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
-    }
-}
-
-private extension Calendar {
-    static var alderwiseUTC: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
-        return calendar
     }
 }
