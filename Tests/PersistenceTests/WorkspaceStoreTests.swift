@@ -452,9 +452,26 @@ func bootstrapInstallsDatabaseGuardsForTargetScopeWrites() throws {
         try insertTarget(
             databaseURL: databaseURL,
             id: UUID(uuidString: "00000000-0000-0000-0000-000000009013")!,
-            categoryID: DefaultBudgetTaxonomy.CategoryID.groceries,
+            categoryID: nil,
             categoryGroupID: DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink,
             monthlyLimit: Decimal(150)
+        )
+    }
+
+    try insertTarget(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000009014")!,
+        categoryID: nil,
+        categoryGroupID: DefaultBudgetTaxonomy.CategoryGroupID.autoAndTransit,
+        monthlyLimit: Decimal(90)
+    )
+    #expect(throws: (any Error).self) {
+        try insertTarget(
+            databaseURL: databaseURL,
+            id: UUID(uuidString: "00000000-0000-0000-0000-000000009015")!,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.publicTransitAndRideShare,
+            categoryGroupID: nil,
+            monthlyLimit: Decimal(90)
         )
     }
 }
@@ -1447,18 +1464,20 @@ func targetProgressSupportsCategoryAndCategoryGroupTargets() throws {
     try store.bootstrap()
 
     let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
-    let groupID = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+    let foodGroupID = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
+    let travelGroupID = UUID(uuidString: "00000000-0000-0000-0000-000000000702")!
     let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000711")!
     let dining = UUID(uuidString: "00000000-0000-0000-0000-000000000712")!
     let travel = UUID(uuidString: "00000000-0000-0000-0000-000000000713")!
     let groceryTarget = UUID(uuidString: "00000000-0000-0000-0000-000000000721")!
-    let foodTarget = UUID(uuidString: "00000000-0000-0000-0000-000000000722")!
-    try insertCategoryGroup(databaseURL: databaseURL, id: groupID, name: "Food")
-    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: groupID)
-    try insertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense", categoryGroupID: groupID)
-    try insertCategory(databaseURL: databaseURL, id: travel, name: "Travel", kind: "expense")
+    let travelTarget = UUID(uuidString: "00000000-0000-0000-0000-000000000722")!
+    try insertCategoryGroup(databaseURL: databaseURL, id: foodGroupID, name: "Food")
+    try insertCategoryGroup(databaseURL: databaseURL, id: travelGroupID, name: "Travel")
+    try insertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: foodGroupID)
+    try insertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense", categoryGroupID: foodGroupID)
+    try insertCategory(databaseURL: databaseURL, id: travel, name: "Flights", kind: "expense", categoryGroupID: travelGroupID)
     try insertTarget(databaseURL: databaseURL, id: groceryTarget, categoryID: groceries, categoryGroupID: nil, monthlyLimit: Decimal(100))
-    try insertTarget(databaseURL: databaseURL, id: foodTarget, categoryID: nil, categoryGroupID: groupID, monthlyLimit: Decimal(250))
+    try insertTarget(databaseURL: databaseURL, id: travelTarget, categoryID: nil, categoryGroupID: travelGroupID, monthlyLimit: Decimal(250))
     try insertLedgerTransaction(
         databaseURL: databaseURL,
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000731")!,
@@ -1498,10 +1517,10 @@ func targetProgressSupportsCategoryAndCategoryGroupTargets() throws {
 
     let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
 
-    #expect(report.targets.map(\.name) == ["Food", "Groceries"])
-    #expect(report.targets.map(\.spent) == [Decimal(100), Decimal(40)])
-    #expect(report.targets.map(\.remaining) == [Decimal(150), Decimal(60)])
-    #expect(report.targets.map(\.monthlyLimit) == [Decimal(250), Decimal(100)])
+    #expect(report.targets.map(\.name) == ["Groceries", "Travel"])
+    #expect(report.targets.map(\.spent) == [Decimal(40), Decimal(200)])
+    #expect(report.targets.map(\.remaining) == [Decimal(60), Decimal(50)])
+    #expect(report.targets.map(\.monthlyLimit) == [Decimal(100), Decimal(250)])
 }
 
 @Test

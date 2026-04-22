@@ -2591,6 +2591,22 @@ private func installTargetScopeWriteGuards(db: Database) throws {
                 THEN RAISE(ABORT, 'duplicate target category scope')
             END;
             SELECT CASE
+                WHEN NEW.category_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM categories
+                    WHERE categories.id = NEW.category_id
+                      AND categories.category_group_id IS NOT NULL
+                      AND EXISTS(
+                        SELECT 1
+                        FROM targets
+                        WHERE targets.category_group_id = categories.category_group_id
+                          AND targets.category_id IS NULL
+                      )
+                )
+                THEN RAISE(ABORT, 'overlapping target scope')
+            END;
+            SELECT CASE
                 WHEN NEW.category_group_id IS NOT NULL
                  AND EXISTS(
                     SELECT 1
@@ -2599,6 +2615,17 @@ private func installTargetScopeWriteGuards(db: Database) throws {
                       AND category_id IS NULL
                 )
                 THEN RAISE(ABORT, 'duplicate target group scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_group_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM categories
+                    JOIN targets ON targets.category_id = categories.id
+                    WHERE categories.category_group_id = NEW.category_group_id
+                      AND targets.category_group_id IS NULL
+                )
+                THEN RAISE(ABORT, 'overlapping target scope')
             END;
         END
         """
@@ -2629,6 +2656,23 @@ private func installTargetScopeWriteGuards(db: Database) throws {
                 THEN RAISE(ABORT, 'duplicate target category scope')
             END;
             SELECT CASE
+                WHEN NEW.category_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM categories
+                    WHERE categories.id = NEW.category_id
+                      AND categories.category_group_id IS NOT NULL
+                      AND EXISTS(
+                        SELECT 1
+                        FROM targets
+                        WHERE targets.category_group_id = categories.category_group_id
+                          AND targets.category_id IS NULL
+                          AND targets.id != NEW.id
+                      )
+                )
+                THEN RAISE(ABORT, 'overlapping target scope')
+            END;
+            SELECT CASE
                 WHEN NEW.category_group_id IS NOT NULL
                  AND EXISTS(
                     SELECT 1
@@ -2638,6 +2682,18 @@ private func installTargetScopeWriteGuards(db: Database) throws {
                       AND id != NEW.id
                 )
                 THEN RAISE(ABORT, 'duplicate target group scope')
+            END;
+            SELECT CASE
+                WHEN NEW.category_group_id IS NOT NULL
+                 AND EXISTS(
+                    SELECT 1
+                    FROM categories
+                    JOIN targets ON targets.category_id = categories.id
+                    WHERE categories.category_group_id = NEW.category_group_id
+                      AND targets.category_group_id IS NULL
+                      AND targets.id != NEW.id
+                )
+                THEN RAISE(ABORT, 'overlapping target scope')
             END;
         END
         """

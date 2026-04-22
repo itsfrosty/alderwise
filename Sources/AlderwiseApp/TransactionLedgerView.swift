@@ -89,7 +89,7 @@ struct TransactionLedgerView: View {
                 Picker("Account", selection: accountSelection) {
                     Text("All Accounts").tag(Optional<UUID>.none)
                     ForEach(snapshot.ledgerFilterAccounts) { account in
-                        Text(account.name).tag(Optional(account.id))
+                        Text(accountFilterLabel(for: account)).tag(Optional(account.id))
                     }
                 }
 
@@ -229,6 +229,10 @@ struct TransactionLedgerView: View {
 
     private var importOrigins: [TransactionImportOrigin] {
         snapshot.transactionImportOrigins
+    }
+
+    private func accountFilterLabel(for account: Account) -> String {
+        account.isArchived ? "\(account.name) (Archived)" : account.name
     }
 
     private var categoryGroupFilterName: String? {

@@ -85,6 +85,15 @@ struct CSVImportPreviewSheet: View {
             }
             applyMapping()
         }
+        .onChange(of: accounts.map(\.id)) { _, _ in
+            guard let selectedAccountID else {
+                self.selectedAccountID = accounts.first?.id
+                return
+            }
+            if accounts.contains(where: { $0.id == selectedAccountID }) == false {
+                self.selectedAccountID = accounts.first?.id
+            }
+        }
     }
 
     private var header: some View {
@@ -113,7 +122,7 @@ struct CSVImportPreviewSheet: View {
                     Text("No active accounts available").tag(nil as Account.ID?)
                 }
                 ForEach(accounts) { account in
-                    Text(account.name).tag(account.id as Account.ID?)
+                    Text(accountPickerLabel(for: account)).tag(account.id as Account.ID?)
                 }
             }
             .labelsHidden()
@@ -242,6 +251,13 @@ struct CSVImportPreviewSheet: View {
 
     private var canImport: Bool {
         workingPreview.validation.isReadyForImport && selectedAccount != nil
+    }
+
+    private func accountPickerLabel(for account: Account) -> String {
+        if let institutionName = account.institutionName {
+            return "\(account.name) · \(institutionName)"
+        }
+        return account.name
     }
 
     private var amountMappingDescription: String {

@@ -218,15 +218,15 @@ struct AccountsManagementView: View {
                             actionErrorMessage = error.localizedDescription
                         }
                     }
-
-                    if permanentlyDeletableAccountIDs.contains(account.id) {
-                        Button("Delete Permanently", role: .destructive) {
-                            pendingDeleteAccount = account
-                        }
-                    }
                 } else {
                     Button("Archive") {
                         pendingArchiveAccount = account
+                    }
+                }
+
+                if permanentlyDeletableAccountIDs.contains(account.id) {
+                    Button("Delete Permanently", role: .destructive) {
+                        pendingDeleteAccount = account
                     }
                 }
 
