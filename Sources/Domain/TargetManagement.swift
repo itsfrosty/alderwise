@@ -42,6 +42,23 @@ public enum MonthlyTargetManagementError: Error, Equatable, Sendable {
     case targetNotFound(UUID)
 }
 
+public enum ManagedTargetSelection {
+    public static func nextTargetID(
+        afterDeleting deletedID: UUID,
+        currentSelection: UUID?,
+        availableTargets: [ManagedMonthlyTarget]
+    ) -> UUID? {
+        let remainingTargets = availableTargets.filter { $0.id != deletedID }
+        guard remainingTargets.isEmpty == false else {
+            return nil
+        }
+        if currentSelection == deletedID {
+            return remainingTargets.first?.id
+        }
+        return currentSelection
+    }
+}
+
 extension MonthlyTargetManagementError: LocalizedError {
     public var errorDescription: String? {
         switch self {

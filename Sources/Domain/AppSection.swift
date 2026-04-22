@@ -75,13 +75,4 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
             "Manage local suggestions, backups, and workspace recovery."
         }
     }
-
-    public var usesPlaceholderDetailView: Bool {
-        switch self {
-        case .accounts:
-            true
-        case .home, .transactions, .review, .targets, .settings:
-            false
-        }
-    }
 }

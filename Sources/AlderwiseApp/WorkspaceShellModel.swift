@@ -273,7 +273,11 @@ final class WorkspaceShellModel: ObservableObject {
             throw WorkspaceServiceError.targetManagementUnavailable
         }
 
-        let fallbackSelection = remainingTargetSelection(afterDeleting: id)
+        let fallbackSelection = ManagedTargetSelection.nextTargetID(
+            afterDeleting: id,
+            currentSelection: selectedTargetID,
+            availableTargets: managedTargets
+        )
         try service.deleteMonthlyTarget(id: id)
         reload()
         selectedTargetID = fallbackSelection
@@ -404,16 +408,5 @@ final class WorkspaceShellModel: ObservableObject {
         isPresentingImportPreview = false
         csvImportPreview = nil
         pendingCSVImport = nil
-    }
-
-    private func remainingTargetSelection(afterDeleting id: UUID) -> UUID? {
-        let remainingTargets = managedTargets.filter { $0.id != id }
-        guard remainingTargets.isEmpty == false else {
-            return nil
-        }
-        if selectedTargetID == id {
-            return remainingTargets.first?.id
-        }
-        return selectedTargetID
     }
 }

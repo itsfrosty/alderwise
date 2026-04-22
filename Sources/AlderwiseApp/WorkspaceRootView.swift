@@ -1,3 +1,4 @@
+import Application
 import Domain
 import SwiftUI
 import UniformTypeIdentifiers
@@ -329,21 +330,19 @@ struct WorkspaceRootView: View {
                 HomeDashboardView(
                     snapshot: snapshot,
                     navigate: { destination in
-                        let selection = destination.navigationSelection
-                        selectedSectionRawValue = selection.section.rawValue
-                        if selection.section == .targets {
-                            model.selectTarget(id: selection.targetID)
-                        }
-                        if case .transactions(let filter) = destination {
+                        let intent = destination.workspaceNavigationIntent
+                        selectedSectionRawValue = intent.section.rawValue
+                        model.selectTarget(id: intent.targetID)
+                        if let filter = intent.transactionFilter {
                             model.updateTransactionFilter(filter)
                         }
                     }
                 )
-            } else if section == .transactions {
+            } else if WorkspaceDetailRoute.make(for: section) == .transactions {
                 TransactionLedgerView(snapshot: snapshot, model: model)
-            } else if section == .review {
+            } else if WorkspaceDetailRoute.make(for: section) == .review {
                 ReviewQueueView(snapshot: snapshot, model: model)
-            } else if section == .targets {
+            } else if WorkspaceDetailRoute.make(for: section) == .targetsManager {
                 TargetsManagementView(
                     targets: model.managedTargets,
                     categories: snapshot.categories,
@@ -367,9 +366,9 @@ struct WorkspaceRootView: View {
                         model.updateTransactionFilter(filter)
                     }
                 )
-            } else if section == .settings {
+            } else if WorkspaceDetailRoute.make(for: section) == .settings {
                 SettingsView(model: model)
-            } else if section.usesPlaceholderDetailView {
+            } else if WorkspaceDetailRoute.make(for: section) == .accountsPlaceholder {
                 SectionPlaceholderView(section: section, snapshot: snapshot)
             } else {
                 EmptyView()

@@ -13,13 +13,41 @@ public enum HomeDashboardDestination: Equatable, Sendable {
     case transactions(TransactionLedgerFilter)
 }
 
-public struct HomeDashboardNavigationSelection: Equatable, Sendable {
+public struct WorkspaceNavigationIntent: Equatable, Sendable {
     public var section: AppSection
     public var targetID: UUID?
+    public var transactionFilter: TransactionLedgerFilter?
 
-    public init(section: AppSection, targetID: UUID? = nil) {
+    public init(section: AppSection, targetID: UUID? = nil, transactionFilter: TransactionLedgerFilter? = nil) {
         self.section = section
         self.targetID = targetID
+        self.transactionFilter = transactionFilter
+    }
+}
+
+public enum WorkspaceDetailRoute: Equatable, Sendable {
+    case home
+    case transactions
+    case review
+    case targetsManager
+    case accountsPlaceholder
+    case settings
+
+    public static func make(for section: AppSection) -> WorkspaceDetailRoute {
+        switch section {
+        case .home:
+            .home
+        case .transactions:
+            .transactions
+        case .review:
+            .review
+        case .targets:
+            .targetsManager
+        case .accounts:
+            .accountsPlaceholder
+        case .settings:
+            .settings
+        }
     }
 }
 
@@ -161,14 +189,14 @@ private extension SpendingDriverScope {
 }
 
 public extension HomeDashboardDestination {
-    var navigationSelection: HomeDashboardNavigationSelection {
+    var workspaceNavigationIntent: WorkspaceNavigationIntent {
         switch self {
         case .review:
-            HomeDashboardNavigationSelection(section: .review)
+            WorkspaceNavigationIntent(section: .review)
         case .targets(let targetID):
-            HomeDashboardNavigationSelection(section: .targets, targetID: targetID)
-        case .transactions:
-            HomeDashboardNavigationSelection(section: .transactions)
+            WorkspaceNavigationIntent(section: .targets, targetID: targetID)
+        case .transactions(let filter):
+            WorkspaceNavigationIntent(section: .transactions, transactionFilter: filter)
         }
     }
 }

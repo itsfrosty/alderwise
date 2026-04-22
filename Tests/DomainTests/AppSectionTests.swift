@@ -13,9 +13,3 @@ func reviewSectionExplainsWhenQueueIsEmpty() {
     #expect(AppSection.review.emptyStateTitle == "Everything important has been reviewed")
     #expect(AppSection.review.emptyStateMessage.contains("needs your attention"))
 }
-
-@Test
-func targetsSectionUsesDedicatedDetailView() {
-    #expect(AppSection.targets.usesPlaceholderDetailView == false)
-    #expect(AppSection.accounts.usesPlaceholderDetailView)
-}

@@ -136,7 +136,7 @@ func targetCreationWorkflowUpdatesSnapshotAndAcceptedExpenseProgress() throws {
 }
 
 @Test
-func targetManagementWorkflowSupportsEditDeleteAndHomeSelection() throws {
+func targetServiceWorkflowSupportsEditDeleteAndHomeActionReference() throws {
     let service = try task15Service()
     let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
     let snapshot = try service.loadSnapshot()
