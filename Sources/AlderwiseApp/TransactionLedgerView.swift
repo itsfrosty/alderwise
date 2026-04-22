@@ -39,7 +39,7 @@ struct TransactionLedgerView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
 
-            TransactionDetailInspectorView(
+            TransactionLedgerView.DetailInspector(
                 detail: model.selectedTransactionDetail,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
@@ -69,7 +69,7 @@ struct TransactionLedgerView: View {
     private var transactionList: some View {
         List(selection: selectedIDBinding) {
             ForEach(snapshot.transactions) { transaction in
-                TransactionLedgerRowView(transaction: transaction)
+                TransactionLedgerView.Row(transaction: transaction)
                     .tag(transaction.id)
             }
         }
