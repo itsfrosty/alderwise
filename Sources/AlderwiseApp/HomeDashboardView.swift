@@ -85,7 +85,7 @@ struct HomeDashboardView: View {
                 .font(.headline)
                 .foregroundStyle(heroTint)
 
-            Text(currency(dashboard?.hero.amount ?? snapshot.monthlyReport.currentMonthAcceptedSpend))
+            Text(currency(dashboard?.hero?.amount ?? snapshot.monthlyReport.currentMonthAcceptedSpend))
                 .font(.system(size: 34, weight: .semibold))
 
             Text(heroSubtitle)
@@ -224,7 +224,7 @@ struct HomeDashboardView: View {
             return "No active targets"
         }
 
-        switch dashboard?.hero.status {
+        switch dashboard?.hero?.status {
         case .underPace:
             return "Under target pace"
         case .onPace:
@@ -255,7 +255,7 @@ struct HomeDashboardView: View {
     }
 
     private var heroTint: Color {
-        switch dashboard?.hero.status {
+        switch dashboard?.hero?.status {
         case .underPace:
             return .green
         case .onPace:
@@ -324,6 +324,9 @@ private struct DriverRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(driver.title)
                         .font(.headline)
+                    Text("Last month: \(driver.comparisonSpendText)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
@@ -333,7 +336,7 @@ private struct DriverRow: View {
                         .font(.headline)
                     Text(driver.deltaText)
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(driver.delta > 0 ? Color.orange : Color.secondary)
                 }
             }
             .padding(.vertical, 8)
@@ -355,9 +358,13 @@ private struct TargetRow: View {
                 Text(target.spentText)
                     .foregroundStyle(.secondary)
             }
+            ProgressView(
+                value: min(NSDecimalNumber(decimal: target.spent).doubleValue, NSDecimalNumber(decimal: target.monthlyLimit).doubleValue),
+                total: max(NSDecimalNumber(decimal: target.monthlyLimit).doubleValue, 0.01)
+            )
             Text(target.remainingText)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(target.remaining >= 0 ? Color.secondary : Color.red)
         }
         .padding(.vertical, 8)
     }

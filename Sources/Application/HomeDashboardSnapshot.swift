@@ -67,20 +67,26 @@ public struct HomeDashboardAction: Equatable, Sendable {
     public var kind: HomeDashboardActionKind
     public var destination: HomeDashboardDestination
     public var prominence: HomeDashboardActionProminence
+    private var titleOverride: String?
 
     public init(
         kind: HomeDashboardActionKind,
         destination: HomeDashboardDestination,
-        prominence: HomeDashboardActionProminence
+        prominence: HomeDashboardActionProminence,
+        title: String? = nil
     ) {
         self.kind = kind
         self.destination = destination
         self.prominence = prominence
+        self.titleOverride = title
     }
 
     // Temporary compatibility shim for the pre-Task-4 Home view.
     public var title: String {
-        switch kind {
+        if let titleOverride {
+            return titleOverride
+        }
+        return switch kind {
         case .reviewBacklog(let count):
             "Finish \(count) items in Review"
         case .pressuredTarget:
@@ -144,6 +150,9 @@ public struct HomeDashboardChart: Equatable, Sendable {
 public struct HomeDashboardTargetRow: Equatable, Identifiable, Sendable {
     public var id: UUID
     public var name: String
+    public var monthlyLimit: Decimal
+    public var spent: Decimal
+    public var remaining: Decimal
     public var spentText: String
     public var remainingText: String
     public var destination: HomeDashboardDestination
@@ -151,12 +160,18 @@ public struct HomeDashboardTargetRow: Equatable, Identifiable, Sendable {
     public init(
         id: UUID,
         name: String,
+        monthlyLimit: Decimal,
+        spent: Decimal,
+        remaining: Decimal,
         spentText: String,
         remainingText: String,
         destination: HomeDashboardDestination
     ) {
         self.id = id
         self.name = name
+        self.monthlyLimit = monthlyLimit
+        self.spent = spent
+        self.remaining = remaining
         self.spentText = spentText
         self.remainingText = remainingText
         self.destination = destination
@@ -167,6 +182,8 @@ public struct HomeDashboardDriverRow: Equatable, Identifiable, Sendable {
     public var id: String
     public var title: String
     public var currentSpendText: String
+    public var comparisonSpendText: String
+    public var delta: Decimal
     public var deltaText: String
     public var destination: HomeDashboardDestination
 
@@ -174,12 +191,16 @@ public struct HomeDashboardDriverRow: Equatable, Identifiable, Sendable {
         id: String,
         title: String,
         currentSpendText: String,
+        comparisonSpendText: String,
+        delta: Decimal,
         deltaText: String,
         destination: HomeDashboardDestination
     ) {
         self.id = id
         self.title = title
         self.currentSpendText = currentSpendText
+        self.comparisonSpendText = comparisonSpendText
+        self.delta = delta
         self.deltaText = deltaText
         self.destination = destination
     }
@@ -297,7 +318,8 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                 HomeDashboardAction(
                     kind: .pressuredTarget,
                     destination: .targets(pressuredTarget.id),
-                    prominence: actions.isEmpty ? .primary : .secondary
+                    prominence: actions.isEmpty ? .primary : .secondary,
+                    title: "Review \(pressuredTarget.name) target"
                 )
             )
         }
@@ -313,7 +335,8 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                             scope: driver.scope
                         )
                     ),
-                    prominence: actions.isEmpty ? .primary : .secondary
+                    prominence: actions.isEmpty ? .primary : .secondary,
+                    title: "Inspect \(driver.title)"
                 )
             )
         }
@@ -433,6 +456,9 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             HomeDashboardTargetRow(
                 id: target.id,
                 name: target.name,
+                monthlyLimit: target.monthlyLimit,
+                spent: target.spent,
+                remaining: target.remaining,
                 spentText: "\(currency(target.spent)) of \(currency(target.monthlyLimit))",
                 remainingText: remainingText(target.remaining),
                 destination: .targets(target.id)
@@ -453,6 +479,8 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                 id: driverID(driver),
                 title: driver.title,
                 currentSpendText: currency(driver.currentPeriodSpend),
+                comparisonSpendText: currency(driver.comparisonPeriodSpend),
+                delta: driver.delta,
                 deltaText: deltaText(driver.delta),
                 destination: .transactions(
                     TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
@@ -544,27 +572,6 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         }
 
         return "\(currency(remaining)) remaining"
-    }
-}
-
-// Temporary compatibility shim for the pre-Task-4 Home view.
-public extension Optional where Wrapped == HomeDashboardHero {
-    var amount: Decimal {
-        switch self {
-        case .some(let hero):
-            hero.amount
-        case .none:
-            .zero
-        }
-    }
-
-    var status: HomeHeroStatus? {
-        switch self {
-        case .some(let hero):
-            hero.status
-        case .none:
-            nil
-        }
     }
 }
 

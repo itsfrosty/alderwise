@@ -260,7 +260,7 @@ func workspaceSnapshotIncludesComputedHomeDashboard() throws {
     let snapshot = try service.loadSnapshot()
 
     #expect(snapshot.homeDashboard != nil)
-    #expect(snapshot.homeDashboard?.hero.amount == Decimal(40))
+    #expect(snapshot.homeDashboard?.hero?.amount == Decimal(40))
     #expect(snapshot.homeDashboard?.primaryAction?.title == "Finish 1 items in Review")
     #expect(snapshot.homeDashboard?.primaryAction?.destination == .review)
 }

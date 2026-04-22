@@ -105,6 +105,7 @@ func homeDashboardUsesMonthlyReportPendingReviewCountAsReviewSourceOfTruth() thr
     #expect(qualifier.pendingReviewCount == 7)
     #expect(dashboard.actions.first?.kind == .reviewBacklog(count: 7))
     #expect(dashboard.actions.first?.destination == .review)
+    #expect(dashboard.primaryAction?.title == "Finish 7 items in Review")
 }
 
 @Test
@@ -256,6 +257,7 @@ func homeDashboardUsesLargestPositiveDriverWhenReviewAndTargetPressureAreEmpty()
             reviewStatus: .accepted
         )
     ))
+    #expect(dashboard.primaryAction?.title == "Inspect Food")
 }
 
 @Test
