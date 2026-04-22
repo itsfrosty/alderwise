@@ -116,4 +116,13 @@ public struct LearnedRulesDestination: Equatable, Sendable {
 public enum SettingsDestination: Equatable, Sendable {
     case overview
     case learnedRules(LearnedRulesDestination)
+
+    public static func learnedRulesRoute(selectedLearnedRuleID: UUID? = nil) -> SettingsDestination {
+        .learnedRules(
+            LearnedRulesDestination(
+                mode: .learned,
+                selectedLearnedRuleID: selectedLearnedRuleID
+            )
+        )
+    }
 }

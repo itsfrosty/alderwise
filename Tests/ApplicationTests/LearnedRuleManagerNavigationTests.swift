@@ -4,16 +4,22 @@ import Foundation
 import Testing
 
 @Test
-func settingsDestinationLearnedRulesForcesLearnedModeAndPreservesSelectedRuleID() {
+func learnedRulesRouteForcesLearnedModeAndPreservesSelectedRuleID() {
     let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000411")!
-    let learnedRulesDestination = LearnedRulesDestination(
-        mode: .learned,
+
+    let destination = SettingsDestination.learnedRulesRoute(
         selectedLearnedRuleID: learnedRuleID
     )
 
-    let destination = SettingsDestination.learnedRules(learnedRulesDestination)
-
-    #expect(destination == .learnedRules(learnedRulesDestination))
+    #expect(
+        destination
+            == .learnedRules(
+                LearnedRulesDestination(
+                    mode: .learned,
+                    selectedLearnedRuleID: learnedRuleID
+                )
+            )
+    )
 }
 
 @Test

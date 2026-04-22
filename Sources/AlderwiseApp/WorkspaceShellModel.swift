@@ -251,11 +251,8 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func showLearnedRules(selectedLearnedRuleID: UUID? = nil) {
-        settingsDestination = .learnedRules(
-            LearnedRulesDestination(
-                mode: .learned,
-                selectedLearnedRuleID: selectedLearnedRuleID
-            )
+        settingsDestination = SettingsDestination.learnedRulesRoute(
+            selectedLearnedRuleID: selectedLearnedRuleID
         )
     }
 
