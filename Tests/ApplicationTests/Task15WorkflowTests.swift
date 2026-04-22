@@ -178,20 +178,19 @@ func targetServiceWorkflowSupportsEditDeleteAndHomeActionReference() throws {
 }
 
 @Test
-func homeDestinationTranslatesIntoReviewNavigationIntent() throws {
-    let dashboard = HomeDashboardSnapshot(
-        hero: HomeDashboardHero(amount: 0, status: .onPace),
-        primaryAction: HomeDashboardAction(
-            title: "Finish 2 items in Review",
-            destination: .review
-        )
+func homeTransactionDestinationPreservesFilterInNavigationIntent() throws {
+    let monthStart = Date(timeIntervalSince1970: 1_775_171_200)
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000114")!
+    let filter = TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
+        monthStart: monthStart,
+        scope: TargetScope.category(categoryID)
     )
 
-    let intent = try #require(dashboard.primaryAction?.destination.workspaceNavigationIntent)
+    let intent = HomeDashboardDestination.transactions(filter).workspaceNavigationIntent
 
-    #expect(intent.section == .review)
+    #expect(intent.section == .transactions)
     #expect(intent.targetID == nil)
-    #expect(intent.transactionFilter == nil)
+    #expect(intent.transactionFilter == filter)
 }
 
 @Test
