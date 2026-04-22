@@ -16,6 +16,18 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
         accounts
     }
 
+    func fetchManagementAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchImportEligibleAccounts() throws -> [Account] {
+        accounts.filter { !$0.isArchived }
+    }
+
+    func fetchLedgerFilterAccounts() throws -> [Account] {
+        accounts
+    }
+
     func fetchCategories() throws -> [BudgetCategory] {
         []
     }
@@ -35,6 +47,35 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
             institutionName: institutionName
         )
     }
+
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(id: id, name: named, kind: kind, institutionName: institutionName)
+    }
+
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        let existing = try #require(accounts.first { $0.id == id })
+        return Account(
+            id: existing.id,
+            name: existing.name,
+            kind: existing.kind,
+            institutionName: existing.institutionName,
+            createdAt: existing.createdAt,
+            archivedAt: archivedAt
+        )
+    }
+
+    func restoreAccount(id: UUID) throws -> Account {
+        let existing = try #require(accounts.first { $0.id == id })
+        return Account(
+            id: existing.id,
+            name: existing.name,
+            kind: existing.kind,
+            institutionName: existing.institutionName,
+            createdAt: existing.createdAt
+        )
+    }
+
+    func deleteAccountPermanently(id: UUID) throws {}
 
     func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
         StagedImportSession(
@@ -97,6 +138,7 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     var createMonthlyTargetError: (any Error)?
     var updateMonthlyTargetError: (any Error)?
     var deleteMonthlyTargetError: (any Error)?
+    var deleteAccountPermanentlyError: (any Error)?
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -108,6 +150,25 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     }
 
     func fetchAccounts() throws -> [Account] {
+        try fetchManagementAccounts()
+    }
+
+    func fetchManagementAccounts() throws -> [Account] {
+        accounts.sorted {
+            if $0.isArchived == $1.isArchived {
+                return $0.name < $1.name
+            }
+            return !$0.isArchived && $1.isArchived
+        }
+    }
+
+    func fetchImportEligibleAccounts() throws -> [Account] {
+        accounts
+            .filter { !$0.isArchived }
+            .sorted { $0.name < $1.name }
+    }
+
+    func fetchLedgerFilterAccounts() throws -> [Account] {
         accounts.sorted { $0.name < $1.name }
     }
 
@@ -130,8 +191,38 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
             institutionName: institutionName
         )
         accounts.append(account)
-        summary.accountCount = accounts.count
+        summary.accountCount = accounts.filter { !$0.isArchived }.count
         return account
+    }
+
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        let existingIndex = try #require(accounts.firstIndex { $0.id == id })
+        accounts[existingIndex].name = named
+        accounts[existingIndex].kind = kind
+        accounts[existingIndex].institutionName = institutionName
+        return accounts[existingIndex]
+    }
+
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        let existingIndex = try #require(accounts.firstIndex { $0.id == id })
+        accounts[existingIndex].archivedAt = archivedAt
+        summary.accountCount = accounts.filter { !$0.isArchived }.count
+        return accounts[existingIndex]
+    }
+
+    func restoreAccount(id: UUID) throws -> Account {
+        let existingIndex = try #require(accounts.firstIndex { $0.id == id })
+        accounts[existingIndex].archivedAt = nil
+        summary.accountCount = accounts.filter { !$0.isArchived }.count
+        return accounts[existingIndex]
+    }
+
+    func deleteAccountPermanently(id: UUID) throws {
+        if let deleteAccountPermanentlyError {
+            throw deleteAccountPermanentlyError
+        }
+        accounts.removeAll { $0.id == id }
+        summary.accountCount = accounts.filter { !$0.isArchived }.count
     }
 
     func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
@@ -339,8 +430,37 @@ func loadSnapshotReturnsSummaryAndAccountsFromStore() throws {
 
     #expect(snapshot.summary.accountCount == 1)
     #expect(snapshot.summary.reviewCount == 3)
-    #expect(snapshot.accounts.map(\.name) == ["Checking"])
+    #expect(snapshot.managementAccounts.map(\.name) == ["Checking"])
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Checking"])
+    #expect(snapshot.ledgerFilterAccounts.map(\.name) == ["Checking"])
     #expect(snapshot.pendingReviewItems == [reviewItem])
+}
+
+@Test
+func loadSnapshotSeparatesArchivedAccountVisibility() throws {
+    let archivedAt = Date(timeIntervalSince1970: 1_775_171_260)
+    let activeAccount = Account(name: "Checking", kind: .checking, institutionName: "Local Bank")
+    let archivedAccount = Account(
+        name: "Travel Card",
+        kind: .creditCard,
+        institutionName: "Visa",
+        archivedAt: archivedAt
+    )
+    let store = StubWorkspaceStore(
+        summary: WorkspaceSummary(
+            accountCount: 1,
+            transactionCount: 0,
+            reviewCount: 0,
+            targetCount: 0
+        ),
+        accounts: [activeAccount, archivedAccount]
+    )
+
+    let snapshot = try WorkspaceService(store: store).loadSnapshot()
+
+    #expect(snapshot.managementAccounts.map(\.name) == ["Checking", "Travel Card"])
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Checking"])
+    #expect(snapshot.ledgerFilterAccounts.map(\.name) == ["Checking", "Travel Card"])
 }
 
 @Test
@@ -357,7 +477,8 @@ func createAccountReturnsCreatedAccountAndUpdatedSnapshot() throws {
 
     #expect(created.name == "Travel Card")
     #expect(snapshot.summary.accountCount == 1)
-    #expect(snapshot.accounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.managementAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Travel Card"])
 }
 
 @Test
@@ -371,7 +492,49 @@ func seedSampleDataCreatesStarterAccountsOnlyOnce() throws {
     let snapshot = try service.loadSnapshot()
 
     #expect(snapshot.summary.accountCount == 2)
-    #expect(snapshot.accounts.map(\.name) == ["Checking", "Daily Card"])
+    #expect(snapshot.managementAccounts.map(\.name) == ["Checking", "Daily Card"])
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Checking", "Daily Card"])
+}
+
+@Test
+func archiveAndRestoreAccountUpdateVisibilityContracts() throws {
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+    let created = try service.createAccount(
+        named: "Travel Card",
+        kind: .creditCard,
+        institutionName: "Visa"
+    )
+
+    _ = try service.archiveAccount(
+        id: created.id,
+        archivedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    var snapshot = try service.loadSnapshot()
+    #expect(snapshot.summary.accountCount == 0)
+    #expect(snapshot.managementAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.importEligibleAccounts.isEmpty)
+    #expect(snapshot.ledgerFilterAccounts.map(\.name) == ["Travel Card"])
+
+    _ = try service.restoreAccount(id: created.id)
+
+    snapshot = try service.loadSnapshot()
+    #expect(snapshot.summary.accountCount == 1)
+    #expect(snapshot.importEligibleAccounts.map(\.name) == ["Travel Card"])
+}
+
+@Test
+func deleteAccountPermanentlySurfacesDependencyGuard() throws {
+    let store = MutableWorkspaceStore()
+    store.deleteAccountPermanentlyError = AccountManagementError.deleteBlockedByDependencies(
+        UUID(uuidString: "00000000-0000-0000-0000-000000000444")!
+    )
+    let service = WorkspaceService(store: store)
+
+    #expect(throws: WorkspaceServiceError.accountDeleteBlocked) {
+        try service.deleteAccountPermanently(id: UUID(uuidString: "00000000-0000-0000-0000-000000000444")!)
+    }
 }
 
 @Test

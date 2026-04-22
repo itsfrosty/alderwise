@@ -9,6 +9,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case transactionLedgerUnavailable
     case reviewQueueUnavailable
     case monthlyTargetConflict(MonthlyTargetConflict)
+    case accountDeleteBlocked
     case targetManagementUnavailable
     case workspaceMaintenanceUnavailable
 }
@@ -33,6 +34,8 @@ extension WorkspaceServiceError: LocalizedError {
             case .categoryGroupOverlap:
                 "A monthly target cannot overlap a category group and one of its member categories."
             }
+        case .accountDeleteBlocked:
+            "This account can't be deleted because it still has imported files or transactions."
         case .targetManagementUnavailable:
             "Monthly targets are unavailable for this workspace."
         case .workspaceMaintenanceUnavailable:
@@ -89,9 +92,14 @@ public struct WorkspaceService: Sendable {
         let reviewReader = store as? any ReviewQueueReading
         let summary = try store.fetchSummary()
         let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: .now) ?? .empty
+        let managementAccounts = try store.fetchManagementAccounts()
+        let importEligibleAccounts = try store.fetchImportEligibleAccounts()
+        let ledgerFilterAccounts = try store.fetchLedgerFilterAccounts()
         return WorkspaceSnapshot(
             summary: summary,
-            accounts: try store.fetchAccounts(),
+            managementAccounts: managementAccounts,
+            importEligibleAccounts: importEligibleAccounts,
+            ledgerFilterAccounts: ledgerFilterAccounts,
             categories: try store.fetchCategories(),
             categoryGroups: try store.fetchCategoryGroups(),
             pendingReviewItems: try reviewReader?.fetchPendingReviewItems() ?? [],
@@ -204,8 +212,41 @@ public struct WorkspaceService: Sendable {
     }
 
     @discardableResult
+    public func updateAccount(
+        id: UUID,
+        named: String,
+        kind: AccountKind,
+        institutionName: String?
+    ) throws -> Account {
+        try store.updateAccount(
+            id: id,
+            named: named.trimmingCharacters(in: .whitespacesAndNewlines),
+            kind: kind,
+            institutionName: institutionName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+        )
+    }
+
+    @discardableResult
+    public func archiveAccount(id: UUID, archivedAt: Date = .now) throws -> Account {
+        try store.archiveAccount(id: id, archivedAt: archivedAt)
+    }
+
+    @discardableResult
+    public func restoreAccount(id: UUID) throws -> Account {
+        try store.restoreAccount(id: id)
+    }
+
+    public func deleteAccountPermanently(id: UUID) throws {
+        do {
+            try store.deleteAccountPermanently(id: id)
+        } catch AccountManagementError.deleteBlockedByDependencies {
+            throw WorkspaceServiceError.accountDeleteBlocked
+        }
+    }
+
+    @discardableResult
     public func seedSampleDataIfNeeded() throws -> Bool {
-        let existingAccounts = try store.fetchAccounts()
+        let existingAccounts = try store.fetchManagementAccounts()
         guard existingAccounts.isEmpty else {
             return false
         }

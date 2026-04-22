@@ -3,12 +3,19 @@ import Foundation
 public protocol WorkspaceReading: Sendable {
     func fetchSummary() throws -> WorkspaceSummary
     func fetchAccounts() throws -> [Account]
+    func fetchManagementAccounts() throws -> [Account]
+    func fetchImportEligibleAccounts() throws -> [Account]
+    func fetchLedgerFilterAccounts() throws -> [Account]
     func fetchCategories() throws -> [BudgetCategory]
     func fetchCategoryGroups() throws -> [BudgetCategoryGroup]
 }
 
 public protocol AccountWriting: Sendable {
     func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account
+    func restoreAccount(id: UUID) throws -> Account
+    func deleteAccountPermanently(id: UUID) throws
 }
 
 public protocol StagedImportWriting: Sendable {

@@ -38,6 +38,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 table.column("kind", .text).notNull()
                 table.column("institution_name", .text)
                 table.column("created_at", .datetime).notNull()
+                table.column("archived_at", .datetime)
             }
 
             try db.create(table: "source_files") { table in
@@ -385,6 +386,18 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             try db.execute(sql: "PRAGMA foreign_keys = ON")
             try installTargetScopeWriteGuards(db: db)
         }
+        migrator.registerMigration("add-account-archive-state") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            guard try db.tableExists("accounts") else {
+                return
+            }
+
+            let accountColumns = try columnNames(in: "accounts", db: db)
+            if !accountColumns.contains("archived_at") {
+                try db.execute(sql: "ALTER TABLE accounts ADD COLUMN archived_at DATETIME")
+            }
+        }
 
         try migrator.migrate(databaseQueue)
         try seedDefaultBudgetTaxonomy()
@@ -392,7 +405,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
 
     public func fetchSummary() throws -> WorkspaceSummary {
         try databaseQueue.read { db in
-            let accountCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM accounts") ?? 0
+            let accountCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM accounts WHERE archived_at IS NULL"
+            ) ?? 0
             let transactionCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM transactions") ?? 0
             let reviewCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_items WHERE status = 'pending'") ?? 0
             let targetCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM targets") ?? 0
@@ -407,25 +423,46 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
     }
 
     public func fetchAccounts() throws -> [Account] {
+        try fetchManagementAccounts()
+    }
+
+    public func fetchManagementAccounts() throws -> [Account] {
         try databaseQueue.read { db in
-            let rows = try Row.fetchAll(
-                db,
+            try fetchAccountRows(
+                db: db,
                 sql: """
-                SELECT id, name, kind, institution_name, created_at
+                SELECT id, name, kind, institution_name, created_at, archived_at
+                FROM accounts
+                ORDER BY CASE WHEN archived_at IS NULL THEN 0 ELSE 1 END, name ASC
+                """
+            )
+        }
+    }
+
+    public func fetchImportEligibleAccounts() throws -> [Account] {
+        try databaseQueue.read { db in
+            try fetchAccountRows(
+                db: db,
+                sql: """
+                SELECT id, name, kind, institution_name, created_at, archived_at
+                FROM accounts
+                WHERE archived_at IS NULL
+                ORDER BY name ASC
+                """
+            )
+        }
+    }
+
+    public func fetchLedgerFilterAccounts() throws -> [Account] {
+        try databaseQueue.read { db in
+            try fetchAccountRows(
+                db: db,
+                sql: """
+                SELECT id, name, kind, institution_name, created_at, archived_at
                 FROM accounts
                 ORDER BY name ASC
                 """
             )
-
-            return rows.map { row in
-                Account(
-                    id: UUID(uuidString: row["id"]) ?? UUID(),
-                    name: row["name"],
-                    kind: AccountKind(rawValue: row["kind"]) ?? .checking,
-                    institutionName: row["institution_name"],
-                    createdAt: row["created_at"]
-                )
-            }
         }
     }
 
@@ -1332,8 +1369,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         try databaseQueue.write { db in
             try db.execute(
                 sql: """
-                INSERT INTO accounts (id, name, kind, institution_name, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO accounts (id, name, kind, institution_name, created_at, archived_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 arguments: [
                     account.id.uuidString,
@@ -1341,10 +1378,99 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     account.kind.rawValue,
                     account.institutionName,
                     account.createdAt,
+                    account.archivedAt,
                 ]
             )
         }
         return account
+    }
+
+    public func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try databaseQueue.write { db in
+            let existing = try fetchAccount(id: id, db: db)
+            guard let existing else {
+                throw AccountManagementError.accountNotFound(id)
+            }
+
+            try db.execute(
+                sql: """
+                UPDATE accounts
+                SET name = ?, kind = ?, institution_name = ?
+                WHERE id = ?
+                """,
+                arguments: [named, kind.rawValue, institutionName, id.uuidString]
+            )
+
+            return Account(
+                id: existing.id,
+                name: named,
+                kind: kind,
+                institutionName: institutionName,
+                createdAt: existing.createdAt,
+                archivedAt: existing.archivedAt
+            )
+        }
+    }
+
+    public func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        try databaseQueue.write { db in
+            let existing = try fetchAccount(id: id, db: db)
+            guard let existing else {
+                throw AccountManagementError.accountNotFound(id)
+            }
+
+            try db.execute(
+                sql: "UPDATE accounts SET archived_at = ? WHERE id = ?",
+                arguments: [archivedAt, id.uuidString]
+            )
+
+            return Account(
+                id: existing.id,
+                name: existing.name,
+                kind: existing.kind,
+                institutionName: existing.institutionName,
+                createdAt: existing.createdAt,
+                archivedAt: archivedAt
+            )
+        }
+    }
+
+    public func restoreAccount(id: UUID) throws -> Account {
+        try databaseQueue.write { db in
+            let existing = try fetchAccount(id: id, db: db)
+            guard let existing else {
+                throw AccountManagementError.accountNotFound(id)
+            }
+
+            try db.execute(
+                sql: "UPDATE accounts SET archived_at = NULL WHERE id = ?",
+                arguments: [id.uuidString]
+            )
+
+            return Account(
+                id: existing.id,
+                name: existing.name,
+                kind: existing.kind,
+                institutionName: existing.institutionName,
+                createdAt: existing.createdAt,
+                archivedAt: nil
+            )
+        }
+    }
+
+    public func deleteAccountPermanently(id: UUID) throws {
+        try databaseQueue.write { db in
+            guard try fetchAccount(id: id, db: db) != nil else {
+                throw AccountManagementError.accountNotFound(id)
+            }
+            guard try accountCanBeDeleted(id: id, db: db) else {
+                throw AccountManagementError.deleteBlockedByDependencies(id)
+            }
+            try db.execute(
+                sql: "DELETE FROM accounts WHERE id = ?",
+                arguments: [id.uuidString]
+            )
+        }
     }
 
     public func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
@@ -2694,6 +2820,65 @@ private func existingMonthlyTargetCreatedAt(id: UUID, db: Database) throws -> Da
         throw MonthlyTargetManagementError.targetNotFound(id)
     }
     return createdAt
+}
+
+private func fetchAccountRows(db: Database, sql: String, arguments: StatementArguments = StatementArguments()) throws -> [Account] {
+    let rows = try Row.fetchAll(db, sql: sql, arguments: arguments)
+    return rows.map(account(from:))
+}
+
+private func account(from row: Row) -> Account {
+    Account(
+        id: UUID(uuidString: row["id"]) ?? UUID(),
+        name: row["name"],
+        kind: AccountKind(rawValue: row["kind"]) ?? .checking,
+        institutionName: row["institution_name"],
+        createdAt: row["created_at"],
+        archivedAt: row["archived_at"]
+    )
+}
+
+private func fetchAccount(id: UUID, db: Database) throws -> Account? {
+    guard let row = try Row.fetchOne(
+        db,
+        sql: """
+        SELECT id, name, kind, institution_name, created_at, archived_at
+        FROM accounts
+        WHERE id = ?
+        """,
+        arguments: [id.uuidString]
+    ) else {
+        return nil
+    }
+    return account(from: row)
+}
+
+private func accountCanBeDeleted(id: UUID, db: Database) throws -> Bool {
+    let accountID = id.uuidString
+    let hasSourceFiles = try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM source_files WHERE account_id = ?)",
+        arguments: [accountID]
+    ) ?? false
+    if hasSourceFiles {
+        return false
+    }
+
+    let hasImportSessions = try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM import_sessions WHERE account_id = ?)",
+        arguments: [accountID]
+    ) ?? false
+    if hasImportSessions {
+        return false
+    }
+
+    let hasTransactions = try Bool.fetchOne(
+        db,
+        sql: "SELECT EXISTS(SELECT 1 FROM transactions WHERE account_id = ?)",
+        arguments: [accountID]
+    ) ?? false
+    return !hasTransactions
 }
 
 private func targetExists(id: UUID, db: Database) throws -> Bool {

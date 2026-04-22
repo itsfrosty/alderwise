@@ -165,6 +165,137 @@ func createdAccountsAppearInSummaryAndFetchResults() throws {
 
     #expect(summary.accountCount == 2)
     #expect(accounts.map(\.name) == ["Card", "Checking"])
+    #expect(try store.fetchImportEligibleAccounts().map(\.name) == ["Card", "Checking"])
+    #expect(try store.fetchLedgerFilterAccounts().map(\.name) == ["Card", "Checking"])
+}
+
+@Test
+func bootstrapAddsArchivedAccountStateToLegacyWorkspaces() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    let legacyAccountID = UUID(uuidString: "00000000-0000-0000-0000-000000000141")!
+    try queue.write { db in
+        try db.execute(
+            sql: "INSERT INTO accounts (id, name, kind, institution_name, created_at) VALUES (?, ?, ?, ?, ?)",
+            arguments: [
+                legacyAccountID.uuidString,
+                "Checking",
+                "checking",
+                "Local Bank",
+                Date(timeIntervalSince1970: 1_775_171_200),
+            ]
+        )
+    }
+
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let accountColumns = try queue.read { db in
+        Set(try Row.fetchAll(db, sql: "PRAGMA table_info(accounts)").map { row in
+            row["name"] as String
+        })
+    }
+    let managementAccounts = try store.fetchManagementAccounts()
+    let importEligibleAccounts = try store.fetchImportEligibleAccounts()
+
+    #expect(accountColumns.contains("archived_at"))
+    #expect(managementAccounts.map(\.id) == [legacyAccountID])
+    #expect(managementAccounts.allSatisfy { $0.archivedAt == nil })
+    #expect(importEligibleAccounts.map(\.id) == [legacyAccountID])
+}
+
+@Test
+func archivingAndRestoringAccountsUpdatesVisibilityContracts() throws {
+    let store = try WorkspaceStore.inMemory()
+    try store.bootstrap()
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    _ = try store.archiveAccount(
+        id: account.id,
+        archivedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    #expect(try store.fetchSummary().accountCount == 0)
+    #expect(try store.fetchManagementAccounts().map(\.name) == ["Checking"])
+    #expect(try store.fetchImportEligibleAccounts().isEmpty)
+    #expect(try store.fetchLedgerFilterAccounts().map(\.name) == ["Checking"])
+
+    _ = try store.restoreAccount(id: account.id)
+
+    #expect(try store.fetchSummary().accountCount == 1)
+    #expect(try store.fetchImportEligibleAccounts().map(\.name) == ["Checking"])
+}
+
+@Test
+func updateAccountPersistsMetadataChanges() throws {
+    let store = try WorkspaceStore.inMemory()
+    try store.bootstrap()
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    let updated = try store.updateAccount(
+        id: account.id,
+        named: "Primary Checking",
+        kind: .savings,
+        institutionName: "Community Bank"
+    )
+
+    #expect(updated.name == "Primary Checking")
+    #expect(updated.kind == .savings)
+    #expect(updated.institutionName == "Community Bank")
+    #expect(try store.fetchManagementAccounts().map(\.name) == ["Primary Checking"])
+}
+
+@Test
+func deleteUnusedAccountPermanentlyRemovesIt() throws {
+    let store = try WorkspaceStore.inMemory()
+    try store.bootstrap()
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    try store.deleteAccountPermanently(id: account.id)
+
+    #expect(try store.fetchManagementAccounts().isEmpty)
+    #expect(try store.fetchSummary().accountCount == 0)
+}
+
+@Test
+func deleteAccountPermanentlyRejectsDependentHistoryAndLeavesRowsIntact() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let stagedImportAccount = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let transactionAccount = try store.createAccount(named: "Card", kind: .creditCard, institutionName: "Visa")
+    try insertSourceFileAndImportSession(databaseURL: databaseURL, accountID: stagedImportAccount.id)
+    try insertTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000155")!,
+        accountID: transactionAccount.id,
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-4.75),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+
+    #expect(throws: AccountManagementError.deleteBlockedByDependencies(stagedImportAccount.id)) {
+        try store.deleteAccountPermanently(id: stagedImportAccount.id)
+    }
+    #expect(throws: AccountManagementError.deleteBlockedByDependencies(transactionAccount.id)) {
+        try store.deleteAccountPermanently(id: transactionAccount.id)
+    }
+
+    let counts = try DatabaseQueue(path: databaseURL.path).read { db in
+        (
+            accounts: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM accounts") ?? 0,
+            sourceFiles: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM source_files WHERE account_id = ?", arguments: [stagedImportAccount.id.uuidString]) ?? 0,
+            importSessions: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM import_sessions WHERE account_id = ?", arguments: [stagedImportAccount.id.uuidString]) ?? 0,
+            transactions: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM transactions WHERE account_id IN (?, ?)", arguments: [stagedImportAccount.id.uuidString, transactionAccount.id.uuidString]) ?? 0
+        )
+    }
+
+    #expect(counts.accounts == 2)
+    #expect(counts.sourceFiles == 1)
+    #expect(counts.importSessions == 1)
+    #expect(counts.transactions == 1)
 }
 
 @Test
@@ -2224,6 +2355,44 @@ private func insertTransaction(
                 "heuristic",
                 "accepted",
                 "none",
+            ]
+        )
+    }
+}
+
+private func insertSourceFileAndImportSession(databaseURL: URL, accountID: UUID) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO source_files (id, account_id, original_filename, content_hash, imported_at, row_count)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                "checking-april.csv",
+                "source-file-hash",
+                Date(timeIntervalSince1970: 1_775_171_200),
+                2,
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO import_sessions (
+                id, account_id, source_file_id, mapping_json, valid_row_count, invalid_row_count, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                1,
+                #"{"dateColumnIndex":0,"descriptionColumnIndex":1}"#,
+                2,
+                0,
+                "staged",
+                Date(timeIntervalSince1970: 1_775_171_200),
             ]
         )
     }
