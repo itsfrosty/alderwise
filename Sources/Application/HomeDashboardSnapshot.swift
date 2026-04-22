@@ -84,14 +84,12 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         summary: WorkspaceSummary,
         monthlyReport: MonthlyReport
     ) -> HomeDashboardSnapshot {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
         return HomeDashboardSnapshot(
             hero: HomeDashboardHero(
                 amount: monthlyReport.currentMonthAcceptedSpend,
                 status: heroStatus(for: monthlyReport)
             ),
-            primaryAction: primaryAction(monthlyReport: monthlyReport, calendar: calendar)
+            primaryAction: primaryAction(monthlyReport: monthlyReport)
         )
     }
 
@@ -105,7 +103,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         return .onPace
     }
 
-    private static func primaryAction(monthlyReport: MonthlyReport, calendar: Calendar) -> HomeDashboardAction? {
+    private static func primaryAction(monthlyReport: MonthlyReport) -> HomeDashboardAction? {
         if monthlyReport.pendingReviewCount > 0 {
             return HomeDashboardAction(
                 title: "Finish \(monthlyReport.pendingReviewCount) items in Review",
@@ -135,13 +133,9 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             return HomeDashboardAction(
                 title: "Inspect \(biggestDriver.title)",
                 destination: .transactions(
-                    TransactionLedgerFilter(
-                        startDate: monthlyReport.monthStart,
-                        endDate: endOfMonth(for: monthlyReport.monthStart, calendar: calendar),
-                        categoryID: biggestDriver.scope.categoryID,
-                        categoryGroupID: biggestDriver.scope.categoryGroupID,
-                        direction: .expense,
-                        reviewStatus: .accepted
+                    TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
+                        monthStart: monthlyReport.monthStart,
+                        scope: biggestDriver.scope
                     )
                 )
             )
@@ -158,33 +152,6 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             return lhs.remaining > rhs.remaining
         }
         return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
-    }
-
-    private static func endOfMonth(for monthStart: Date, calendar: Calendar) -> Date? {
-        guard let nextMonth = calendar.date(byAdding: .month, value: 1, to: monthStart) else {
-            return nil
-        }
-        return calendar.date(byAdding: .second, value: -1, to: nextMonth)
-    }
-}
-
-private extension SpendingDriverScope {
-    var categoryID: UUID? {
-        switch self {
-        case .category(let id):
-            return id
-        case .categoryGroup:
-            return nil
-        }
-    }
-
-    var categoryGroupID: UUID? {
-        switch self {
-        case .category:
-            return nil
-        case .categoryGroup(let id):
-            return id
-        }
     }
 }
 

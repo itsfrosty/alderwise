@@ -302,14 +302,7 @@ struct WorkspaceRootView: View {
             if section == .home {
                 HomeDashboardView(
                     snapshot: snapshot,
-                    navigate: { destination in
-                        let intent = destination.workspaceNavigationIntent
-                        selectedSectionRawValue = intent.section.rawValue
-                        model.selectTarget(id: intent.targetID)
-                        if let filter = intent.transactionFilter {
-                            model.updateTransactionFilter(filter)
-                        }
-                    }
+                    navigate: routeHomeDestination
                 )
             } else if WorkspaceDetailRoute.make(for: section) == .transactions {
                 TransactionLedgerView(snapshot: snapshot, model: model)
@@ -334,10 +327,7 @@ struct WorkspaceRootView: View {
                     onDelete: { id in
                         try model.deleteMonthlyTarget(id: id)
                     },
-                    onViewTransactions: { filter in
-                        selectedSectionRawValue = AppSection.transactions.rawValue
-                        model.updateTransactionFilter(filter)
-                    }
+                    onViewTransactions: routeToTransactions
                 )
             } else if WorkspaceDetailRoute.make(for: section) == .settings {
                 SettingsView(model: model)
@@ -369,6 +359,22 @@ struct WorkspaceRootView: View {
             } else {
                 SectionPlaceholderView(section: section, snapshot: snapshot)
             }
+        }
+    }
+
+    private func routeHomeDestination(_ destination: HomeDashboardDestination) {
+        route(intent: destination.workspaceNavigationIntent)
+    }
+
+    private func routeToTransactions(_ filter: TransactionLedgerFilter) {
+        route(intent: WorkspaceNavigationIntent(section: .transactions, transactionFilter: filter))
+    }
+
+    private func route(intent: WorkspaceNavigationIntent) {
+        selectedSectionRawValue = intent.section.rawValue
+        model.selectTarget(id: intent.targetID)
+        if let filter = intent.transactionFilter {
+            model.updateTransactionFilter(filter)
         }
     }
 }

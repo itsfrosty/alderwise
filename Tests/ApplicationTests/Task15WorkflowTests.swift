@@ -178,6 +178,23 @@ func targetServiceWorkflowSupportsEditDeleteAndHomeActionReference() throws {
 }
 
 @Test
+func homeDestinationTranslatesIntoReviewNavigationIntent() throws {
+    let dashboard = HomeDashboardSnapshot(
+        hero: HomeDashboardHero(amount: 0, status: .onPace),
+        primaryAction: HomeDashboardAction(
+            title: "Finish 2 items in Review",
+            destination: .review
+        )
+    )
+
+    let intent = try #require(dashboard.primaryAction?.destination.workspaceNavigationIntent)
+
+    #expect(intent.section == .review)
+    #expect(intent.targetID == nil)
+    #expect(intent.transactionFilter == nil)
+}
+
+@Test
 func accountServiceWorkflowSupportsEditArchiveRestoreAndDeleteWhenUnused() throws {
     let service = try task15Service()
 

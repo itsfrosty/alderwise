@@ -169,6 +169,46 @@ func targetsSectionUsesDedicatedManagerRoute() {
 }
 
 @Test
+func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedCategoryGroupFilter() {
+    let monthStart = homeDashboardUTCDate(year: 2026, month: 4, day: 1)
+    let foodGroupID = homeDashboardID("00000000-0000-0000-0000-000000000202")
+
+    let filter = TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
+        monthStart: monthStart,
+        scope: TargetScope.categoryGroup(foodGroupID)
+    )
+
+    #expect(filter == TransactionLedgerFilter(
+        startDate: monthStart,
+        endDate: homeDashboardEndOfMonth(monthStart),
+        categoryID: nil,
+        categoryGroupID: foodGroupID,
+        direction: .expense,
+        reviewStatus: .accepted
+    ))
+}
+
+@Test
+func homeDashboardTargetActionUsesSharedTransactionDrilldownFilter() {
+    let monthStart = homeDashboardUTCDate(year: 2026, month: 4, day: 1)
+    let categoryID = homeDashboardID("00000000-0000-0000-0000-000000000114")
+
+    let filter = TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
+        monthStart: monthStart,
+        scope: TargetScope.category(categoryID)
+    )
+
+    #expect(filter == TransactionLedgerFilter(
+        startDate: monthStart,
+        endDate: homeDashboardEndOfMonth(monthStart),
+        categoryID: categoryID,
+        categoryGroupID: nil,
+        direction: .expense,
+        reviewStatus: .accepted
+    ))
+}
+
+@Test
 func homeDashboardPrioritizesPositivePaceTargetsBeforeDrivers() {
     let foodGroupID = homeDashboardID("00000000-0000-0000-0000-000000000202")
     let report = homeDashboardReport(
@@ -457,4 +497,10 @@ private func homeDashboardUTCDate(
     components.minute = minute
     components.second = second
     return components.date!
+}
+
+private func homeDashboardEndOfMonth(_ monthStart: Date) -> Date? {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+    return calendar.date(byAdding: DateComponents(month: 1, second: -1), to: monthStart)
 }
