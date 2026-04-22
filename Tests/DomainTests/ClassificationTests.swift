@@ -471,6 +471,19 @@ func ordinaryMerchantsOnlyOfferExactLearning() {
 }
 
 @Test
+func learnedRuleFallbackPatternNormalizesWhitespaceOnlyInput() {
+    let exactRule = ReviewRuleLearningOption
+        .exactNormalizedMerchant(pattern: "   ")
+        .resolvingEmptyPattern(fallbackPattern: "Coffee Shop")
+    let prefixRule = ReviewRuleLearningOption
+        .prefixNormalizedMerchant(pattern: "   ")
+        .resolvingEmptyPattern(fallbackPattern: "99PLEDG Onir Baweja")
+
+    #expect(exactRule == .exactNormalizedMerchant(pattern: "coffee shop"))
+    #expect(prefixRule == .prefixNormalizedMerchant(pattern: "99pledg onir baweja"))
+}
+
+@Test
 func appendedRulesTakePrecedenceOverSeededRules() {
     let seededCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let learnedCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!

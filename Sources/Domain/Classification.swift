@@ -116,6 +116,28 @@ public enum ReviewRuleLearningOption: Hashable, Codable, Equatable, Sendable {
         }
     }
 
+    public func matchesMerchantName(_ merchantName: String) -> Bool {
+        merchantName
+            .normalizedClassificationPattern
+            .matchesClassificationPattern(pattern, matchKind: matchKind)
+    }
+
+    public func resolvingEmptyPattern(fallbackPattern: String) -> ReviewRuleLearningOption {
+        let resolvedPattern = pattern
+            .normalizedClassificationPattern
+            .nilIfEmpty
+            ?? fallbackPattern.normalizedClassificationPattern
+
+        switch matchKind {
+        case .exactNormalizedMerchant:
+            return .exactNormalizedMerchant(pattern: resolvedPattern)
+        case .prefixNormalizedMerchant:
+            return .prefixNormalizedMerchant(pattern: resolvedPattern)
+        case .contains:
+            return .exactNormalizedMerchant(pattern: resolvedPattern)
+        }
+    }
+
     public static func options(forNormalizedMerchantName normalizedMerchantName: String) -> [ReviewRuleLearningOption] {
         let normalizedMerchantName = normalizedMerchantName.normalizedClassificationPattern
         guard !normalizedMerchantName.isEmpty else {
@@ -492,5 +514,9 @@ private extension String {
         case .prefixNormalizedMerchant:
             return self == pattern || hasPrefix(pattern + " ")
         }
+    }
+
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }

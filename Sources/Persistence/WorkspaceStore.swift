@@ -823,6 +823,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 row["normalized_merchant_name"],
                 field: "review_items.normalized_merchant_name"
             )
+            let approvedMerchantName = assignment.merchantName?.nilIfEmpty ?? merchantPattern
             let details: String
             if let ruleLearning {
                 switch ruleLearning {
@@ -854,10 +855,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
 
             if let transactionIDText {
                 try db.execute(
-                sql: """
-                UPDATE transactions
-                SET category_id = ?,
-                    normalized_merchant_name = ?,
+                    sql: """
+                    UPDATE transactions
+                    SET category_id = ?,
+                        normalized_merchant_name = ?,
                     decision_source = ?,
                     decision_source_reference = NULL,
                     confidence = ?,
@@ -866,7 +867,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 """,
                     arguments: [
                         assignment.categoryID.uuidString,
-                        assignment.merchantName?.nilIfEmpty ?? merchantPattern,
+                        approvedMerchantName,
                         ClassificationDecisionSource.user.rawValue,
                         1.0,
                         TransactionReviewStatus.accepted.rawValue,
@@ -876,19 +877,27 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             }
 
             if let ruleLearning {
+                let sanitizedRuleLearning = ruleLearning.resolvingEmptyPattern(fallbackPattern: merchantPattern)
+                let learnedRuleID = UUID()
                 try db.execute(
                     sql: """
                     INSERT INTO rules (id, pattern, category_id, merchant_name, match_kind, created_at)
                     VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     arguments: [
-                        UUID().uuidString,
-                        ruleLearning.pattern.nilIfEmpty ?? merchantPattern,
+                        learnedRuleID.uuidString,
+                        sanitizedRuleLearning.pattern,
                         assignment.categoryID.uuidString,
                         assignment.merchantName,
-                        ruleLearning.matchKind.rawValue,
+                        sanitizedRuleLearning.matchKind.rawValue,
                         resolvedAt,
                     ]
+                )
+                try backfillTransactionsMatchingLearnedRule(
+                    db: db,
+                    learnedRuleID: learnedRuleID,
+                    learnedRule: sanitizedRuleLearning,
+                    assignment: assignment
                 )
             }
 
@@ -963,6 +972,64 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         }
     }
 
+    private func backfillTransactionsMatchingLearnedRule(
+        db: Database,
+        learnedRuleID: UUID,
+        learnedRule: ReviewRuleLearningOption,
+        assignment: ClassificationAssignment
+    ) throws {
+        let candidateRows = try Row.fetchAll(
+            db,
+            sql: """
+            SELECT id, normalized_merchant_name, raw_description
+            FROM transactions
+            WHERE review_status = ?
+              AND decision_source IN (?, ?)
+            """,
+            arguments: [
+                TransactionReviewStatus.accepted.rawValue,
+                ClassificationDecisionSource.heuristic.rawValue,
+                ClassificationDecisionSource.curatedPrefill.rawValue,
+            ]
+        )
+        let merchantNormalizer = MerchantNormalizer()
+        let matchedTransactionIDs = try candidateRows.compactMap { row -> String? in
+            let storedMerchantName = (row["normalized_merchant_name"] as String?) ?? ""
+            let rawDescription = try requireString(row["raw_description"], field: "transactions.raw_description")
+            let rawDescriptionMerchantName = merchantNormalizer.normalize(rawDescription)
+            guard learnedRule.matchesMerchantName(storedMerchantName)
+                || learnedRule.matchesMerchantName(rawDescriptionMerchantName) else {
+                return nil
+            }
+            return try requireString(row["id"], field: "transactions.id")
+        }
+        guard !matchedTransactionIDs.isEmpty else {
+            return
+        }
+
+        let placeholders = Array(repeating: "?", count: matchedTransactionIDs.count).joined(separator: ", ")
+        var arguments: StatementArguments = [
+            assignment.categoryID.uuidString,
+            ClassificationDecisionSource.rule.rawValue,
+            learnedRuleID.uuidString,
+            1.0,
+            TransactionReviewStatus.accepted.rawValue,
+        ]
+        _ = arguments.append(contentsOf: StatementArguments(matchedTransactionIDs))
+        try db.execute(
+            sql: """
+            UPDATE transactions
+            SET category_id = ?,
+                decision_source = ?,
+                decision_source_reference = ?,
+                confidence = ?,
+                review_status = ?
+            WHERE id IN (\(placeholders))
+            """,
+            arguments: arguments
+        )
+    }
+
     public func fetchTransactionLedger(filter: TransactionLedgerFilter = .empty) throws -> [TransactionLedgerRow] {
         try databaseQueue.read { db in
             let query = transactionLedgerQuery(filter: filter, includeIDPredicate: false)
@@ -1019,42 +1086,77 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
 
     public func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws {
         try databaseQueue.write { db in
-            try db.execute(
+            guard let row = try Row.fetchOne(
+                db,
                 sql: """
-                UPDATE transactions
-                SET normalized_merchant_name = ?,
-                    category_id = ?,
-                    decision_source = CASE WHEN ? IS NOT NULL AND review_status = ? THEN ? ELSE decision_source END,
-                    decision_source_reference = CASE
-                        WHEN ? IS NOT NULL AND review_status = ? THEN NULL
-                        ELSE decision_source_reference
-                    END,
-                    confidence = CASE WHEN ? IS NOT NULL AND review_status = ? THEN ? ELSE confidence END,
-                    review_status = CASE WHEN ? IS NOT NULL AND review_status = ? THEN ? ELSE review_status END,
-                    notes = ?
+                SELECT normalized_merchant_name, category_id, decision_source, review_status
+                FROM transactions
                 WHERE id = ?
                 """,
-                arguments: [
-                    draft.merchantName.trimmingCharacters(in: .whitespacesAndNewlines),
-                    draft.categoryID?.uuidString,
-                    draft.categoryID?.uuidString,
-                    TransactionReviewStatus.pending.rawValue,
-                    ClassificationDecisionSource.user.rawValue,
-                    draft.categoryID?.uuidString,
-                    TransactionReviewStatus.pending.rawValue,
-                    draft.categoryID?.uuidString,
-                    TransactionReviewStatus.pending.rawValue,
-                    1.0,
-                    draft.categoryID?.uuidString,
-                    TransactionReviewStatus.pending.rawValue,
-                    TransactionReviewStatus.accepted.rawValue,
-                    draft.notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
-                    id.uuidString,
-                ]
-            )
-
-            guard db.changesCount > 0 else {
+                arguments: [id.uuidString]
+            ) else {
                 throw WorkspaceStoreError.transactionNotFound(id)
+            }
+
+            let merchantName = draft.merchantName.trimmingCharacters(in: .whitespacesAndNewlines)
+            let notes = draft.notes?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
+            let currentMerchantName = try requireString(
+                row["normalized_merchant_name"],
+                field: "transactions.normalized_merchant_name"
+            )
+            let currentCategoryID = (row["category_id"] as String?).flatMap(UUID.init)
+            let currentDecisionSource = ClassificationDecisionSource(
+                rawValue: try requireString(row["decision_source"], field: "transactions.decision_source")
+            )
+            let currentReviewStatus = TransactionReviewStatus(
+                rawValue: try requireString(row["review_status"], field: "transactions.review_status")
+            )
+            let promotesPendingTransactionToUser =
+                draft.categoryID != nil && currentReviewStatus == .pending
+            let promotesAcceptedStarterTransactionToUser =
+                currentReviewStatus == .accepted
+                && (currentDecisionSource == .heuristic || currentDecisionSource == .curatedPrefill)
+                && (merchantName != currentMerchantName || draft.categoryID != currentCategoryID)
+
+            if promotesPendingTransactionToUser || promotesAcceptedStarterTransactionToUser {
+                try db.execute(
+                    sql: """
+                    UPDATE transactions
+                    SET normalized_merchant_name = ?,
+                        category_id = ?,
+                        decision_source = ?,
+                        decision_source_reference = NULL,
+                        confidence = ?,
+                        review_status = ?,
+                        notes = ?
+                    WHERE id = ?
+                    """,
+                    arguments: [
+                        merchantName,
+                        draft.categoryID?.uuidString,
+                        ClassificationDecisionSource.user.rawValue,
+                        1.0,
+                        TransactionReviewStatus.accepted.rawValue,
+                        notes,
+                        id.uuidString,
+                    ]
+                )
+            } else {
+                try db.execute(
+                    sql: """
+                    UPDATE transactions
+                    SET normalized_merchant_name = ?,
+                        category_id = ?,
+                        notes = ?
+                    WHERE id = ?
+                    """,
+                    arguments: [
+                        merchantName,
+                        draft.categoryID?.uuidString,
+                        notes,
+                        id.uuidString,
+                    ]
+                )
             }
         }
     }
