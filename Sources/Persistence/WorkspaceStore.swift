@@ -1478,6 +1478,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         }
 
         try validateWorkspaceBackup(at: backupURL)
+        try validateWorkspaceBackupCompatibility(at: backupURL)
         let safetyBackup = try createWorkspaceBackup(in: safetyBackupDirectory, now: now)
         let source = try DatabaseQueue(path: backupURL.path)
         try source.backup(to: databaseQueue)
@@ -1487,6 +1488,19 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             safetyBackup: safetyBackup,
             restoredAt: now
         )
+    }
+
+    public func resetWorkspace() throws -> WorkspaceResetResult {
+        guard databaseURL != nil else {
+            throw WorkspaceMaintenanceError.onDiskWorkspaceRequired
+        }
+
+        let preResetBackup = try createWorkspaceBackup()
+        try withBootstrappedReplacementWorkspaceStore { replacementStore in
+            try replacementStore.databaseQueue.backup(to: databaseQueue)
+        }
+
+        return WorkspaceResetResult(preResetBackupURL: preResetBackup.fileURL)
     }
 
     public func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {
@@ -3471,6 +3485,23 @@ private let defaultCategoryGroups = DefaultBudgetTaxonomy.categoryGroups
 
 private let defaultBudgetCategories = DefaultBudgetTaxonomy.categories
 
+private func withBootstrappedReplacementWorkspaceStore<R>(
+    fileManager: FileManager = .default,
+    perform body: (WorkspaceStore) throws -> R
+) throws -> R {
+    let replacementDirectory = fileManager.temporaryDirectory
+        .appending(path: "AlderwiseWorkspaceReset-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let replacementURL = replacementDirectory.appending(path: "workspace.sqlite")
+    try fileManager.createDirectory(at: replacementDirectory, withIntermediateDirectories: true)
+    defer {
+        try? fileManager.removeItem(at: replacementDirectory)
+    }
+
+    let store = try WorkspaceStore.at(databaseURL: replacementURL)
+    try store.bootstrap()
+    return try body(store)
+}
+
 private func pruneObsoleteDefaultTaxonomy(db: Database) throws {
     let currentCategoryIDs = Set(defaultBudgetCategories.map(\.id.uuidString))
     let currentGroupIDs = Set(defaultCategoryGroups.map(\.id.uuidString))
@@ -3550,29 +3581,74 @@ private func defaultOrderSQL(ids: [UUID], column: String) -> String {
 }
 
 private func validateWorkspaceBackup(at url: URL) throws {
+    let unreadableSQLiteReason = "Selected file is not a readable SQLite database."
+    let requiredTables = [
+        "accounts",
+        "source_files",
+        "source_rows",
+        "import_sessions",
+        "merchants",
+        "categories",
+        "category_groups",
+        "transactions",
+        "rules",
+        "review_items",
+        "targets",
+        "decision_events",
+        "review_decision_events",
+        "workspace_preferences",
+        "grdb_migrations",
+    ]
+
+    guard FileManager.default.fileExists(atPath: url.path) else {
+        throw WorkspaceMaintenanceError.invalidRestoreCandidate(unreadableSQLiteReason)
+    }
+
     do {
         let source = try DatabaseQueue(path: url.path)
         try source.read { db in
-            let requiredTables = [
-                "accounts",
-                "source_files",
-                "source_rows",
-                "import_sessions",
-                "transactions",
-                "review_items",
-                "targets",
-                "grdb_migrations",
-            ]
-            for table in requiredTables {
-                guard try db.tableExists(table) else {
-                    throw WorkspaceMaintenanceError.invalidRestoreCandidate("Missing required table '\(table)'.")
-                }
+            let missingTables = try requiredTables.filter { table in
+                !(try db.tableExists(table))
+            }
+            guard missingTables.isEmpty else {
+                let missingTablesDescription = missingTables.joined(separator: ", ")
+                throw WorkspaceMaintenanceError.invalidRestoreCandidate(
+                    "Missing required Alderwise tables: \(missingTablesDescription)."
+                )
             }
         }
     } catch let error as WorkspaceMaintenanceError {
         throw error
     } catch {
-        throw WorkspaceMaintenanceError.invalidRestoreCandidate(error.localizedDescription)
+        throw WorkspaceMaintenanceError.invalidRestoreCandidate(unreadableSQLiteReason)
+    }
+}
+
+private func validateWorkspaceBackupCompatibility(at url: URL) throws {
+    let fileManager = FileManager.default
+    let validationDirectory = fileManager.temporaryDirectory
+        .appending(path: "AlderwiseRestoreValidation-\(UUID().uuidString)", directoryHint: .isDirectory)
+    let validationURL = validationDirectory.appending(path: "candidate.sqlite")
+    let incompatibilityReason = "The selected backup is not compatible with the current Alderwise workspace schema."
+    defer {
+        try? fileManager.removeItem(at: validationDirectory)
+    }
+
+    do {
+        try fileManager.createDirectory(at: validationDirectory, withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: validationURL.path) {
+            try fileManager.removeItem(at: validationURL)
+        }
+        try fileManager.copyItem(at: url, to: validationURL)
+
+        let validationStore = try WorkspaceStore.at(databaseURL: validationURL)
+        try validationStore.bootstrap()
+        _ = try validationStore.fetchSummary()
+        _ = try validationStore.fetchWorkspacePreferences()
+    } catch let error as WorkspaceMaintenanceError {
+        throw error
+    } catch {
+        throw WorkspaceMaintenanceError.invalidRestoreCandidate(incompatibilityReason)
     }
 }
 

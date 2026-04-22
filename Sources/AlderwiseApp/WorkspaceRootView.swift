@@ -1,3 +1,4 @@
+import AppKit
 import Application
 import Domain
 import SwiftUI
@@ -78,7 +79,12 @@ struct WorkspaceRootView: View {
             case .csv:
                 model.importCSV(from: selectedFileURL(from: result))
             case .workspaceRestore:
-                model.restoreWorkspace(from: selectedFileURL(from: result))
+                switch selectedFileURL(from: result) {
+                case .success(let backupURL):
+                    model.beginWorkspaceRestoreConfirmation(backupURL: backupURL)
+                case .failure(let error):
+                    model.recordWorkspaceRestoreSelectionFailure(error: error)
+                }
             case nil:
                 break
             }
@@ -192,40 +198,6 @@ struct WorkspaceRootView: View {
         } message: {
             Text(model.sampleDataMessage ?? "")
         }
-        .alert(
-            "Workspace Updated",
-            isPresented: Binding(
-                get: { model.workspaceMaintenanceMessage != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        model.workspaceMaintenanceMessage = nil
-                    }
-                }
-            )
-        ) {
-            Button("OK") {
-                model.workspaceMaintenanceMessage = nil
-            }
-        } message: {
-            Text(model.workspaceMaintenanceMessage ?? "")
-        }
-        .alert(
-            "Workspace Maintenance Failed",
-            isPresented: Binding(
-                get: { model.workspaceMaintenanceErrorMessage != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        model.workspaceMaintenanceErrorMessage = nil
-                    }
-                }
-            )
-        ) {
-            Button("OK") {
-                model.workspaceMaintenanceErrorMessage = nil
-            }
-        } message: {
-            Text(model.workspaceMaintenanceErrorMessage ?? "")
-        }
     }
 
     private var sidebar: some View {
@@ -309,7 +281,7 @@ struct WorkspaceRootView: View {
                     .frame(maxWidth: 560)
                 HStack(spacing: 12) {
                     Button {
-                        model.reload()
+                        model.retryFailedWorkspaceRecovery()
                     } label: {
                         Label("Try Again", systemImage: "arrow.clockwise")
                     }
@@ -321,6 +293,7 @@ struct WorkspaceRootView: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
+            .modifier(WorkspaceMaintenanceFeedbackModifier(model: model))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loading:
             ProgressView("Loading workspace…")

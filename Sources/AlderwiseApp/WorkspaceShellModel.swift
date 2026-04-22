@@ -39,10 +39,11 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var selectedTransactionDetail: TransactionDetail?
     @Published var transactionDetailErrorMessage: String?
     @Published var reviewErrorMessage: String?
-    @Published private(set) var workspaceMetadata: WorkspaceMetadata?
     @Published private(set) var workspacePreferences = WorkspacePreferences.default
-    @Published var workspaceMaintenanceMessage: String?
-    @Published var workspaceMaintenanceErrorMessage: String?
+    @Published private(set) var pendingMaintenanceAction: PendingWorkspaceMaintenanceAction?
+    @Published private(set) var latestMaintenanceOutcome: WorkspaceMaintenanceOutcome?
+    @Published private(set) var latestMaintenanceFailure: WorkspaceMaintenanceFailure?
+    @Published private(set) var workspaceStatus: WorkspaceStatus = .loading
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
@@ -77,7 +78,7 @@ final class WorkspaceShellModel: ObservableObject {
 
     convenience init(store: WorkspaceStore?, service: WorkspaceService?, initialError: String) {
         self.init(store: store, service: service)
-        state = .failed(initialError)
+        applyFailedWorkspaceState(message: initialError)
     }
 
     var snapshot: WorkspaceSnapshot {
@@ -89,34 +90,21 @@ final class WorkspaceShellModel: ObservableObject {
         }
     }
 
-    func reload() {
-        guard let service else {
-            return
-        }
+    var workspaceMetadata: WorkspaceMetadata? {
+        workspaceStatus.metadata
+    }
 
+    func reload() {
         do {
-            let snapshot = try service.loadSnapshot(filter: transactionFilter)
-            let managedTargets = try service.fetchManagedTargets(referenceDate: snapshot.monthlyReport.monthStart)
-            state = .loaded(snapshot)
-            self.managedTargets = managedTargets
-            workspaceMetadata = try? service.loadWorkspaceMetadata()
-            workspacePreferences = (try? service.loadWorkspacePreferences()) ?? .default
-            if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
-                self.selectedTargetID = nil
-            }
-            let transactionID = if let selectedTransactionID,
-                                   snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
-                selectedTransactionID
-            } else {
-                snapshot.transactions.first?.id
-            }
-            selectedTransactionID = transactionID
-            loadSelectedTransactionDetail(id: transactionID)
+            try loadWorkspaceState()
         } catch {
-            managedTargets = []
-            selectedTargetID = nil
-            state = .failed(error.localizedDescription)
+            applyFailedWorkspaceState(message: error.localizedDescription)
         }
+    }
+
+    func retryFailedWorkspaceRecovery() {
+        pendingMaintenanceAction = .retryWorkspaceRecovery
+        confirmPendingMaintenanceAction()
     }
 
     func updateSuggestionsEnabled(_ isEnabled: Bool) {
@@ -132,7 +120,7 @@ final class WorkspaceShellModel: ObservableObject {
             try service.updateWorkspacePreferences(preferences)
             workspacePreferences = preferences
         } catch {
-            workspaceMaintenanceErrorMessage = error.localizedDescription
+            recordMaintenanceFailure(.preferencesUpdate, error: error)
         }
     }
 
@@ -149,7 +137,7 @@ final class WorkspaceShellModel: ObservableObject {
             try service.updateWorkspacePreferences(preferences)
             workspacePreferences = preferences
         } catch {
-            workspaceMaintenanceErrorMessage = error.localizedDescription
+            recordMaintenanceFailure(.preferencesUpdate, error: error)
         }
     }
 
@@ -160,10 +148,10 @@ final class WorkspaceShellModel: ObservableObject {
 
         do {
             let backup = try service.createWorkspaceBackup()
-            workspaceMaintenanceMessage = "Backup created at \(backup.fileURL.path)"
-            workspaceMetadata = try? service.loadWorkspaceMetadata()
+            refreshWorkspaceMetadata()
+            recordMaintenanceOutcome(.backupCreated(backup))
         } catch {
-            workspaceMaintenanceErrorMessage = error.localizedDescription
+            recordMaintenanceFailure(.backup, error: error)
         }
     }
 
@@ -172,30 +160,42 @@ final class WorkspaceShellModel: ObservableObject {
         isPresentingFileImporter = true
     }
 
-    func restoreWorkspace(from result: Result<URL, Error>) {
-        guard let service else {
-            return
-        }
+    func beginWorkspaceRestoreConfirmation(backupURL: URL) {
+        pendingMaintenanceAction = .restoreBackup(backupURL)
+    }
 
-        do {
-            let url = try result.get()
-            let didAccessScopedResource = url.startAccessingSecurityScopedResource()
-            defer {
-                if didAccessScopedResource {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
+    func beginWorkspaceResetConfirmation() {
+        pendingMaintenanceAction = .reset
+    }
 
-            let restoreResult = try service.restoreWorkspaceBackup(from: url)
+    func cancelPendingMaintenanceAction() {
+        pendingMaintenanceAction = nil
+    }
+
+    func dismissLatestMaintenanceOutcome() {
+        latestMaintenanceOutcome = nil
+    }
+
+    func dismissLatestMaintenanceFailure() {
+        latestMaintenanceFailure = nil
+    }
+
+    func confirmPendingMaintenanceAction() {
+        switch pendingMaintenanceAction {
+        case .retryWorkspaceRecovery:
+            pendingMaintenanceAction = nil
             reload()
-            if let safetyBackup = restoreResult.safetyBackup {
-                workspaceMaintenanceMessage = "Workspace restored. Safety backup saved at \(safetyBackup.fileURL.path)"
-            } else {
-                workspaceMaintenanceMessage = "Workspace restored."
-            }
-        } catch {
-            workspaceMaintenanceErrorMessage = error.localizedDescription
+        case .restoreBackup(let backupURL):
+            restoreWorkspace(backupURL: backupURL)
+        case .reset:
+            resetWorkspace()
+        case nil:
+            break
         }
+    }
+
+    func recordWorkspaceRestoreSelectionFailure(error: any Error) {
+        recordMaintenanceFailure(.restore, error: error)
     }
 
     func updateTransactionFilter(_ filter: TransactionLedgerFilter) {
@@ -233,7 +233,7 @@ final class WorkspaceShellModel: ObservableObject {
             try service.updateTransactionLedgerFields(id: selectedTransactionID, draft: draft)
             reload()
         } catch {
-            state = .failed(error.localizedDescription)
+            applyFailedWorkspaceState(message: error.localizedDescription)
         }
     }
 
@@ -335,7 +335,7 @@ final class WorkspaceShellModel: ObservableObject {
                 ? "Sample accounts were added."
                 : "Sample data was skipped because this workspace already has accounts."
         } catch {
-            state = .failed(error.localizedDescription)
+            applyFailedWorkspaceState(message: error.localizedDescription)
         }
     }
 
@@ -451,5 +451,106 @@ final class WorkspaceShellModel: ObservableObject {
         isPresentingImportPreview = false
         csvImportPreview = nil
         pendingCSVImport = nil
+    }
+
+    private func resetWorkspace() {
+        guard let service else {
+            pendingMaintenanceAction = nil
+            return
+        }
+
+        do {
+            let result = try service.resetWorkspace()
+            try loadWorkspaceState()
+            recordMaintenanceOutcome(.reset(result))
+        } catch {
+            recordMaintenanceFailure(.reset, error: error)
+        }
+    }
+
+    private func restoreWorkspace(backupURL: URL) {
+        guard let service else {
+            pendingMaintenanceAction = nil
+            return
+        }
+
+        do {
+            let didAccessScopedResource = backupURL.startAccessingSecurityScopedResource()
+            defer {
+                if didAccessScopedResource {
+                    backupURL.stopAccessingSecurityScopedResource()
+                }
+            }
+
+            let restoreResult = try service.restoreWorkspaceBackup(from: backupURL)
+            try loadWorkspaceState()
+            recordMaintenanceOutcome(.restored(restoreResult))
+        } catch {
+            recordMaintenanceFailure(.restore, error: error)
+        }
+    }
+
+    private func loadWorkspaceState() throws {
+        guard let service else {
+            return
+        }
+
+        let snapshot = try service.loadSnapshot(filter: transactionFilter)
+        let managedTargets = try service.fetchManagedTargets(referenceDate: snapshot.monthlyReport.monthStart)
+        let metadata = try? service.loadWorkspaceMetadata()
+        let preferences = (try? service.loadWorkspacePreferences()) ?? .default
+
+        state = .loaded(snapshot)
+        self.managedTargets = managedTargets
+        workspaceStatus = .available(metadata)
+        workspacePreferences = preferences
+
+        if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
+            self.selectedTargetID = nil
+        }
+        let transactionID = if let selectedTransactionID,
+                               snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
+            selectedTransactionID
+        } else {
+            snapshot.transactions.first?.id
+        }
+        selectedTransactionID = transactionID
+        loadSelectedTransactionDetail(id: transactionID)
+    }
+
+    private func applyFailedWorkspaceState(message: String) {
+        managedTargets = []
+        selectedTargetID = nil
+        selectedTransactionID = nil
+        selectedTransactionDetail = nil
+        transactionDetailErrorMessage = nil
+        state = .failed(message)
+        workspaceStatus = .failedToOpen(message)
+    }
+
+    private func refreshWorkspaceMetadata() {
+        guard case .available = workspaceStatus, let service else {
+            return
+        }
+
+        workspaceStatus = .available(try? service.loadWorkspaceMetadata())
+    }
+
+    private func recordMaintenanceOutcome(_ outcome: WorkspaceMaintenanceOutcome) {
+        pendingMaintenanceAction = nil
+        latestMaintenanceFailure = nil
+        latestMaintenanceOutcome = outcome
+    }
+
+    private func recordMaintenanceFailure(
+        _ operation: WorkspaceMaintenanceFailure.Operation,
+        error: any Error
+    ) {
+        pendingMaintenanceAction = nil
+        latestMaintenanceOutcome = nil
+        latestMaintenanceFailure = WorkspaceMaintenanceFailure(
+            operation: operation,
+            message: error.localizedDescription
+        )
     }
 }

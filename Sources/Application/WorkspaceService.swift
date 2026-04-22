@@ -198,6 +198,10 @@ public struct WorkspaceService: Sendable {
         try workspaceMaintenanceManager().restoreWorkspaceBackup(from: backupURL)
     }
 
+    public func resetWorkspace() throws -> WorkspaceResetResult {
+        try workspaceMaintenanceManager().resetWorkspace()
+    }
+
     public func loadWorkspacePreferences() throws -> WorkspacePreferences {
         try workspacePreferencesManager().fetchWorkspacePreferences()
     }

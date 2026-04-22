@@ -362,16 +362,168 @@ func restoreWorkspaceBackupRestoresValidBackupAndKeepsSafetyBackup() throws {
 }
 
 @Test
-func restoreWorkspaceBackupRejectsNonAlderwiseFiles() throws {
+func restoreWorkspaceBackupRejectsLiveWorkspacePath() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    #expect(throws: WorkspaceMaintenanceError.restoreSourceIsCurrentWorkspace) {
+        try store.restoreWorkspaceBackup(from: databaseURL)
+    }
+}
+
+@Test
+func restoreWorkspaceBackupRejectsMalformedSQLiteCandidates() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
     let invalidURL = databaseURL.deletingLastPathComponent().appending(path: "not-a-workspace.sqlite")
     try Data("not sqlite".utf8).write(to: invalidURL)
 
-    #expect(throws: WorkspaceMaintenanceError.self) {
+    #expect(throws: WorkspaceMaintenanceError.invalidRestoreCandidate("Selected file is not a readable SQLite database.")) {
         try store.restoreWorkspaceBackup(from: invalidURL)
     }
+}
+
+@Test
+func restoreWorkspaceBackupRejectsSchemaIncompatibleCandidatesMissingRequiredTables() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    let backup = try createRestoreCandidateBackup(from: store, at: databaseURL)
+    try dropRestoreCandidateTables(at: backup.fileURL, tables: [
+        "rules",
+        "review_decision_events",
+        "workspace_preferences",
+    ])
+
+    do {
+        _ = try store.restoreWorkspaceBackup(from: backup.fileURL)
+        Issue.record("Expected restore to reject missing tables.")
+    } catch let error as WorkspaceMaintenanceError {
+        guard case .invalidRestoreCandidate(let reason) = error else {
+            Issue.record("Expected invalidRestoreCandidate, got \(error).")
+            return
+        }
+
+        #expect(reason.contains("Missing required Alderwise tables:"))
+        #expect(reason.contains("rules"))
+        #expect(reason.contains("review_decision_events"))
+        #expect(reason.contains("workspace_preferences"))
+    }
+}
+
+@Test
+func restoreWorkspaceBackupRejectsSchemaIncompatibleCandidatesWithWrongWorkspacePreferencesShape() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    let backup = try createRestoreCandidateBackup(from: store, at: databaseURL)
+    try replaceWorkspacePreferencesTableWithIncompatibleShape(at: backup.fileURL)
+
+    #expect(throws: WorkspaceMaintenanceError.invalidRestoreCandidate("The selected backup is not compatible with the current Alderwise workspace schema.")) {
+        try store.restoreWorkspaceBackup(from: backup.fileURL)
+    }
+    #expect(try store.fetchSummary().accountCount == 0)
+}
+
+@Test
+func restoreWorkspaceBackupLeavesLiveWorkspaceUnchangedWhenValidationFailsBeforeOverwrite() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let invalidURL = databaseURL.deletingLastPathComponent().appending(path: "not-a-workspace.sqlite")
+    try Data("not sqlite".utf8).write(to: invalidURL)
+
+    #expect(throws: WorkspaceMaintenanceError.invalidRestoreCandidate("Selected file is not a readable SQLite database.")) {
+        try store.restoreWorkspaceBackup(from: invalidURL)
+    }
+    #expect(try store.fetchSummary().accountCount == 1)
+}
+
+@Test
+func resetWorkspaceCreatesMandatoryBackupAndLeavesBootstrappedEmptyWorkspace() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    let result = try store.resetWorkspace()
+    let backupStore = try WorkspaceStore.at(databaseURL: result.preResetBackupURL)
+
+    #expect(FileManager.default.fileExists(atPath: result.preResetBackupURL.path))
+    #expect(try backupStore.fetchSummary().accountCount == 1)
+    #expect(try store.fetchSummary() == .empty)
+    #expect(try store.fetchAccounts().isEmpty)
+    #expect(try store.fetchCategories().isEmpty == false)
+}
+
+@Test
+func resetWorkspacePreservesLiveWorkspacePath() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    _ = try store.resetWorkspace()
+    let metadata = try store.fetchWorkspaceMetadata()
+    let reopenedStore = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    #expect(metadata.databaseURL == databaseURL)
+    #expect(FileManager.default.fileExists(atPath: databaseURL.path))
+    #expect(try reopenedStore.fetchSummary() == .empty)
+}
+
+@Test
+func resetWorkspaceClearsWorkspacePreferencesBackToDefaults() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    try store.updateWorkspacePreferences(
+        WorkspacePreferences(
+            suggestionsEnabled: false,
+            seededHeuristicAutoAcceptEnabled: true
+        )
+    )
+
+    _ = try store.resetWorkspace()
+
+    #expect(try store.fetchWorkspacePreferences() == .default)
+}
+
+@Test
+func resetWorkspaceLeavesExistingBackupFilesUntouched() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let backupDirectory = databaseURL.deletingLastPathComponent().appending(path: "Backups", directoryHint: .isDirectory)
+    try FileManager.default.createDirectory(at: backupDirectory, withIntermediateDirectories: true)
+    let existingBackupURL = backupDirectory.appending(path: "Alderwise Backup 2000-01-01 000000.sqlite")
+    let existingBackupContents = Data("existing backup".utf8)
+    try existingBackupContents.write(to: existingBackupURL)
+
+    let result = try store.resetWorkspace()
+
+    #expect(result.preResetBackupURL != existingBackupURL)
+    #expect(FileManager.default.fileExists(atPath: existingBackupURL.path))
+    #expect(try Data(contentsOf: existingBackupURL) == existingBackupContents)
+}
+
+@Test
+func resetWorkspaceIsBlockedWhenMandatoryBackupCannotComplete() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+    _ = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let backupDirectory = databaseURL.deletingLastPathComponent().appending(path: "Backups", directoryHint: .isDirectory)
+    try Data("not a directory".utf8).write(to: backupDirectory)
+
+    #expect(throws: (any Error).self) {
+        try store.resetWorkspace()
+    }
+    #expect(try store.fetchSummary().accountCount == 1)
 }
 
 @Test
@@ -3540,6 +3692,35 @@ private func createWorkspaceWithLegacyStagedImportMissingDecisionColumns(
                 "valid",
             ]
         )
+    }
+}
+
+private func dropRestoreCandidateTables(at databaseURL: URL, tables: [String]) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        for table in tables {
+            try db.execute(sql: "DROP TABLE \(table)")
+        }
+    }
+}
+
+private func createRestoreCandidateBackup(from store: WorkspaceStore, at databaseURL: URL) throws -> WorkspaceBackup {
+    let backupDirectory = databaseURL.deletingLastPathComponent().appending(path: "Backups", directoryHint: .isDirectory)
+    return try store.createWorkspaceBackup(
+        in: backupDirectory,
+        now: Date(timeIntervalSince1970: 1_775_171_200)
+    )
+}
+
+private func replaceWorkspacePreferencesTableWithIncompatibleShape(at databaseURL: URL) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(sql: "ALTER TABLE workspace_preferences RENAME TO workspace_preferences_old")
+        try db.execute(sql: "CREATE TABLE workspace_preferences (key TEXT PRIMARY KEY, stored_value TEXT NOT NULL)")
+        try db.execute(
+            sql: "INSERT INTO workspace_preferences (key, stored_value) SELECT key, value FROM workspace_preferences_old"
+        )
+        try db.execute(sql: "DROP TABLE workspace_preferences_old")
     }
 }
 
