@@ -12,7 +12,7 @@ struct TransactionLedgerView: View {
     @State private var endDate = Date()
     @State private var isSearchPresented = false
     @State private var isSyncingControls = false
-    @State private var isShowingSecondaryFilters = false
+    @State private var userExpandedSecondaryFilters = false
 
     private var selectedIDBinding: Binding<UUID?> {
         Binding(
@@ -29,6 +29,19 @@ struct TransactionLedgerView: View {
             categoryName: selectedCategoryName,
             categoryGroupName: categoryGroupFilterName,
             importSessionName: selectedImportSessionName
+        )
+    }
+
+    private var hasActiveSecondaryFilters: Bool {
+        hasActiveSecondaryFilters(in: model.transactionFilter)
+    }
+
+    private var secondaryFiltersExpansion: Binding<Bool> {
+        Binding(
+            get: { hasActiveSecondaryFilters || userExpandedSecondaryFilters },
+            set: { isExpanded in
+                userExpandedSecondaryFilters = hasActiveSecondaryFilters ? false : isExpanded
+            }
         )
     }
 
@@ -54,7 +67,6 @@ struct TransactionLedgerView: View {
         }
         .navigationTitle("Transactions")
         .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Search transactions")
-        .background(searchCommandBinding)
         .onSubmit(of: .search) {
             applyFilters()
         }
@@ -72,7 +84,10 @@ struct TransactionLedgerView: View {
                 )
             }
         }
-        .onChange(of: model.transactionFilter) { _, _ in
+        .onChange(of: model.transactionFilter) { oldFilter, newFilter in
+            if hasActiveSecondaryFilters(in: oldFilter), !hasActiveSecondaryFilters(in: newFilter) {
+                userExpandedSecondaryFilters = false
+            }
             syncControlsFromFilter()
         }
     }
@@ -105,6 +120,7 @@ struct TransactionLedgerView: View {
                 Button("Search", systemImage: "magnifyingglass") {
                     focusSearch()
                 }
+                .keyboardShortcut("f", modifiers: [.command])
 
                 if !headerState.activeChips.isEmpty {
                     Button("Reset All") {
@@ -113,7 +129,7 @@ struct TransactionLedgerView: View {
                 }
             }
 
-            DisclosureGroup(isExpanded: $isShowingSecondaryFilters) {
+            DisclosureGroup(isExpanded: secondaryFiltersExpansion) {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .center, spacing: 12) {
                         Picker("Direction", selection: directionSelection) {
@@ -195,26 +211,13 @@ struct TransactionLedgerView: View {
         .listStyle(.inset)
     }
 
-    private var searchCommandBinding: some View {
-        Button("Focus Search") {
-            focusSearch()
-        }
-        .keyboardShortcut("f", modifiers: [.command])
-        .buttonStyle(.plain)
-        .labelsHidden()
-        .frame(width: 0, height: 0)
-        .opacity(0.01)
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
     private var accountSelection: Binding<UUID?> {
         Binding(
             get: { model.transactionFilter.accountID },
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.accountID = newValue
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
@@ -226,7 +229,7 @@ struct TransactionLedgerView: View {
                 var filter = model.transactionFilter
                 filter.categoryID = newValue
                 filter.categoryGroupID = nil
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
@@ -237,7 +240,7 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.reviewStatus = newValue
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
@@ -248,7 +251,7 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.direction = newValue
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
@@ -259,7 +262,7 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.importSessionID = newValue
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
@@ -313,6 +316,14 @@ struct TransactionLedgerView: View {
         return count == 0 ? "More Filters" : "More Filters (\(count))"
     }
 
+    private func hasActiveSecondaryFilters(in filter: TransactionLedgerFilter) -> Bool {
+        filter.direction != nil ||
+            filter.reviewStatus != nil ||
+            filter.importSessionID != nil ||
+            filter.startDate != nil ||
+            filter.endDate != nil
+    }
+
     private func zeroResultsView(state: TransactionLedgerHeaderState.ZeroResultsState) -> some View {
         ContentUnavailableView {
             Label(state.title, systemImage: "line.3.horizontal.decrease.circle")
@@ -348,6 +359,14 @@ struct TransactionLedgerView: View {
         }
 
         let nextFilter = TransactionLedgerHeaderState.removing(chips, from: model.transactionFilter)
+        updateTransactionFilter(nextFilter)
+    }
+
+    private func updateTransactionFilter(_ nextFilter: TransactionLedgerFilter) {
+        if hasActiveSecondaryFilters && !hasActiveSecondaryFilters(in: nextFilter) {
+            userExpandedSecondaryFilters = false
+        }
+
         model.updateTransactionFilter(nextFilter)
     }
 
@@ -360,7 +379,7 @@ struct TransactionLedgerView: View {
         filter.searchText = searchText
         filter.startDate = hasStartDate ? startDate : nil
         filter.endDate = hasEndDate ? endDate : nil
-        model.updateTransactionFilter(filter)
+        updateTransactionFilter(filter)
     }
 
     private func syncControlsFromFilter() {
@@ -391,14 +410,6 @@ struct TransactionLedgerView: View {
 
         if searchText != filter.searchText {
             searchText = filter.searchText
-        }
-
-        if filter.direction != nil ||
-            filter.reviewStatus != nil ||
-            filter.importSessionID != nil ||
-            filter.startDate != nil ||
-            filter.endDate != nil {
-            isShowingSecondaryFilters = true
         }
     }
 }
