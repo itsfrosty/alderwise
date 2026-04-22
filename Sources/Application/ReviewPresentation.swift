@@ -35,7 +35,13 @@ public struct ReviewPresentation: Sendable {
 
     public func initialRuleLearningSelection(for item: PendingReviewItem) -> ReviewRuleLearningOption? {
         let normalizedMerchantName = item.classification?.normalizedMerchantName ?? ""
-        return ReviewRuleLearningOption.defaultOption(forNormalizedMerchantName: normalizedMerchantName)
+        let options = ReviewRuleLearningOption.options(forNormalizedMerchantName: normalizedMerchantName)
+        return options.first(where: { option in
+            if case .exactNormalizedMerchant = option {
+                return true
+            }
+            return false
+        }) ?? options.first
     }
 
     public func resolvedRuleLearningSelection(

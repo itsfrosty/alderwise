@@ -980,6 +980,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         assignment: ClassificationAssignment,
         resolvedAt: Date
     ) throws {
+        let backfillableDecisionSources = learnedRuleBackfillDecisionSources.map(\.rawValue)
         let candidateRows = try Row.fetchAll(
             db,
             sql: """
@@ -991,8 +992,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             arguments: [
                 TransactionReviewStatus.pending.rawValue,
                 TransactionReviewStatus.accepted.rawValue,
-                ClassificationDecisionSource.heuristic.rawValue,
-                ClassificationDecisionSource.curatedPrefill.rawValue,
+                backfillableDecisionSources[0],
+                backfillableDecisionSources[1],
             ]
         )
         let merchantNormalizer = MerchantNormalizer()
@@ -1210,7 +1211,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 draft.categoryID != nil && currentReviewStatus == .pending
             let promotesAcceptedStarterTransactionToUser =
                 currentReviewStatus == .accepted
-                && (currentDecisionSource == .heuristic || currentDecisionSource == .curatedPrefill)
+                && isAcceptedTransactionPromotableToUserOnEdit(currentDecisionSource)
                 && (merchantName != currentMerchantName || draft.categoryID != currentCategoryID)
 
             if promotesPendingTransactionToUser || promotesAcceptedStarterTransactionToUser {
@@ -2899,6 +2900,26 @@ private func pendingReviewClassification(from row: Row) throws -> PendingReviewC
         sourceReference: row["classification_source_reference"],
         confidence: row["classification_confidence"]
     )
+}
+
+private let learnedRuleBackfillDecisionSources: [ClassificationDecisionSource] = [
+    .heuristic,
+    .curatedPrefill,
+]
+
+private let acceptedTransactionPromotionDecisionSources: Set<ClassificationDecisionSource> = [
+    .heuristic,
+    .curatedPrefill,
+    .suggestion,
+]
+
+private func isAcceptedTransactionPromotableToUserOnEdit(
+    _ decisionSource: ClassificationDecisionSource?
+) -> Bool {
+    guard let decisionSource else {
+        return false
+    }
+    return acceptedTransactionPromotionDecisionSources.contains(decisionSource)
 }
 
 private enum WorkspaceStoreError: Error {

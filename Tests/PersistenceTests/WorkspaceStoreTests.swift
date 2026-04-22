@@ -1176,6 +1176,50 @@ func updateTransactionLedgerFieldsPromotesAcceptedStarterDerivedTransactionToUse
 }
 
 @Test
+func updateTransactionLedgerFieldsPromotesAcceptedSuggestionTransactionToUserWhenEdited() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Groceries", kind: "expense")
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000416")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: transactionID,
+        accountID: account.id,
+        categoryID: categoryID,
+        importSessionID: nil,
+        rawDescription: "Market",
+        normalizedMerchantName: "market",
+        amount: Decimal(-31.25),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.suggestion.rawValue,
+        decisionSourceReference: "suggestion:market",
+        confidence: 0.91
+    )
+
+    try store.updateTransactionLedgerFields(
+        id: transactionID,
+        draft: TransactionLedgerEditDraft(
+            merchantName: "Neighborhood Market",
+            categoryID: categoryID,
+            notes: nil
+        )
+    )
+
+    let detail = try #require(try store.fetchTransactionDetail(id: transactionID))
+
+    #expect(detail.row.merchantName == "Neighborhood Market")
+    #expect(detail.decisionSource == .user)
+    #expect(detail.decisionSourceReference == nil)
+    #expect(detail.confidence == 1.0)
+    #expect(detail.row.reviewStatus == .accepted)
+}
+
+@Test
 func bootstrapAcceptsPreviouslyUserCategorizedPendingTransactions() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

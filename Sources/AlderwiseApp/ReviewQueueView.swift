@@ -300,7 +300,7 @@ private struct ReviewQueueDetail: View {
         presentation.resolvedRuleLearningSelection(
             for: item,
             selectedRuleLearning: selectedRuleLearning
-        ) ?? ruleLearningOptions(for: item).first
+        )
     }
 
     private func optionPickerLabel(_ option: ReviewRuleLearningOption) -> String {
