@@ -8,6 +8,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case importPreviewCouldNotNormalizeRow(line: Int)
     case transactionLedgerUnavailable
     case reviewQueueUnavailable
+    case learnedRuleManagementUnavailable
     case monthlyTargetConflict(MonthlyTargetConflict)
     case archivedAccountImportUnavailable
     case accountManagementUnavailable
@@ -29,6 +30,8 @@ extension WorkspaceServiceError: LocalizedError {
             "The transaction ledger is unavailable for this workspace."
         case .reviewQueueUnavailable:
             "The review queue is unavailable for this workspace."
+        case .learnedRuleManagementUnavailable:
+            "Learned rules are unavailable for this workspace."
         case .monthlyTargetConflict(let conflict):
             switch conflict {
             case .duplicateScope:
@@ -78,12 +81,12 @@ public struct StagedCSVImportResult: Equatable, Sendable {
 }
 
 public struct WorkspaceService: Sendable {
-    private let store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading & LearnedRuleReading
+    private let store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading
     private let merchantNormalizer: MerchantNormalizer
     private let classifier: ClassificationEngine
 
     public init(
-        store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading & LearnedRuleReading,
+        store: any WorkspaceStoring & StagedImportWriting & ImportDecisionReading,
         merchantNormalizer: MerchantNormalizer = MerchantNormalizer(),
         classifier: ClassificationEngine = ClassificationEngine()
     ) {
@@ -119,7 +122,10 @@ public struct WorkspaceService: Sendable {
     }
 
     public func loadLearnedRuleManagerSnapshot() throws -> LearnedRuleManagerSnapshot {
-        let learnedRules = try store.fetchLearnedRuleSummaries()
+        guard let learnedRuleReader = store as? any LearnedRuleReading else {
+            throw WorkspaceServiceError.learnedRuleManagementUnavailable
+        }
+        let learnedRules = try learnedRuleReader.fetchLearnedRuleSummaries()
         let learnedRows = learnedRules.map { ManagedLearnedRuleRow(summary: $0) }
         return LearnedRuleManagerSnapshot(
             learned: LearnedRuleManagerSectionSnapshot(

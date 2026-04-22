@@ -29,7 +29,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var isPresentingTargetSheet = false
     @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
     @Published var selectedTargetID: UUID?
-    @Published private(set) var settingsDestination: SettingsDestination?
+    @Published private(set) var settingsDestination: SettingsDestination = .overview
     @Published private(set) var csvImportPreview: CSVImportPreview?
     @Published private(set) var pendingCSVImport: PendingCSVImport?
     @Published var importErrorMessage: String?
@@ -246,12 +246,17 @@ final class WorkspaceShellModel: ObservableObject {
         selectedTargetID = id
     }
 
-    func selectSettingsDestination(_ destination: SettingsDestination?) {
+    func selectSettingsDestination(_ destination: SettingsDestination) {
         settingsDestination = destination
     }
 
     func showLearnedRules(selectedLearnedRuleID: UUID? = nil) {
-        settingsDestination = .learnedRules(selectedLearnedRuleID: selectedLearnedRuleID)
+        settingsDestination = .learnedRules(
+            LearnedRulesDestination(
+                mode: .learned,
+                selectedLearnedRuleID: selectedLearnedRuleID
+            )
+        )
     }
 
     @discardableResult

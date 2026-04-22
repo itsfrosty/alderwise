@@ -649,7 +649,7 @@ func restoreWorkspaceBackupReturnsTypedOutcomeData() throws {
     #expect(store.resetCallCount == 0)
 }
 
-private final class DefaultResetBridgeMaintenanceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
+private final class DefaultResetBridgeMaintenanceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
     func fetchSummary() throws -> WorkspaceSummary {
         .empty
     }
@@ -750,18 +750,6 @@ private final class DefaultResetBridgeMaintenanceStore: WorkspaceStoring, Staged
         candidates: [NormalizedImportCandidate]
     ) throws -> [LikelyDuplicateCandidate] {
         []
-    }
-
-    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
-        []
-    }
-
-    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
-        nil
-    }
-
-    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
-        nil
     }
 
     func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup {
@@ -1940,4 +1928,13 @@ func seededHeuristicsDoNotAppearInTheManagerSnapshot() throws {
         .subtracting(Set(SeededClassification.curatedReviewPrefills.map(\.merchantPattern)))
 
     #expect(heuristicOnlyPatterns.allSatisfy { seededPatterns.contains($0) == false })
+}
+
+@Test
+func loadLearnedRuleManagerSnapshotFailsWithoutLearnedRuleReader() throws {
+    let service = WorkspaceService(store: DefaultResetBridgeMaintenanceStore())
+
+    #expect(throws: WorkspaceServiceError.learnedRuleManagementUnavailable) {
+        try service.loadLearnedRuleManagerSnapshot()
+    }
 }

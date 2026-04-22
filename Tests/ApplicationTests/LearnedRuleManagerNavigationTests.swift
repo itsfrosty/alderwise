@@ -6,17 +6,20 @@ import Testing
 @Test
 func settingsDestinationLearnedRulesForcesLearnedModeAndPreservesSelectedRuleID() {
     let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000411")!
+    let learnedRulesDestination = LearnedRulesDestination(
+        mode: .learned,
+        selectedLearnedRuleID: learnedRuleID
+    )
 
-    let destination = SettingsDestination.learnedRules(selectedLearnedRuleID: learnedRuleID)
+    let destination = SettingsDestination.learnedRules(learnedRulesDestination)
 
-    #expect(destination.learnedRulesDestination?.mode == .learned)
-    #expect(destination.learnedRulesDestination?.selectedLearnedRuleID == learnedRuleID)
+    #expect(destination == .learnedRules(learnedRulesDestination))
 }
 
 @Test
-func learnedRulesDestinationDoesNotStoreManagerSearchOrFilterText() {
-    let destination = SettingsDestination.learnedRules(selectedLearnedRuleID: nil)
-    let mirroredDestination = Mirror(reflecting: destination.learnedRulesDestination!)
+func learnedRulesDestinationCarriesOnlyModeAndSelection() {
+    let destination = LearnedRulesDestination(mode: .learned, selectedLearnedRuleID: nil)
+    let mirroredDestination = Mirror(reflecting: destination)
     let labels = mirroredDestination.children.compactMap(\.label)
 
     #expect(labels == ["mode", "selectedLearnedRuleID"])

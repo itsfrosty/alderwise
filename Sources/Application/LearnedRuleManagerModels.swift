@@ -107,7 +107,7 @@ public struct LearnedRulesDestination: Equatable, Sendable {
     public var mode: LearnedRuleManagerMode
     public var selectedLearnedRuleID: UUID?
 
-    public init(mode: LearnedRuleManagerMode = .learned, selectedLearnedRuleID: UUID? = nil) {
+    public init(mode: LearnedRuleManagerMode, selectedLearnedRuleID: UUID? = nil) {
         self.mode = mode
         self.selectedLearnedRuleID = selectedLearnedRuleID
     }
@@ -115,17 +115,5 @@ public struct LearnedRulesDestination: Equatable, Sendable {
 
 public enum SettingsDestination: Equatable, Sendable {
     case overview
-    case learnedRules(selectedLearnedRuleID: UUID?)
-
-    public var learnedRulesDestination: LearnedRulesDestination? {
-        switch self {
-        case .overview:
-            return nil
-        case .learnedRules(let selectedLearnedRuleID):
-            return LearnedRulesDestination(
-                mode: .learned,
-                selectedLearnedRuleID: selectedLearnedRuleID
-            )
-        }
-    }
+    case learnedRules(LearnedRulesDestination)
 }
