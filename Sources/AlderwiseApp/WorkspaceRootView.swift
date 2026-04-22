@@ -367,7 +367,8 @@ struct WorkspaceRootView: View {
     }
 
     private func routeToTransactions(_ filter: TransactionLedgerFilter) {
-        route(intent: WorkspaceNavigationIntent(section: .transactions, transactionFilter: filter))
+        selectedSectionRawValue = AppSection.transactions.rawValue
+        model.updateTransactionFilter(filter)
     }
 
     private func route(intent: WorkspaceNavigationIntent) {
