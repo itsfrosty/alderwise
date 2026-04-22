@@ -54,7 +54,7 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         let showsClearSearch: Bool
     }
 
-    enum Chip: Equatable, Sendable {
+    enum Chip: Equatable, Hashable, Sendable {
         case search(String)
         case account(UUID, String)
         case category(UUID, String)
@@ -144,6 +144,12 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         }
 
         return nextFilter
+    }
+
+    static func removing<S: Sequence>(_ chips: S, from filter: TransactionLedgerFilter) -> TransactionLedgerFilter where S.Element == Chip {
+        chips.reduce(filter) { partialFilter, chip in
+            removing(chip, from: partialFilter)
+        }
     }
 
     private static func filteredResultCountText(for count: Int) -> String {

@@ -304,6 +304,33 @@ func removingSearchChipPreservesOtherFilters() {
     #expect(nextFilter.direction == .expense)
 }
 
+@Test
+func removingMultipleTypedChipsSupportsSharedResetPath() {
+    let accountID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    let startDate = makeDate(year: 2026, month: 1, day: 5)
+    let filter = TransactionLedgerFilter(
+        searchText: "coffee",
+        startDate: startDate,
+        accountID: accountID,
+        direction: .expense
+    )
+
+    let nextFilter = TransactionLedgerHeaderState.removing(
+        [
+            .account(accountID, "Checking"),
+            .direction(.expense),
+            .dateRange(start: startDate, end: nil),
+        ],
+        from: filter
+    )
+
+    #expect(nextFilter.searchText == "coffee")
+    #expect(nextFilter.startDate == nil)
+    #expect(nextFilter.endDate == nil)
+    #expect(nextFilter.accountID == nil)
+    #expect(nextFilter.direction == nil)
+}
+
 private func makeRow(id: UUID = UUID()) -> TransactionLedgerRow {
     TransactionLedgerRow(
         id: id,
