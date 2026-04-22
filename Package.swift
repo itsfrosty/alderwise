@@ -56,6 +56,11 @@ let package = Package(
             path: "Tests/ApplicationTests"
         ),
         .testTarget(
+            name: "AlderwiseAppTests",
+            dependencies: ["AlderwiseApp", "Application", "Domain"],
+            path: "Tests/AlderwiseAppTests"
+        ),
+        .testTarget(
             name: "PersistenceTests",
             dependencies: [
                 "Persistence",

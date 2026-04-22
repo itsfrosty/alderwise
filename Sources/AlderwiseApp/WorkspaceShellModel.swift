@@ -229,16 +229,25 @@ final class WorkspaceShellModel: ObservableObject {
         }
     }
 
-    func updateSelectedTransaction(draft: TransactionLedgerEditDraft) {
+    @discardableResult
+    func updateSelectedTransaction(draft: TransactionLedgerEditDraft) -> Bool {
         guard let service, let selectedTransactionID else {
-            return
+            return false
         }
 
         do {
             try service.updateTransactionLedgerFields(id: selectedTransactionID, draft: draft)
-            reload()
+        } catch {
+            transactionDetailErrorMessage = error.localizedDescription
+            return false
+        }
+
+        do {
+            try loadWorkspaceState()
+            return true
         } catch {
             applyFailedWorkspaceState(message: error.localizedDescription)
+            return false
         }
     }
 

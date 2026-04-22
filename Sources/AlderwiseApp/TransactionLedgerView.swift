@@ -3,6 +3,12 @@ import Domain
 import SwiftUI
 
 struct TransactionLedgerView: View {
+    private enum Layout {
+        static let minimumPrimaryWidth: CGFloat = 420
+        static let idealPrimaryWidth: CGFloat = 560
+        static let minimumSecondaryWidth: CGFloat = 320
+    }
+
     let snapshot: WorkspaceSnapshot
     @ObservedObject var model: WorkspaceShellModel
     @State private var searchText = ""
@@ -12,41 +18,102 @@ struct TransactionLedgerView: View {
     @State private var endDate = Date()
     @State private var isSearchPresented = false
     @State private var isSyncingControls = false
+    @State private var userExpandedSecondaryFilters = false
+    @State private var draftCoordinator = TransactionDetailDraftCoordinator()
+    @SceneStorage("transactionsLedgerPrimaryWidth") private var primaryPaneWidth = Double(Layout.idealPrimaryWidth)
 
     private var selectedIDBinding: Binding<UUID?> {
         Binding(
             get: { model.selectedTransactionID },
-            set: { model.selectTransaction(id: $0) }
+            set: { handleSelectionChange(to: $0) }
+        )
+    }
+
+    private var isPresentingSelectionChangeConfirmation: Binding<Bool> {
+        Binding(
+            get: {
+                draftCoordinator.isSelectionChangePromptPresented
+            },
+            set: { isPresented in
+                if !isPresented {
+                    draftCoordinator.dismissSelectionChangePrompt()
+                }
+            }
+        )
+    }
+
+    private var headerState: TransactionLedgerHeaderState {
+        TransactionLedgerHeaderState(
+            rows: snapshot.transactions,
+            filter: model.transactionFilter,
+            accountName: selectedAccountName,
+            categoryName: selectedCategoryName,
+            categoryGroupName: categoryGroupFilterName,
+            importSessionName: selectedImportSessionName
+        )
+    }
+
+    private var primaryPaneWidthBinding: Binding<CGFloat> {
+        Binding(
+            get: { CGFloat(primaryPaneWidth) },
+            set: { primaryPaneWidth = Double($0) }
+        )
+    }
+
+    private var hasActiveSecondaryFilters: Bool {
+        hasActiveSecondaryFilters(in: model.transactionFilter)
+    }
+
+    private var secondaryFiltersExpansion: Binding<Bool> {
+        Binding(
+            get: { hasActiveSecondaryFilters || userExpandedSecondaryFilters },
+            set: { isExpanded in
+                userExpandedSecondaryFilters = hasActiveSecondaryFilters ? false : isExpanded
+            }
         )
     }
 
     var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                filterBar
+        StableTwoPaneSplitView(
+            primaryWidth: primaryPaneWidthBinding,
+            minPrimaryWidth: Layout.minimumPrimaryWidth,
+            minSecondaryWidth: Layout.minimumSecondaryWidth,
+            primary: VStack(spacing: 0) {
+                ledgerHeader
                     .padding(12)
 
-                if snapshot.transactions.isEmpty {
-                    ContentUnavailableView(
-                        "No transactions match these filters",
-                        systemImage: "line.3.horizontal.decrease.circle",
-                        description: Text("Imported and accepted transactions appear here as the ledger grows.")
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    transactionList
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider()
 
-            TransactionDetailView(
+                ledgerContent
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity),
+            secondary: TransactionLedgerView.DetailInspector(
                 detail: model.selectedTransactionDetail,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
-                onSave: model.updateSelectedTransaction(draft:),
+                draft: draftCoordinator.currentDraft,
+                isDirty: draftCoordinator.isDirty,
+                onDraftChange: { draftCoordinator.updateDraft($0) },
+                onSave: handleSave,
                 onViewLearnedRule: { model.showLearnedRules(selectedLearnedRuleID: $0) }
             )
-            .frame(idealWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        )
+        .alert(
+            "Save changes before switching transactions?",
+            isPresented: isPresentingSelectionChangeConfirmation
+        ) {
+            Button("Save Changes") {
+                saveAndApplyPendingSelection()
+            }
+            Button("Discard Changes", role: .destructive) {
+                discardChangesAndApplyPendingSelection()
+            }
+            Button("Cancel", role: .cancel) {
+                draftCoordinator.cancelPendingSelectionChange()
+            }
+        } message: {
+            Text("You have unsaved edits in the inspector. Save them before switching transactions.")
         }
         .navigationTitle("Transactions")
         .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Search transactions")
@@ -58,118 +125,141 @@ struct TransactionLedgerView: View {
         }
         .onAppear {
             syncControlsFromFilter()
+            syncDraftCoordinator()
             if model.selectedTransactionID == nil {
-                model.selectTransaction(id: snapshot.transactions.first?.id)
+                model.selectTransaction(
+                    id: TransactionLedgerSelectionState.selectionAfterReload(
+                        currentSelectionID: nil,
+                        visibleRows: snapshot.transactions
+                    )
+                )
             }
         }
-        .onChange(of: model.transactionFilter) { _, _ in
+        .onChange(of: model.transactionFilter) { oldFilter, newFilter in
+            if hasActiveSecondaryFilters(in: oldFilter), !hasActiveSecondaryFilters(in: newFilter) {
+                userExpandedSecondaryFilters = false
+            }
             syncControlsFromFilter()
+        }
+        .onChange(of: model.selectedTransactionDetail) { _, _ in
+            syncDraftCoordinator()
+        }
+    }
+
+    private var ledgerHeader: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            TransactionLedgerHeaderView(
+                state: headerState,
+                onRemoveChip: clear
+            )
+
+            primaryFilterControls
+
+            DisclosureGroup(isExpanded: secondaryFiltersExpansion) {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(alignment: .center, spacing: 12) {
+                        Picker("Direction", selection: directionSelection) {
+                            Text("All Directions").tag(Optional<TransactionDirection>.none)
+                            ForEach(TransactionDirection.allCases, id: \.self) { direction in
+                                Text(direction.rawValue.capitalized).tag(Optional(direction))
+                            }
+                        }
+
+                        Picker("Review", selection: reviewSelection) {
+                            Text("All Review States").tag(Optional<TransactionReviewStatus>.none)
+                            ForEach(TransactionReviewStatus.allCases, id: \.self) { status in
+                                Text(status.rawValue.capitalized).tag(Optional(status))
+                            }
+                        }
+
+                        Picker("Import", selection: importSessionSelection) {
+                            Text("All Imports").tag(Optional<Int64>.none)
+                            ForEach(importOrigins, id: \.id) { origin in
+                                Text(origin.originalFilename).tag(Optional(origin.id))
+                            }
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+
+                    HStack(alignment: .center, spacing: 12) {
+                        Toggle("From", isOn: $hasStartDate)
+                            .onChange(of: hasStartDate) { _, _ in applyFilters() }
+
+                        DatePicker("", selection: $startDate, displayedComponents: .date)
+                            .labelsHidden()
+                            .disabled(!hasStartDate)
+                            .onChange(of: startDate) { _, _ in applyFilters() }
+
+                        Toggle("To", isOn: $hasEndDate)
+                            .onChange(of: hasEndDate) { _, _ in applyFilters() }
+
+                        DatePicker("", selection: $endDate, displayedComponents: .date)
+                            .labelsHidden()
+                            .disabled(!hasEndDate)
+                            .onChange(of: endDate) { _, _ in applyFilters() }
+
+                        Spacer(minLength: 0)
+                    }
+                }
+                .padding(.top, 10)
+            } label: {
+                Text(secondaryFiltersLabel)
+                    .font(.subheadline.weight(.medium))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var primaryFilterControls: some View {
+        HStack(alignment: .center, spacing: 12) {
+            Picker("Account", selection: accountSelection) {
+                Text("All Accounts").tag(Optional<UUID>.none)
+                ForEach(snapshot.ledgerFilterAccounts) { account in
+                    Text(accountFilterLabel(for: account)).tag(Optional(account.id))
+                }
+            }
+            .frame(minWidth: 180)
+            .layoutPriority(1)
+
+            GroupedCategoryPicker(
+                title: "Category",
+                prompt: "All Categories",
+                categories: snapshot.categories,
+                categoryGroups: snapshot.categoryGroups,
+                selection: categorySelection
+            )
+            .frame(minWidth: 220)
+            .layoutPriority(1)
+
+            Spacer(minLength: 0)
+        }
+    }
+
+    @ViewBuilder
+    private var ledgerContent: some View {
+        if let zeroResultsState = headerState.zeroResultsState {
+            zeroResultsView(state: zeroResultsState)
+        } else if snapshot.transactions.isEmpty {
+            ContentUnavailableView(
+                "No transactions yet",
+                systemImage: "tray",
+                description: Text("Imported and accepted transactions appear here as the ledger grows.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            transactionList
         }
     }
 
     private var transactionList: some View {
         List(selection: selectedIDBinding) {
             ForEach(snapshot.transactions) { transaction in
-                TransactionLedgerRowView(transaction: transaction)
+                TransactionLedgerView.Row(transaction: transaction)
                     .tag(transaction.id)
             }
         }
         .listStyle(.inset)
-    }
-
-    private var filterBar: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Button {
-                    isSearchPresented = true
-                } label: {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
-                .keyboardShortcut("f", modifiers: [.command])
-
-                Picker("Account", selection: accountSelection) {
-                    Text("All Accounts").tag(Optional<UUID>.none)
-                    ForEach(snapshot.ledgerFilterAccounts) { account in
-                        Text(accountFilterLabel(for: account)).tag(Optional(account.id))
-                    }
-                }
-
-                GroupedCategoryPicker(
-                    title: "Category",
-                    prompt: "All Categories",
-                    categories: snapshot.categories,
-                    categoryGroups: snapshot.categoryGroups,
-                    selection: categorySelection
-                )
-
-                Picker("Direction", selection: directionSelection) {
-                    Text("All Directions").tag(Optional<TransactionDirection>.none)
-                    ForEach(TransactionDirection.allCases, id: \.self) { direction in
-                        Text(direction.rawValue.capitalized).tag(Optional(direction))
-                    }
-                }
-
-                Picker("Review", selection: reviewSelection) {
-                    Text("All Review States").tag(Optional<TransactionReviewStatus>.none)
-                    ForEach(TransactionReviewStatus.allCases, id: \.self) { status in
-                        Text(status.rawValue.capitalized).tag(Optional(status))
-                    }
-                }
-
-                Picker("Import", selection: importSessionSelection) {
-                    Text("All Imports").tag(Optional<Int64>.none)
-                    ForEach(importOrigins, id: \.id) { origin in
-                        Text(origin.originalFilename).tag(Optional(origin.id))
-                    }
-                }
-            }
-
-            if let categoryGroupFilterName {
-                HStack {
-                    Button {
-                        clearCategoryGroupFilter()
-                    } label: {
-                        HStack(spacing: 6) {
-                            Label("Group: \(categoryGroupFilterName)", systemImage: "line.3.horizontal.decrease.circle.fill")
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.caption)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(.regularMaterial, in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    Spacer()
-                }
-            }
-
-            HStack {
-                Toggle("From", isOn: $hasStartDate)
-                    .onChange(of: hasStartDate) { _, _ in applyFilters() }
-                DatePicker("", selection: $startDate, displayedComponents: .date)
-                    .labelsHidden()
-                    .disabled(!hasStartDate)
-                    .onChange(of: startDate) { _, _ in applyFilters() }
-
-                Toggle("To", isOn: $hasEndDate)
-                    .onChange(of: hasEndDate) { _, _ in applyFilters() }
-                DatePicker("", selection: $endDate, displayedComponents: .date)
-                    .labelsHidden()
-                    .disabled(!hasEndDate)
-                    .onChange(of: endDate) { _, _ in applyFilters() }
-
-                Spacer()
-                Button {
-                    searchText = ""
-                    hasStartDate = false
-                    hasEndDate = false
-                    model.updateTransactionFilter(.empty)
-                } label: {
-                    Label("Reset", systemImage: "arrow.counterclockwise")
-                }
-            }
-        }
     }
 
     private var accountSelection: Binding<UUID?> {
@@ -178,7 +268,7 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.accountID = newValue
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
@@ -190,7 +280,7 @@ struct TransactionLedgerView: View {
                 var filter = model.transactionFilter
                 filter.categoryID = newValue
                 filter.categoryGroupID = nil
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
@@ -201,7 +291,7 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.reviewStatus = newValue
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
@@ -212,7 +302,7 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.direction = newValue
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
@@ -223,13 +313,41 @@ struct TransactionLedgerView: View {
             set: { newValue in
                 var filter = model.transactionFilter
                 filter.importSessionID = newValue
-                model.updateTransactionFilter(filter)
+                updateTransactionFilter(filter)
             }
         )
     }
 
     private var importOrigins: [TransactionImportOrigin] {
         snapshot.transactionImportOrigins
+    }
+
+    private var selectedAccountName: String? {
+        guard let accountID = model.transactionFilter.accountID else {
+            return nil
+        }
+
+        guard let account = snapshot.ledgerFilterAccounts.first(where: { $0.id == accountID }) else {
+            return nil
+        }
+
+        return accountFilterLabel(for: account)
+    }
+
+    private var selectedCategoryName: String? {
+        guard let categoryID = model.transactionFilter.categoryID else {
+            return nil
+        }
+
+        return snapshot.categories.first(where: { $0.id == categoryID })?.name
+    }
+
+    private var selectedImportSessionName: String? {
+        guard let importSessionID = model.transactionFilter.importSessionID else {
+            return nil
+        }
+
+        return snapshot.transactionImportOrigins.first(where: { $0.id == importSessionID })?.originalFilename
     }
 
     private func accountFilterLabel(for account: Account) -> String {
@@ -240,18 +358,126 @@ struct TransactionLedgerView: View {
         guard let categoryGroupID = model.transactionFilter.categoryGroupID else {
             return nil
         }
+
         return snapshot.categoryGroups.first(where: { $0.id == categoryGroupID })?.name ?? "Filtered group"
+    }
+
+    private var secondaryFiltersLabel: String {
+        let count = headerState.activeChips.filter(\.matchesSecondaryControls).count
+        return count == 0 ? "More Filters" : "More Filters (\(count))"
+    }
+
+    private func hasActiveSecondaryFilters(in filter: TransactionLedgerFilter) -> Bool {
+        filter.direction != nil ||
+            filter.reviewStatus != nil ||
+            filter.importSessionID != nil ||
+            filter.startDate != nil ||
+            filter.endDate != nil
+    }
+
+    private func zeroResultsView(state: TransactionLedgerHeaderState.ZeroResultsState) -> some View {
+        ContentUnavailableView {
+            Label(state.title, systemImage: "line.3.horizontal.decrease.circle")
+        } description: {
+            Text(state.message)
+        } actions: {
+            if state.showsResetFilters {
+                Button("Reset Filters") {
+                    clear(chips: headerState.activeChips.filter { !$0.isSearchChip })
+                }
+            }
+
+            if state.showsClearSearch {
+                Button("Clear Search") {
+                    clear(chips: headerState.activeChips.filter(\.isSearchChip))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func syncDraftCoordinator() {
+        switch draftCoordinator.reloadDecision(
+            for: model.selectedTransactionID,
+            detail: model.selectedTransactionDetail
+        ) {
+        case .applyLoadedSelection:
+            break
+        case .preserveCurrentDraftAndPrompt:
+            if model.selectedTransactionID != draftCoordinator.currentSelectionID {
+                model.selectTransaction(id: draftCoordinator.currentSelectionID)
+            }
+        }
+    }
+
+    private func handleSelectionChange(to selectionID: UUID?) {
+        switch draftCoordinator.selectionChangeDecision(for: selectionID) {
+        case .proceed:
+            model.selectTransaction(id: selectionID)
+        case .promptToSaveDiscardOrCancel:
+            break
+        }
+    }
+
+    private func handleSave(_ draft: TransactionLedgerEditDraft) {
+        let didSave = model.updateSelectedTransaction(draft: draft)
+        applyPendingSelectionChange(draftCoordinator.completeSave(didSucceed: didSave))
+    }
+
+    private func saveAndApplyPendingSelection() {
+        guard let draft = draftCoordinator.currentDraft else {
+            return
+        }
+
+        handleSave(draft)
+    }
+
+    private func discardChangesAndApplyPendingSelection() {
+        applyPendingSelectionChange(draftCoordinator.discardChanges())
+    }
+
+    private func applyPendingSelectionChange(_ pendingSelection: TransactionDetailDraftCoordinator.PendingSelectionChange) {
+        switch pendingSelection {
+        case .none:
+            break
+        case let .selection(selectionID):
+            if selectionID != model.selectedTransactionID {
+                model.selectTransaction(id: selectionID)
+            }
+        }
+    }
+
+    private func clear(_ chip: TransactionLedgerHeaderState.Chip) {
+        clear(chips: [chip])
+    }
+
+    private func clear(chips: [TransactionLedgerHeaderState.Chip]) {
+        guard !chips.isEmpty else {
+            return
+        }
+
+        let nextFilter = TransactionLedgerHeaderState.removing(chips, from: model.transactionFilter)
+        updateTransactionFilter(nextFilter)
+    }
+
+    private func updateTransactionFilter(_ nextFilter: TransactionLedgerFilter) {
+        if hasActiveSecondaryFilters && !hasActiveSecondaryFilters(in: nextFilter) {
+            userExpandedSecondaryFilters = false
+        }
+
+        model.updateTransactionFilter(nextFilter)
     }
 
     private func applyFilters() {
         guard !isSyncingControls else {
             return
         }
+
         var filter = model.transactionFilter
         filter.searchText = searchText
         filter.startDate = hasStartDate ? startDate : nil
         filter.endDate = hasEndDate ? endDate : nil
-        model.updateTransactionFilter(filter)
+        updateTransactionFilter(filter)
     }
 
     private func syncControlsFromFilter() {
@@ -284,161 +510,22 @@ struct TransactionLedgerView: View {
             searchText = filter.searchText
         }
     }
-
-    private func clearCategoryGroupFilter() {
-        var filter = model.transactionFilter
-        filter.categoryGroupID = nil
-        model.updateTransactionFilter(filter)
-    }
 }
 
-private struct TransactionLedgerRowView: View {
-    let transaction: TransactionLedgerRow
-
-    var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(transaction.merchantName)
-                    .font(.headline)
-                    .lineLimit(1)
-                Text(transaction.rawDescription)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            VStack(alignment: .trailing, spacing: 3) {
-                Text(amountText)
-                    .font(.headline)
-                Text(transaction.transactionDate, style: .date)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+private extension TransactionLedgerHeaderState.Chip {
+    var isSearchChip: Bool {
+        if case .search = self {
+            return true
         }
-        .padding(.vertical, 5)
+
+        return false
     }
-
-    private var amountText: String {
-        let formatter = NumberFormatter()
-        formatter.numberStyle = .currency
-        formatter.currencyCode = Locale.current.currency?.identifier ?? "USD"
-        return formatter.string(from: NSDecimalNumber(decimal: transaction.amount)) ?? "\(transaction.amount)"
-    }
-}
-
-private struct TransactionDetailView: View {
-    let detail: TransactionDetail?
-    let categories: [BudgetCategory]
-    let categoryGroups: [BudgetCategoryGroup]
-    var onSave: (TransactionLedgerEditDraft) -> Void
-    var onViewLearnedRule: (UUID) -> Void
-    @State private var merchantName = ""
-    @State private var categoryID: UUID?
-    @State private var notes = ""
-
-    var body: some View {
-        Group {
-            if let detail {
-                Form {
-                    Section("Editable Fields") {
-                        TextField("Merchant", text: $merchantName)
-                        GroupedCategoryPicker(
-                            title: "Category",
-                            prompt: "Uncategorized",
-                            categories: categories,
-                            categoryGroups: categoryGroups,
-                            selection: $categoryID
-                        )
-                        TextField("Notes", text: $notes, axis: .vertical)
-                            .lineLimit(3, reservesSpace: true)
-                        Button {
-                            onSave(
-                                TransactionLedgerEditDraft(
-                                    merchantName: merchantName,
-                                    categoryID: categoryID,
-                                    notes: notes
-                                )
-                            )
-                        } label: {
-                            Label("Save Changes", systemImage: "checkmark")
-                        }
-                        .keyboardShortcut("s", modifiers: [.command])
-                    }
-
-                    Section("Explanation") {
-                        LabeledContent("Account", value: detail.row.accountName)
-                        LabeledContent("Source", value: ReviewPresentation.sourceLabel(for: detail.decisionSource))
-                        if let provenance = detail.learnedRuleProvenance {
-                            LabeledContent("Merchant Pattern", value: provenance.merchantPattern)
-                            LabeledContent("Match Scope", value: matchScopeLabel(for: provenance.matchKind))
-                            LabeledContent("Assigned Category", value: provenance.categoryName ?? "Unknown Category")
-                            if let merchantName = provenance.merchantName {
-                                LabeledContent("Merchant Name", value: merchantName)
-                            }
-                            if provenance.isDisabled, let disabledAt = provenance.disabledAt {
-                                LabeledContent(
-                                    "Lifecycle",
-                                    value: "Disabled \(disabledAt.formatted(date: .abbreviated, time: .shortened))"
-                                )
-                            }
-                            Button("View in Learned Rules") {
-                                onViewLearnedRule(provenance.id)
-                            }
-                        } else if let reference = detail.decisionSourceReference {
-                            LabeledContent("Rule", value: reference)
-                        }
-                        if let confidence = detail.confidence {
-                            LabeledContent("Confidence", value: confidence.formatted(.percent.precision(.fractionLength(0...1))))
-                        }
-                        LabeledContent("Review", value: detail.row.reviewStatus.rawValue.capitalized)
-                        LabeledContent("Duplicate", value: detail.duplicateStatus.capitalized)
-                    }
-
-                    Section("Import Origin") {
-                        if let origin = detail.importOrigin {
-                            LabeledContent("File", value: origin.originalFilename)
-                            LabeledContent("Imported", value: origin.importedAt.formatted(date: .abbreviated, time: .shortened))
-                            LabeledContent("Session", value: "\(origin.id)")
-                        } else {
-                            Text("This transaction is not linked to an import session.")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                .formStyle(.grouped)
-                .onAppear {
-                    load(detail)
-                }
-                .onChange(of: detail) { _, newDetail in
-                    load(newDetail)
-                }
-            } else {
-                ContentUnavailableView(
-                    "No Transaction Selected",
-                    systemImage: "sidebar.right",
-                    description: Text("Select a transaction to inspect its source and edit trusted fields.")
-                )
-            }
-        }
-        .padding()
-    }
-
-    private func load(_ detail: TransactionDetail) {
-        merchantName = detail.row.merchantName
-        categoryID = detail.row.categoryID
-        notes = detail.notes ?? ""
-    }
-
-    private func matchScopeLabel(for matchKind: ClassificationRuleMatchKind) -> String {
-        switch matchKind {
-        case .contains:
-            "Contains"
-        case .exactNormalizedMerchant:
-            "Exact merchant"
-        case .prefixNormalizedMerchant:
-            "Shared prefix"
+    var matchesSecondaryControls: Bool {
+        switch self {
+        case .direction, .review, .importSession, .dateRange:
+            return true
+        case .search, .account, .category, .categoryGroup:
+            return false
         }
     }
 }
