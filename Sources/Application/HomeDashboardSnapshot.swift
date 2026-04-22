@@ -9,7 +9,7 @@ public enum HomeHeroStatus: Equatable, Sendable {
 
 public enum HomeDashboardDestination: Equatable, Sendable {
     case review
-    case targets
+    case targets(UUID?)
     case transactions(TransactionLedgerFilter)
 }
 
@@ -80,7 +80,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             .max(by: compareTargetPressure) {
             return HomeDashboardAction(
                 title: "Review \(overLimitTarget.name) target",
-                destination: .targets
+                destination: .targets(overLimitTarget.id)
             )
         }
 
@@ -89,7 +89,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             .max(by: compareTargetPressure) {
             return HomeDashboardAction(
                 title: "Review \(pressuredTarget.name) target",
-                destination: .targets
+                destination: .targets(pressuredTarget.id)
             )
         }
 

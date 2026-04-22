@@ -27,11 +27,12 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var fileImportRequest: FileImportRequest?
     @Published var isPresentingImportPreview = false
     @Published var isPresentingTargetSheet = false
+    @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
+    @Published var selectedTargetID: UUID?
     @Published private(set) var csvImportPreview: CSVImportPreview?
     @Published private(set) var pendingCSVImport: PendingCSVImport?
     @Published var importErrorMessage: String?
     @Published var importResultMessage: String?
-    @Published var targetErrorMessage: String?
     @Published var sampleDataMessage: String?
     @Published var transactionFilter = TransactionLedgerFilter.empty
     @Published var selectedTransactionID: UUID?
@@ -95,9 +96,14 @@ final class WorkspaceShellModel: ObservableObject {
 
         do {
             let snapshot = try service.loadSnapshot(filter: transactionFilter)
+            let managedTargets = try service.fetchManagedTargets(referenceDate: snapshot.monthlyReport.monthStart)
             state = .loaded(snapshot)
+            self.managedTargets = managedTargets
             workspaceMetadata = try? service.loadWorkspaceMetadata()
             workspacePreferences = (try? service.loadWorkspacePreferences()) ?? .default
+            if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
+                self.selectedTargetID = nil
+            }
             let transactionID = if let selectedTransactionID,
                                    snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
                 selectedTransactionID
@@ -107,6 +113,8 @@ final class WorkspaceShellModel: ObservableObject {
             selectedTransactionID = transactionID
             loadSelectedTransactionDetail(id: transactionID)
         } catch {
+            managedTargets = []
+            selectedTargetID = nil
             state = .failed(error.localizedDescription)
         }
     }
@@ -233,18 +241,42 @@ final class WorkspaceShellModel: ObservableObject {
         isPresentingTargetSheet = true
     }
 
-    func createMonthlyTarget(_ draft: MonthlyTargetDraft) {
+    func selectTarget(id: UUID?) {
+        selectedTargetID = id
+    }
+
+    @discardableResult
+    func createMonthlyTarget(_ draft: MonthlyTargetDraft) throws -> UUID {
         guard let service else {
-            return
+            throw WorkspaceServiceError.targetManagementUnavailable
         }
 
-        do {
-            try service.createMonthlyTarget(draft)
-            isPresentingTargetSheet = false
-            reload()
-        } catch {
-            targetErrorMessage = error.localizedDescription
+        let target = try service.createMonthlyTarget(draft)
+        reload()
+        selectedTargetID = target.id
+        isPresentingTargetSheet = false
+        return target.id
+    }
+
+    func updateMonthlyTarget(id: UUID, draft: MonthlyTargetDraft) throws {
+        guard let service else {
+            throw WorkspaceServiceError.targetManagementUnavailable
         }
+
+        _ = try service.updateMonthlyTarget(id: id, draft)
+        reload()
+        selectedTargetID = id
+    }
+
+    func deleteMonthlyTarget(id: UUID) throws {
+        guard let service else {
+            throw WorkspaceServiceError.targetManagementUnavailable
+        }
+
+        let fallbackSelection = remainingTargetSelection(afterDeleting: id)
+        try service.deleteMonthlyTarget(id: id)
+        reload()
+        selectedTargetID = fallbackSelection
     }
 
     @discardableResult
@@ -372,5 +404,16 @@ final class WorkspaceShellModel: ObservableObject {
         isPresentingImportPreview = false
         csvImportPreview = nil
         pendingCSVImport = nil
+    }
+
+    private func remainingTargetSelection(afterDeleting id: UUID) -> UUID? {
+        let remainingTargets = managedTargets.filter { $0.id != id }
+        guard remainingTargets.isEmpty == false else {
+            return nil
+        }
+        if selectedTargetID == id {
+            return remainingTargets.first?.id
+        }
+        return selectedTargetID
     }
 }

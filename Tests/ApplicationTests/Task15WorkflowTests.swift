@@ -135,6 +135,48 @@ func targetCreationWorkflowUpdatesSnapshotAndAcceptedExpenseProgress() throws {
     #expect(snapshot.monthlyReport.targets.map(\.remaining) == [Decimal(60)])
 }
 
+@Test
+func targetManagementWorkflowSupportsEditDeleteAndHomeSelection() throws {
+    let service = try task15Service()
+    let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let snapshot = try service.loadSnapshot()
+    let category = try #require(snapshot.categories.first { $0.kind == .expense })
+    let categoryGroup = try #require(snapshot.categoryGroups.first)
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,Market,-40.00
+    """
+    _ = try task15Stage(csv: csv, account: account, service: service)
+    let reviewItem = try #require(try service.loadSnapshot().pendingReviewItems.first)
+    try service.approveClassificationReviewItem(
+        id: reviewItem.id,
+        assignment: ClassificationAssignment(categoryID: category.id, merchantName: "Market"),
+        ruleLearning: nil,
+        resolvedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    let created = try service.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(category.id), monthlyLimit: Decimal(100)),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+    try service.updateMonthlyTarget(
+        id: created.id,
+        MonthlyTargetDraft(scope: .categoryGroup(categoryGroup.id), monthlyLimit: Decimal(20))
+    )
+
+    let updatedTargets = try service.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+    let refreshedSnapshot = try service.loadSnapshot()
+
+    #expect(updatedTargets.map(\.id) == [created.id])
+    #expect(updatedTargets.map(\.scope) == [.categoryGroup(categoryGroup.id)])
+    #expect(refreshedSnapshot.homeDashboard?.primaryAction?.destination == .targets(created.id))
+
+    try service.deleteMonthlyTarget(id: created.id)
+
+    #expect(try service.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200)).isEmpty)
+    #expect(try service.loadSnapshot().monthlyReport.targets.isEmpty)
+}
+
 func workspaceSnapshotIncludesComputedHomeDashboard() throws {
     let service = try task15Service()
     let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")

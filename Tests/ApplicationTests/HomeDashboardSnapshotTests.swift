@@ -154,7 +154,7 @@ func homeDashboardPrioritizesOverLimitTargetsWhenReviewBacklogIsEmpty() {
         monthlyReport: report
     )
 
-    #expect(dashboard.primaryAction?.destination == .targets)
+    #expect(dashboard.primaryAction?.destination == .targets(homeDashboardID("00000000-0000-0000-0000-000000000401")))
     #expect(dashboard.primaryAction?.title == "Review Food target")
 }
 
@@ -203,7 +203,7 @@ func homeDashboardPrioritizesPositivePaceTargetsBeforeDrivers() {
         monthlyReport: report
     )
 
-    #expect(dashboard.primaryAction?.destination == .targets)
+    #expect(dashboard.primaryAction?.destination == .targets(homeDashboardID("00000000-0000-0000-0000-000000000403")))
     #expect(dashboard.primaryAction?.title == "Review Food target")
 }
 
@@ -252,7 +252,7 @@ func homeDashboardPrefersOverLimitTargetsEvenWhenADriverIsAlsoPresent() {
         monthlyReport: report
     )
 
-    #expect(dashboard.primaryAction?.destination == .targets)
+    #expect(dashboard.primaryAction?.destination == .targets(homeDashboardID("00000000-0000-0000-0000-000000000402")))
     #expect(dashboard.primaryAction?.title == "Review Food target")
 }
 

@@ -5,7 +5,7 @@ import SwiftUI
 struct HomeDashboardView: View {
     let snapshot: WorkspaceSnapshot
     let openReview: () -> Void
-    let openTargets: () -> Void
+    let openTargets: (UUID?) -> Void
     let openTransactions: (TransactionLedgerFilter) -> Void
 
     @EnvironmentObject private var model: WorkspaceShellModel
@@ -166,7 +166,7 @@ struct HomeDashboardView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(snapshot.monthlyReport.targets) { target in
                         Button {
-                            openTargets()
+                            openTargets(target.id)
                         } label: {
                             TargetRow(target: target, currency: currency)
                                 .contentShape(Rectangle())
@@ -281,8 +281,8 @@ struct HomeDashboardView: View {
         switch destination {
         case .review:
             openReview()
-        case .targets:
-            openTargets()
+        case .targets(let targetID):
+            openTargets(targetID)
         case .transactions(let filter):
             openTransactions(filter)
         }

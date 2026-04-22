@@ -60,7 +60,7 @@ struct WorkspaceRootView: View {
                     model.isPresentingTargetSheet = false
                 },
                 onCreate: { draft in
-                    model.createMonthlyTarget(draft)
+                    _ = try model.createMonthlyTarget(draft)
                 }
             )
         }
@@ -173,23 +173,6 @@ struct WorkspaceRootView: View {
             }
         } message: {
             Text(model.reviewErrorMessage ?? "")
-        }
-        .alert(
-            "Target Not Created",
-            isPresented: Binding(
-                get: { model.targetErrorMessage != nil },
-                set: { isPresented in
-                    if !isPresented {
-                        model.targetErrorMessage = nil
-                    }
-                }
-            )
-        ) {
-            Button("OK") {
-                model.targetErrorMessage = nil
-            }
-        } message: {
-            Text(model.targetErrorMessage ?? "")
         }
         .alert(
             "Sample Data",
@@ -348,8 +331,9 @@ struct WorkspaceRootView: View {
                     openReview: {
                         selectedSectionRawValue = AppSection.review.rawValue
                     },
-                    openTargets: {
+                    openTargets: { targetID in
                         selectedSectionRawValue = AppSection.targets.rawValue
+                        model.selectTarget(id: targetID)
                     },
                     openTransactions: { filter in
                         selectedSectionRawValue = AppSection.transactions.rawValue
@@ -360,10 +344,36 @@ struct WorkspaceRootView: View {
                 TransactionLedgerView(snapshot: snapshot, model: model)
             } else if section == .review {
                 ReviewQueueView(snapshot: snapshot, model: model)
+            } else if section == .targets {
+                TargetsManagementView(
+                    targets: model.managedTargets,
+                    categories: snapshot.categories,
+                    categoryGroups: snapshot.categoryGroups,
+                    monthStart: snapshot.monthlyReport.monthStart,
+                    selectedTargetID: Binding(
+                        get: { model.selectedTargetID },
+                        set: { model.selectTarget(id: $0) }
+                    ),
+                    onCreate: {
+                        model.beginTargetCreation()
+                    },
+                    onSaveEdit: { id, draft in
+                        try model.updateMonthlyTarget(id: id, draft: draft)
+                    },
+                    onDelete: { id in
+                        try model.deleteMonthlyTarget(id: id)
+                    },
+                    onViewTransactions: { filter in
+                        selectedSectionRawValue = AppSection.transactions.rawValue
+                        model.updateTransactionFilter(filter)
+                    }
+                )
             } else if section == .settings {
                 SettingsView(model: model)
-            } else {
+            } else if section.usesPlaceholderDetailView {
                 SectionPlaceholderView(section: section, snapshot: snapshot)
+            } else {
+                EmptyView()
             }
         }
     }
