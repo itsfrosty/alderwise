@@ -367,7 +367,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             try db.execute(
                 sql: """
                 UPDATE transactions
-                SET review_status = ?
+                SET review_status = ?,
+                    decision_source_reference = NULL
                 WHERE review_status = ?
                     AND decision_source = ?
                     AND category_id IS NOT NULL
@@ -853,15 +854,16 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
 
             if let transactionIDText {
                 try db.execute(
-                    sql: """
-                    UPDATE transactions
-                    SET category_id = ?,
-                        normalized_merchant_name = ?,
-                        decision_source = ?,
-                        confidence = ?,
-                        review_status = ?
-                    WHERE id = ?
-                    """,
+                sql: """
+                UPDATE transactions
+                SET category_id = ?,
+                    normalized_merchant_name = ?,
+                    decision_source = ?,
+                    decision_source_reference = NULL,
+                    confidence = ?,
+                    review_status = ?
+                WHERE id = ?
+                """,
                     arguments: [
                         assignment.categoryID.uuidString,
                         assignment.merchantName?.nilIfEmpty ?? merchantPattern,
@@ -1023,6 +1025,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 SET normalized_merchant_name = ?,
                     category_id = ?,
                     decision_source = CASE WHEN ? IS NOT NULL AND review_status = ? THEN ? ELSE decision_source END,
+                    decision_source_reference = CASE
+                        WHEN ? IS NOT NULL AND review_status = ? THEN NULL
+                        ELSE decision_source_reference
+                    END,
                     confidence = CASE WHEN ? IS NOT NULL AND review_status = ? THEN ? ELSE confidence END,
                     review_status = CASE WHEN ? IS NOT NULL AND review_status = ? THEN ? ELSE review_status END,
                     notes = ?
@@ -1034,6 +1040,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     draft.categoryID?.uuidString,
                     TransactionReviewStatus.pending.rawValue,
                     ClassificationDecisionSource.user.rawValue,
+                    draft.categoryID?.uuidString,
+                    TransactionReviewStatus.pending.rawValue,
                     draft.categoryID?.uuidString,
                     TransactionReviewStatus.pending.rawValue,
                     1.0,

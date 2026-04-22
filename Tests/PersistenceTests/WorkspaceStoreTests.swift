@@ -1089,6 +1089,49 @@ func updateTransactionLedgerFieldsAcceptsPendingTransactionWithCategory() throws
 }
 
 @Test
+func updateTransactionLedgerFieldsClearsDecisionSourceReferenceWhenPendingTransactionPromotedToUser() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Groceries", kind: "expense")
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000414")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: transactionID,
+        accountID: account.id,
+        categoryID: nil,
+        importSessionID: nil,
+        rawDescription: "Market",
+        normalizedMerchantName: "market",
+        amount: Decimal(-31.25),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "pending",
+        decisionSource: ClassificationDecisionSource.curatedPrefill.rawValue,
+        decisionSourceReference: "starter:market",
+        confidence: nil
+    )
+
+    try store.updateTransactionLedgerFields(
+        id: transactionID,
+        draft: TransactionLedgerEditDraft(
+            merchantName: "Market",
+            categoryID: categoryID,
+            notes: nil
+        )
+    )
+
+    let detail = try #require(try store.fetchTransactionDetail(id: transactionID))
+
+    #expect(detail.decisionSource == .user)
+    #expect(detail.decisionSourceReference == nil)
+    #expect(detail.confidence == 1.0)
+    #expect(detail.row.reviewStatus == .accepted)
+}
+
+@Test
 func bootstrapAcceptsPreviouslyUserCategorizedPendingTransactions() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -1110,6 +1153,7 @@ func bootstrapAcceptsPreviouslyUserCategorizedPendingTransactions() throws {
         transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
         reviewStatus: "pending",
         decisionSource: "user",
+        decisionSourceReference: "starter:market",
         confidence: 1.0
     )
     let queue = try DatabaseQueue(path: databaseURL.path)
@@ -1126,6 +1170,7 @@ func bootstrapAcceptsPreviouslyUserCategorizedPendingTransactions() throws {
     let report = try store.fetchMonthlyReport(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
 
     #expect(detail.row.reviewStatus == .accepted)
+    #expect(detail.decisionSourceReference == nil)
     #expect(report.currentMonthAcceptedSpend == Decimal(28.40))
 }
 
@@ -1444,6 +1489,75 @@ func approveClassificationReviewItemUpdatesLinkedTransaction() throws {
     #expect(row.categoryID == categoryID)
     #expect(row.categoryName == "Coffee")
     #expect(row.merchantName == "Coffee Shop")
+}
+
+@Test
+func approveClassificationReviewItemClearsDecisionSourceReferenceWhenPromotingTransactionToUser() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","SQ *Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: ClassificationAssignment(
+                            categoryID: categoryID,
+                            merchantName: "Coffee Shop"
+                        ),
+                        source: .curatedPrefill,
+                        sourceReference: "starter:coffee-shop",
+                        confidence: nil,
+                        reason: "Curated starter match requires review before acceptance."
+                    ),
+                    normalizedMerchantName: "coffee shop",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+                        rawDescription: "SQ *Coffee Shop",
+                        normalizedMerchantName: "coffee shop",
+                        amount: Decimal(-4.75)
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+    let reviewItem = try #require(try store.fetchPendingReviewItems().first)
+
+    _ = try store.approveClassificationReviewItem(
+        id: reviewItem.id,
+        assignment: ClassificationAssignment(categoryID: categoryID, merchantName: "Coffee Shop"),
+        ruleLearning: nil,
+        resolvedAt: Date(timeIntervalSince1970: 1_775_200_000)
+    )
+
+    let row = try #require(try store.fetchTransactionLedger(filter: .empty).first)
+    let detail = try #require(try store.fetchTransactionDetail(id: row.id))
+
+    #expect(detail.decisionSource == .user)
+    #expect(detail.decisionSourceReference == nil)
+    #expect(detail.confidence == 1.0)
+    #expect(detail.row.reviewStatus == .accepted)
 }
 
 @Test
