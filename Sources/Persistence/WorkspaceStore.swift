@@ -5,7 +5,7 @@ import GRDB
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleWriting, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -117,6 +117,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 table.column("merchant_name", .text)
                 table.column("match_kind", .text).notNull().defaults(to: ClassificationRuleMatchKind.contains.rawValue)
                 table.column("created_at", .datetime).notNull()
+                table.column("disabled_at", .datetime)
             }
 
             try db.create(table: "review_items") { table in
@@ -330,6 +331,23 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                     sql: """
                     ALTER TABLE rules
                     ADD COLUMN match_kind TEXT NOT NULL DEFAULT 'contains'
+                    """
+                )
+            }
+        }
+        migrator.registerMigration("add-rule-lifecycle") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            guard try db.tableExists("rules") else {
+                return
+            }
+
+            let ruleColumns = try columnNames(in: "rules", db: db)
+            if !ruleColumns.contains("disabled_at") {
+                try db.execute(
+                    sql: """
+                    ALTER TABLE rules
+                    ADD COLUMN disabled_at DATETIME
                     """
                 )
             }
@@ -962,8 +980,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 let learnedRuleID = UUID()
                 try db.execute(
                     sql: """
-                    INSERT INTO rules (id, pattern, category_id, merchant_name, match_kind, created_at)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO rules (id, pattern, category_id, merchant_name, match_kind, created_at, disabled_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
                     arguments: [
                         learnedRuleID.uuidString,
@@ -972,6 +990,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                         assignment.merchantName,
                         sanitizedRuleLearning.matchKind.rawValue,
                         resolvedAt,
+                        nil,
                     ]
                 )
                 try backfillTransactionsMatchingLearnedRule(
@@ -1014,10 +1033,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             let rows = try Row.fetchAll(
                 db,
                 sql: """
-                SELECT rules.id, rules.pattern, rules.category_id, rules.merchant_name
-                , rules.match_kind
+                SELECT rules.id, rules.pattern, rules.category_id, rules.merchant_name, rules.match_kind
                 FROM rules
                 JOIN categories ON categories.id = rules.category_id
+                WHERE rules.disabled_at IS NULL
                 ORDER BY CASE rules.match_kind
                     WHEN 'exact_normalized_merchant' THEN 0
                     WHEN 'prefix_normalized_merchant' THEN 1
@@ -1052,6 +1071,161 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 )
             }
         }
+    }
+
+    public func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
+        try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT id, pattern, category_id, merchant_name, match_kind, created_at, disabled_at
+                FROM rules
+                ORDER BY CASE WHEN disabled_at IS NULL THEN 0 ELSE 1 END ASC,
+                created_at DESC,
+                id DESC
+                """
+            )
+            return try rows.map(learnedRuleSummary(from:))
+        }
+    }
+
+    public func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
+        try databaseQueue.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT id, pattern, category_id, merchant_name, match_kind, created_at, disabled_at
+                FROM rules
+                WHERE id = ?
+                """,
+                arguments: [id.uuidString]
+            ) else {
+                return nil
+            }
+            return try learnedRuleSummary(from: row)
+        }
+    }
+
+    public func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
+        try databaseQueue.read { db in
+            guard let row = try Row.fetchOne(
+                db,
+                sql: """
+                SELECT id, pattern, category_id, merchant_name, match_kind, created_at, disabled_at
+                FROM rules
+                WHERE id = ?
+                """,
+                arguments: [id.uuidString]
+            ) else {
+                return nil
+            }
+            return try learnedRuleDetail(from: row)
+        }
+    }
+
+    public func disableLearnedRule(id: UUID, disabledAt: Date) throws -> ManagedLearnedRule {
+        try databaseQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE rules
+                SET disabled_at = ?
+                WHERE id = ?
+                """,
+                arguments: [disabledAt, id.uuidString]
+            )
+
+            guard let updatedRule = try learnedRuleDetail(id: id, db: db) else {
+                throw WorkspaceStoreError.learnedRuleNotFound(id)
+            }
+            return updatedRule
+        }
+    }
+
+    public func enableLearnedRule(id: UUID) throws -> ManagedLearnedRule {
+        try databaseQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE rules
+                SET disabled_at = NULL
+                WHERE id = ?
+                """,
+                arguments: [id.uuidString]
+            )
+
+            guard let updatedRule = try learnedRuleDetail(id: id, db: db) else {
+                throw WorkspaceStoreError.learnedRuleNotFound(id)
+            }
+            return updatedRule
+        }
+    }
+
+    private func learnedRuleSummary(from row: Row) throws -> LearnedRuleSummary {
+        let ruleIDText: String = row["id"]
+        guard let ruleID = UUID(uuidString: ruleIDText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(field: "rules.id", value: ruleIDText)
+        }
+
+        let categoryID: UUID?
+        if let categoryIDText = row["category_id"] as String? {
+            guard let parsedCategoryID = UUID(uuidString: categoryIDText) else {
+                throw WorkspaceStoreError.invalidStoredReviewItem(field: "rules.category_id", value: categoryIDText)
+            }
+            categoryID = parsedCategoryID
+        } else {
+            categoryID = nil
+        }
+
+        let matchKindText = (row["match_kind"] as String?) ?? ClassificationRuleMatchKind.contains.rawValue
+        guard let matchKind = ClassificationRuleMatchKind(rawValue: matchKindText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(field: "rules.match_kind", value: matchKindText)
+        }
+
+        let createdAt: Date = row["created_at"]
+        let disabledAt: Date? = row["disabled_at"]
+        let lifecycle: LearnedRuleLifecycle
+        if let disabledAt {
+            lifecycle = .disabled(disabledAt: disabledAt)
+        } else {
+            lifecycle = .active
+        }
+
+        return LearnedRuleSummary(
+            id: ruleID,
+            merchantPattern: row["pattern"],
+            categoryID: categoryID,
+            merchantName: row["merchant_name"],
+            matchKind: matchKind,
+            createdAt: createdAt,
+            lifecycle: lifecycle
+        )
+    }
+
+    private func learnedRuleDetail(from row: Row) throws -> ManagedLearnedRule {
+        let summary = try learnedRuleSummary(from: row)
+        return ManagedLearnedRule(
+            id: summary.id,
+            merchantPattern: summary.merchantPattern,
+            categoryID: summary.categoryID,
+            merchantName: summary.merchantName,
+            matchKind: summary.matchKind,
+            createdAt: summary.createdAt,
+            lifecycle: summary.lifecycle
+        )
+    }
+
+    private func learnedRuleDetail(id: UUID, db: Database) throws -> ManagedLearnedRule? {
+        guard let row = try Row.fetchOne(
+            db,
+            sql: """
+            SELECT id, pattern, category_id, merchant_name, match_kind, created_at, disabled_at
+            FROM rules
+            WHERE id = ?
+            """,
+            arguments: [id.uuidString]
+        ) else {
+            return nil
+        }
+        return try learnedRuleDetail(from: row)
     }
 
     private func backfillTransactionsMatchingLearnedRule(
@@ -3789,6 +3963,7 @@ private func isAcceptedTransactionPromotableToUserOnEdit(
 
 private enum WorkspaceStoreError: Error {
     case insertedStagedSessionNotFound(Int64)
+    case learnedRuleNotFound(UUID)
     case accountNotImportEligible(UUID)
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
@@ -3804,6 +3979,8 @@ extension WorkspaceStoreError: LocalizedError {
         switch self {
         case .accountNotImportEligible:
             "Archived accounts can't accept new imports."
+        case .learnedRuleNotFound(let id):
+            "Learned rule \(id.uuidString) was not found."
         default:
             nil
         }

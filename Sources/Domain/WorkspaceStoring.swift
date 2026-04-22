@@ -84,4 +84,4 @@ public protocol TransactionLedgerWriting: Sendable {
     func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws
 }
 
-public typealias WorkspaceStoring = WorkspaceReading & AccountWriting
+public typealias WorkspaceStoring = WorkspaceReading & AccountWriting & LearnedRuleReading

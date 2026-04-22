@@ -3084,6 +3084,142 @@ func fetchClassificationRulesDefaultsLegacyRulesToContainsMatchKind() throws {
 }
 
 @Test
+func fetchClassificationRulesExcludesDisabledLearnedRules() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    try insertRule(
+        databaseURL: databaseURL,
+        id: learnedRuleID,
+        pattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        matchKind: .contains,
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260),
+        disabledAt: Date(timeIntervalSince1970: 1_775_171_320)
+    )
+
+    let rules = try store.fetchClassificationRules()
+
+    #expect(rules.isEmpty)
+}
+
+@Test
+func fetchManagedLearnedRulesIncludesDisabledRows() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let disabledAt = Date(timeIntervalSince1970: 1_775_171_320)
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    try insertRule(
+        databaseURL: databaseURL,
+        id: learnedRuleID,
+        pattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        matchKind: .prefixNormalizedMerchant,
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260),
+        disabledAt: disabledAt
+    )
+
+    let rules = try store.fetchLearnedRuleSummaries()
+
+    #expect(rules.count == 1)
+    #expect(rules[0].id == learnedRuleID)
+    #expect(rules[0].merchantPattern == "coffee shop")
+    #expect(rules[0].categoryID == categoryID)
+    #expect(rules[0].merchantName == "Coffee Shop")
+    #expect(rules[0].matchKind == .prefixNormalizedMerchant)
+    #expect(rules[0].createdAt == Date(timeIntervalSince1970: 1_775_171_260))
+    #expect(rules[0].disabledAt == disabledAt)
+}
+
+@Test
+func fetchLearnedRuleSummaryAndDetailResolveDisabledRulesByID() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let disabledAt = Date(timeIntervalSince1970: 1_775_171_320)
+    let createdAt = Date(timeIntervalSince1970: 1_775_171_260)
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    try insertRule(
+        databaseURL: databaseURL,
+        id: learnedRuleID,
+        pattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        matchKind: .exactNormalizedMerchant,
+        createdAt: createdAt,
+        disabledAt: disabledAt
+    )
+
+    let summary = try #require(try store.fetchLearnedRuleSummary(id: learnedRuleID))
+    let detail = try #require(try store.fetchLearnedRuleDetail(id: learnedRuleID))
+
+    #expect(summary.id == learnedRuleID)
+    #expect(summary.merchantPattern == "coffee shop")
+    #expect(summary.categoryID == categoryID)
+    #expect(summary.merchantName == "Coffee Shop")
+    #expect(summary.matchKind == .exactNormalizedMerchant)
+
+    #expect(detail.id == learnedRuleID)
+    #expect(detail.merchantPattern == "coffee shop")
+    #expect(detail.categoryID == categoryID)
+    #expect(detail.merchantName == "Coffee Shop")
+    #expect(detail.matchKind == .exactNormalizedMerchant)
+    #expect(detail.createdAt == createdAt)
+    #expect(detail.disabledAt == disabledAt)
+}
+
+@Test
+func fetchClassificationRulesKeepsContainsLearnedRulesVisible() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let createdAt = Date(timeIntervalSince1970: 1_775_171_260)
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    try insertRule(
+        databaseURL: databaseURL,
+        id: learnedRuleID,
+        pattern: "coffee",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        createdAt: createdAt
+    )
+
+    let classifierRules = try store.fetchClassificationRules()
+    let managedRules = try store.fetchLearnedRuleSummaries()
+
+    #expect(classifierRules.count == 1)
+    #expect(classifierRules[0].id == learnedRuleID)
+    #expect(classifierRules[0].merchantPattern == "coffee")
+    #expect(classifierRules[0].categoryID == categoryID)
+    #expect(classifierRules[0].merchantName == "Coffee Shop")
+    #expect(classifierRules[0].matchKind == .contains)
+
+    #expect(managedRules.count == 1)
+    #expect(managedRules[0].id == learnedRuleID)
+    #expect(managedRules[0].merchantPattern == "coffee")
+    #expect(managedRules[0].categoryID == categoryID)
+    #expect(managedRules[0].merchantName == "Coffee Shop")
+    #expect(managedRules[0].matchKind == .contains)
+    #expect(managedRules[0].disabledAt == nil)
+}
+
+@Test
 func fetchPendingReviewItemsThrowsForMalformedStoredIdentifiers() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -3940,21 +4076,25 @@ private func insertRule(
     pattern: String,
     categoryID: UUID?,
     merchantName: String?,
-    createdAt: Date
+    matchKind: ClassificationRuleMatchKind = .contains,
+    createdAt: Date,
+    disabledAt: Date? = nil
 ) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
         try db.execute(
             sql: """
-            INSERT INTO rules (id, pattern, category_id, merchant_name, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO rules (id, pattern, category_id, merchant_name, match_kind, created_at, disabled_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             arguments: [
                 id.uuidString,
                 pattern,
                 categoryID?.uuidString,
                 merchantName,
+                matchKind.rawValue,
                 createdAt,
+                disabledAt,
             ]
         )
     }
