@@ -12,19 +12,31 @@ struct HomeDashboardView: View {
         snapshot.homeDashboard
     }
 
-    private var driverRows: [DriverPresentation] {
-        Array(snapshot.monthlyReport.drivers.prefix(3)).map(DriverPresentation.init)
+    private var isEmptyWorkspace: Bool {
+        dashboard?.isEmptyWorkspace ?? (snapshot.summary.transactionCount == 0)
+    }
+
+    private var summaryCards: [HomeDashboardSummaryCard] {
+        dashboard?.summaryCards ?? []
+    }
+
+    private var targetRows: [HomeDashboardTargetRow] {
+        dashboard?.targetRows ?? []
+    }
+
+    private var driverRows: [HomeDashboardDriverRow] {
+        dashboard?.driverRows ?? []
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                if snapshot.summary.transactionCount == 0 {
+                if isEmptyWorkspace {
                     emptyWorkspaceState
                 } else {
                     heroCard
 
-                    if snapshot.monthlyReport.hasActiveTargets == false {
+                    if targetRows.isEmpty {
                         noTargetsSection
                     } else {
                         targetsSection
@@ -85,8 +97,8 @@ struct HomeDashboardView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if snapshot.monthlyReport.hasActiveTargets {
-                PaceMiniChart(points: snapshot.monthlyReport.paceSeries)
+            if let chart = dashboard?.chart {
+                PaceMiniChart(points: chart.points)
                     .frame(height: 92)
             }
 
@@ -113,15 +125,17 @@ struct HomeDashboardView: View {
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 16) {
+                let currentMonthCard = summaryCards.first { $0.id == "current-month" }
+                let lastMonthCard = summaryCards.first { $0.id == "last-month" }
                 metricCard(
-                    title: "This Month",
-                    value: currency(snapshot.monthlyReport.currentMonthAcceptedSpend),
-                    detail: "Accepted expenses"
+                    title: currentMonthCard?.title ?? "This Month",
+                    value: currentMonthCard?.value ?? currency(snapshot.monthlyReport.currentMonthAcceptedSpend),
+                    detail: currentMonthCard?.detail ?? "Accepted expenses"
                 )
                 metricCard(
-                    title: "Last Month",
-                    value: currency(snapshot.monthlyReport.lastMonthAcceptedSpend),
-                    detail: lastMonthChangeText
+                    title: lastMonthCard?.title ?? "Last Month",
+                    value: lastMonthCard?.value ?? currency(snapshot.monthlyReport.lastMonthAcceptedSpend),
+                    detail: lastMonthCard?.detail ?? lastMonthChangeText
                 )
             }
 
@@ -131,9 +145,9 @@ struct HomeDashboardView: View {
                         .font(.headline)
 
                     ForEach(driverRows) { driver in
-                        DriverRow(driver: driver.driver, action: {
-                            navigate(.transactions(transactionFilter(for: driver.driver)))
-                        }, currency: currency)
+                        DriverRow(driver: driver, action: {
+                            navigate(driver.destination)
+                        })
                     }
                 }
             } else {
@@ -142,12 +156,14 @@ struct HomeDashboardView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Button {
-                model.beginTargetCreation()
-            } label: {
-                Label("Create Monthly Limit", systemImage: "plus")
+            if let createTargetAction = dashboard?.actions.first(where: { $0.kind == .createFirstTarget }) {
+                Button {
+                    perform(createTargetAction.destination)
+                } label: {
+                    Label("Create Monthly Limit", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -157,16 +173,16 @@ struct HomeDashboardView: View {
             Text("Tracked Limits")
                 .font(.headline)
 
-            if snapshot.monthlyReport.targets.isEmpty {
+            if targetRows.isEmpty {
                 Text("Create a monthly limit to track accepted spending.")
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(snapshot.monthlyReport.targets) { target in
+                    ForEach(targetRows) { target in
                         Button {
-                            navigate(.targets(target.id))
+                            navigate(target.destination)
                         } label: {
-                            TargetRow(target: target, currency: currency)
+                            TargetRow(target: target)
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -192,9 +208,9 @@ struct HomeDashboardView: View {
             } else {
                 VStack(alignment: .leading, spacing: 0) {
                     ForEach(driverRows) { driver in
-                        DriverRow(driver: driver.driver, action: {
-                            navigate(.transactions(transactionFilter(for: driver.driver)))
-                        }, currency: currency)
+                        DriverRow(driver: driver, action: {
+                            navigate(driver.destination)
+                        })
                     }
                 }
                 .padding(16)
@@ -204,7 +220,7 @@ struct HomeDashboardView: View {
     }
 
     private var heroHeadline: String {
-        if snapshot.monthlyReport.hasActiveTargets == false {
+        if targetRows.isEmpty {
             return "No active targets"
         }
 
@@ -221,21 +237,21 @@ struct HomeDashboardView: View {
     }
 
     private var heroSubtitle: String {
-        if snapshot.monthlyReport.hasActiveTargets == false {
-            return "Last month closed at \(currency(snapshot.monthlyReport.lastMonthAcceptedSpend)) on the same accepted-spend basis."
+        if targetRows.isEmpty {
+            let lastMonthValue = summaryCards.first { $0.id == "last-month" }?.value ?? currency(snapshot.monthlyReport.lastMonthAcceptedSpend)
+            return "Last month closed at \(lastMonthValue) on the same accepted-spend basis."
         }
 
         let expected = currency(snapshot.monthlyReport.expectedPaceSpend)
-        let pending = snapshot.monthlyReport.pendingReviewCount
-        let pendingSuffix = pending > 0 ? " \(pending) item\(pending == 1 ? "" : "s") still need review." : ""
-        return "Expected pace is \(expected) for this point in the month.\(pendingSuffix)"
+        let qualifierSuffix = dashboard?.reviewQualifier.map { " \($0.message)" } ?? ""
+        return "Expected pace is \(expected) for this point in the month.\(qualifierSuffix)"
     }
 
     private var confidenceNote: String? {
-        if snapshot.monthlyReport.hasActiveTargets == false {
+        if targetRows.isEmpty {
             return "Create a monthly limit to compare current spending against pace."
         }
-        return "Based on accepted expense activity only."
+        return dashboard?.reviewQualifier == nil ? "Based on accepted expense activity only." : nil
     }
 
     private var heroTint: Color {
@@ -293,57 +309,14 @@ struct HomeDashboardView: View {
         }
     }
 
-    private func transactionFilter(for driver: MonthlySpendingDriver) -> TransactionLedgerFilter {
-        TransactionLedgerFilter(
-            startDate: snapshot.monthlyReport.monthStart,
-            endDate: endOfMonth(for: snapshot.monthlyReport.monthStart),
-            categoryID: categoryID(for: driver.scope),
-            categoryGroupID: categoryGroupID(for: driver.scope),
-            direction: .expense,
-            reviewStatus: .accepted
-        )
-    }
-
-    private func categoryID(for scope: SpendingDriverScope) -> UUID? {
-        switch scope {
-        case .category(let id):
-            return id
-        case .categoryGroup:
-            return nil
-        }
-    }
-
-    private func categoryGroupID(for scope: SpendingDriverScope) -> UUID? {
-        switch scope {
-        case .category:
-            return nil
-        case .categoryGroup(let id):
-            return id
-        }
-    }
-
-    private func endOfMonth(for monthStart: Date) -> Date? {
-        guard let nextMonth = Self.utcCalendar.date(byAdding: .month, value: 1, to: monthStart) else {
-            return nil
-        }
-        return Self.utcCalendar.date(byAdding: .second, value: -1, to: nextMonth)
-    }
-
     private func currency(_ amount: Decimal) -> String {
         CurrencyFormatter.shared.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
-    }
-
-    private static var utcCalendar: Calendar {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
-        return calendar
     }
 }
 
 private struct DriverRow: View {
-    let driver: MonthlySpendingDriver
+    let driver: HomeDashboardDriverRow
     let action: () -> Void
-    let currency: (Decimal) -> String
 
     var body: some View {
         Button(action: action) {
@@ -351,19 +324,16 @@ private struct DriverRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(driver.title)
                         .font(.headline)
-                    Text("Last month: \(currency(driver.comparisonPeriodSpend))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 4) {
-                    Text(currency(driver.currentPeriodSpend))
+                    Text(driver.currentSpendText)
                         .font(.headline)
-                    Text(deltaText)
+                    Text(driver.deltaText)
                         .font(.caption)
-                        .foregroundStyle(driver.delta > 0 ? Color.orange : Color.secondary)
+                        .foregroundStyle(.secondary)
                 }
             }
             .padding(.vertical, 8)
@@ -371,38 +341,10 @@ private struct DriverRow: View {
         }
         .buttonStyle(.plain)
     }
-
-    private var deltaText: String {
-        if driver.delta == 0 {
-            return "No change"
-        }
-        let trend = driver.delta > 0 ? "Up" : "Down"
-        return "\(trend) \(currency(abs(driver.delta)))"
-    }
-}
-
-private struct DriverPresentation: Identifiable {
-    let driver: MonthlySpendingDriver
-    let id: String
-
-    init(driver: MonthlySpendingDriver) {
-        self.driver = driver
-        self.id = Self.makeID(for: driver)
-    }
-
-    private static func makeID(for driver: MonthlySpendingDriver) -> String {
-        switch driver.scope {
-        case .category(let id):
-            return "category:\(id.uuidString):\(driver.title)"
-        case .categoryGroup(let id):
-            return "group:\(id.uuidString):\(driver.title)"
-        }
-    }
 }
 
 private struct TargetRow: View {
-    let target: TargetProgress
-    let currency: (Decimal) -> String
+    let target: HomeDashboardTargetRow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -410,18 +352,12 @@ private struct TargetRow: View {
                 Text(target.name)
                     .font(.headline)
                 Spacer()
-                Text("\(currency(target.spent)) of \(currency(target.monthlyLimit))")
+                Text(target.spentText)
                     .foregroundStyle(.secondary)
             }
-
-            ProgressView(
-                value: min(NSDecimalNumber(decimal: target.spent).doubleValue, NSDecimalNumber(decimal: target.monthlyLimit).doubleValue),
-                total: max(NSDecimalNumber(decimal: target.monthlyLimit).doubleValue, 0.01)
-            )
-
-            Text("\(currency(target.remaining)) remaining")
+            Text(target.remainingText)
                 .font(.caption)
-                .foregroundStyle(target.remaining >= 0 ? Color.secondary : Color.red)
+                .foregroundStyle(.secondary)
         }
         .padding(.vertical, 8)
     }
