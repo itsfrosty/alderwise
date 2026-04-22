@@ -62,6 +62,13 @@ struct LearnedRulesManagerView: View {
                     description: Text("Learned rules will appear here after review teaches Alderwise new classifications.")
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if filteredRows.isEmpty {
+                ContentUnavailableView(
+                    "No Results",
+                    systemImage: "magnifyingglass",
+                    description: Text("No learned rules match \"\(searchText)\".")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 managerSplitView
             }
@@ -74,6 +81,12 @@ struct LearnedRulesManagerView: View {
         }
         .onChange(of: destination) { _, newDestination in
             syncDestination(newDestination, force: false)
+        }
+        .onChange(of: searchText) { _, _ in
+            syncSelectionToVisibleRows()
+        }
+        .onChange(of: learnedRows.map(\.id)) { _, _ in
+            syncSelectionToVisibleRows()
         }
         .alert(
             "Learned Rule Action Failed",
@@ -119,28 +132,28 @@ struct LearnedRulesManagerView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Learned Rules")
-                .font(.largeTitle.bold())
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                model.selectSettingsDestination(.overview)
+            } label: {
+                Label("Back to Settings", systemImage: "chevron.left")
+            }
+            .buttonStyle(.plain)
 
-            Text("Inspect the rules Alderwise learned from review decisions. Disable a rule to stop future imports from using it.")
-                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Learned Rules")
+                    .font(.largeTitle.bold())
+
+                Text("Inspect the rules Alderwise learned from review decisions. Disable a rule to stop future imports from using it.")
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     private var managerSplitView: some View {
         HSplitView {
             VStack(spacing: 0) {
-                if filteredRows.isEmpty {
-                    ContentUnavailableView(
-                        searchText.isEmpty ? "No Matching Learned Rules" : "No Results",
-                        systemImage: "magnifyingglass",
-                        description: Text(searchText.isEmpty ? "There are no learned rules to show." : "No learned rules match \"\(searchText)\".")
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    listPane
-                }
+                listPane
             }
             .frame(minWidth: 360, idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
 
@@ -211,6 +224,25 @@ struct LearnedRulesManagerView: View {
         }
 
         selectedLearnedRuleID = learnedRows.first?.id
+    }
+
+    private func syncSelectionToVisibleRows() {
+        guard filteredRows.isEmpty == false else {
+            return
+        }
+
+        if let selectedLearnedRuleID,
+           filteredRows.contains(where: { $0.id == selectedLearnedRuleID }) {
+            return
+        }
+
+        if let deepLinkedRuleID = destination.selectedLearnedRuleID,
+           learnedRows.contains(where: { $0.id == deepLinkedRuleID }) {
+            selectedLearnedRuleID = deepLinkedRuleID
+            return
+        }
+
+        selectedLearnedRuleID = filteredRows.first?.id
     }
 
     private func categoryName(for categoryID: UUID?) -> String? {
