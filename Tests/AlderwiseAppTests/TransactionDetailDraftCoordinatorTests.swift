@@ -17,7 +17,7 @@ func cleanSelectionChangeProceedsImmediately() {
 
     #expect(decision == .proceed)
     #expect(coordinator.isDirty == false)
-    #expect(coordinator.pendingSelectionID == nil)
+    #expect(coordinator.pendingSelection == .none)
 }
 
 @Test
@@ -41,7 +41,7 @@ func dirtySelectionChangeBlocksAndRecordsPendingTargetSelection() {
 
     #expect(decision == .promptToSaveDiscardOrCancel)
     #expect(coordinator.isDirty == true)
-    #expect(coordinator.pendingSelectionID == nextID)
+    #expect(coordinator.pendingSelection == .selection(nextID))
 }
 
 @Test
@@ -65,8 +65,8 @@ func discardAppliesPendingSelection() {
 
     let appliedSelection = coordinator.discardChanges()
 
-    #expect(appliedSelection == nextID)
-    #expect(coordinator.pendingSelectionID == nil)
+    #expect(appliedSelection == .selection(nextID))
+    #expect(coordinator.pendingSelection == .none)
     #expect(coordinator.isDirty == false)
     #expect(coordinator.currentDraft == TransactionDetailDraftCoordinator.makeDraft(from: detail))
 }
@@ -91,7 +91,7 @@ func cancelKeepsCurrentSelectionAndCurrentDraft() {
 
     #expect(coordinator.currentSelectionID == currentID)
     #expect(coordinator.currentDraft == editedDraft)
-    #expect(coordinator.pendingSelectionID == nil)
+    #expect(coordinator.pendingSelection == .none)
     #expect(coordinator.isDirty == true)
 }
 
@@ -114,10 +114,53 @@ func successfulSaveClearsDirtyStateAndAppliesPendingSelection() {
 
     let appliedSelection = coordinator.saveSucceeded()
 
-    #expect(appliedSelection == nextID)
-    #expect(coordinator.pendingSelectionID == nil)
+    #expect(appliedSelection == .selection(nextID))
+    #expect(coordinator.pendingSelection == .none)
     #expect(coordinator.currentDraft == editedDraft)
     #expect(coordinator.isDirty == false)
+}
+
+@Test
+func sameSelectionReloadPreservesDirtyDraft() {
+    let currentID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    var coordinator = TransactionDetailDraftCoordinator(
+        selectionID: currentID,
+        detail: makeDetail(id: currentID)
+    )
+    let editedDraft = TransactionLedgerEditDraft(
+        merchantName: "Updated Merchant",
+        categoryID: nil,
+        notes: "Edited notes"
+    )
+
+    coordinator.updateDraft(editedDraft)
+    coordinator.load(selectionID: currentID, detail: makeDetail(id: currentID))
+
+    #expect(coordinator.currentDraft == editedDraft)
+    #expect(coordinator.isDirty == true)
+}
+
+@Test
+func dirtyDeselectionIsTrackedExplicitlyAndAppliedAfterSave() {
+    let currentID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    var coordinator = TransactionDetailDraftCoordinator(
+        selectionID: currentID,
+        detail: makeDetail(id: currentID)
+    )
+    let editedDraft = TransactionLedgerEditDraft(
+        merchantName: "Updated Merchant",
+        categoryID: nil,
+        notes: "Edited notes"
+    )
+
+    coordinator.updateDraft(editedDraft)
+
+    let decision = coordinator.selectionChangeDecision(for: nil)
+    let appliedSelection = coordinator.saveSucceeded()
+
+    #expect(decision == .promptToSaveDiscardOrCancel)
+    #expect(coordinator.pendingSelection == .none)
+    #expect(appliedSelection == .selection(nil))
 }
 
 private func makeDetail(id: UUID) -> TransactionDetail {

@@ -7,10 +7,15 @@ struct TransactionDetailDraftCoordinator {
         case promptToSaveDiscardOrCancel
     }
 
+    enum PendingSelectionChange: Equatable {
+        case none
+        case selection(UUID?)
+    }
+
     private(set) var currentSelectionID: UUID?
     private(set) var currentDraft: TransactionLedgerEditDraft?
     private var savedDraft: TransactionLedgerEditDraft?
-    private(set) var pendingSelectionID: UUID?
+    private(set) var pendingSelection: PendingSelectionChange = .none
 
     init(selectionID: UUID? = nil, detail: TransactionDetail? = nil) {
         load(selectionID: selectionID, detail: detail)
@@ -21,11 +26,15 @@ struct TransactionDetailDraftCoordinator {
     }
 
     mutating func load(selectionID: UUID?, detail: TransactionDetail?) {
+        if selectionID == currentSelectionID, isDirty {
+            return
+        }
+
         currentSelectionID = selectionID
         let draft = detail.map(Self.makeDraft(from:))
         currentDraft = draft
         savedDraft = draft
-        pendingSelectionID = nil
+        pendingSelection = .none
     }
 
     mutating func updateDraft(_ draft: TransactionLedgerEditDraft?) {
@@ -34,35 +43,35 @@ struct TransactionDetailDraftCoordinator {
 
     mutating func selectionChangeDecision(for proposedSelectionID: UUID?) -> SelectionChangeDecision {
         guard proposedSelectionID != currentSelectionID else {
-            pendingSelectionID = nil
+            pendingSelection = .none
             return .proceed
         }
 
         guard isDirty else {
-            pendingSelectionID = nil
+            pendingSelection = .none
             return .proceed
         }
 
-        pendingSelectionID = proposedSelectionID
+        pendingSelection = .selection(proposedSelectionID)
         return .promptToSaveDiscardOrCancel
     }
 
-    mutating func discardChanges() -> UUID? {
+    mutating func discardChanges() -> PendingSelectionChange {
         currentDraft = savedDraft
-        let pendingSelectionID = pendingSelectionID
-        self.pendingSelectionID = nil
-        return pendingSelectionID
+        let pendingSelection = pendingSelection
+        self.pendingSelection = .none
+        return pendingSelection
     }
 
     mutating func cancelPendingSelectionChange() {
-        pendingSelectionID = nil
+        pendingSelection = .none
     }
 
-    mutating func saveSucceeded() -> UUID? {
+    mutating func saveSucceeded() -> PendingSelectionChange {
         savedDraft = currentDraft
-        let pendingSelectionID = pendingSelectionID
-        self.pendingSelectionID = nil
-        return pendingSelectionID
+        let pendingSelection = pendingSelection
+        self.pendingSelection = .none
+        return pendingSelection
     }
 
     static func makeDraft(from detail: TransactionDetail) -> TransactionLedgerEditDraft {

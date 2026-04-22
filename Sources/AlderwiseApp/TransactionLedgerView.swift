@@ -24,7 +24,12 @@ struct TransactionLedgerView: View {
 
     private var isPresentingSelectionChangeConfirmation: Binding<Bool> {
         Binding(
-            get: { draftCoordinator.pendingSelectionID != nil },
+            get: {
+                if case .selection = draftCoordinator.pendingSelection {
+                    return true
+                }
+                return false
+            },
             set: { isPresented in
                 if !isPresented {
                     draftCoordinator.cancelPendingSelectionChange()
@@ -403,10 +408,7 @@ struct TransactionLedgerView: View {
     private func handleSave(_ draft: TransactionLedgerEditDraft) {
         model.updateSelectedTransaction(draft: draft)
 
-        let pendingSelectionID = draftCoordinator.saveSucceeded()
-        if pendingSelectionID != model.selectedTransactionID {
-            model.selectTransaction(id: pendingSelectionID)
-        }
+        applyPendingSelectionChange(draftCoordinator.saveSucceeded())
     }
 
     private func saveAndApplyPendingSelection() {
@@ -418,8 +420,18 @@ struct TransactionLedgerView: View {
     }
 
     private func discardChangesAndApplyPendingSelection() {
-        let pendingSelectionID = draftCoordinator.discardChanges()
-        model.selectTransaction(id: pendingSelectionID)
+        applyPendingSelectionChange(draftCoordinator.discardChanges())
+    }
+
+    private func applyPendingSelectionChange(_ pendingSelection: TransactionDetailDraftCoordinator.PendingSelectionChange) {
+        switch pendingSelection {
+        case .none:
+            break
+        case let .selection(selectionID):
+            if selectionID != model.selectedTransactionID {
+                model.selectTransaction(id: selectionID)
+            }
+        }
     }
 
     private func clear(_ chip: TransactionLedgerHeaderState.Chip) {
