@@ -363,7 +363,7 @@ private struct TransactionDetailView: View {
 
                     Section("Explanation") {
                         LabeledContent("Account", value: detail.row.accountName)
-                        LabeledContent("Source", value: detail.decisionSource?.rawValue.capitalized ?? "Unclassified")
+                        LabeledContent("Source", value: ReviewPresentation.sourceLabel(for: detail.decisionSource))
                         if let reference = detail.decisionSourceReference {
                             LabeledContent("Rule", value: reference)
                         }
