@@ -231,18 +231,18 @@ struct LearnedRulesManagerView: View {
             return
         }
 
-        if let selectedLearnedRuleID,
-           filteredRows.contains(where: { $0.id == selectedLearnedRuleID }) {
+        guard let selectedLearnedRuleID else {
+            self.selectedLearnedRuleID = filteredRows.first?.id
             return
         }
 
-        if let deepLinkedRuleID = destination.selectedLearnedRuleID,
-           learnedRows.contains(where: { $0.id == deepLinkedRuleID }) {
-            selectedLearnedRuleID = deepLinkedRuleID
+        if filteredRows.contains(where: { $0.id == selectedLearnedRuleID }) {
             return
         }
 
-        selectedLearnedRuleID = filteredRows.first?.id
+        if learnedRows.contains(where: { $0.id == selectedLearnedRuleID }) {
+            self.selectedLearnedRuleID = filteredRows.first?.id
+        }
     }
 
     private func categoryName(for categoryID: UUID?) -> String? {
