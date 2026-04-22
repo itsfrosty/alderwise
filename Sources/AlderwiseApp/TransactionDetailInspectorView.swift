@@ -7,10 +7,10 @@ extension TransactionLedgerView {
         let detail: TransactionDetail?
         let categories: [BudgetCategory]
         let categoryGroups: [BudgetCategoryGroup]
+        let draft: TransactionLedgerEditDraft?
+        let isDirty: Bool
+        var onDraftChange: (TransactionLedgerEditDraft) -> Void
         var onSave: (TransactionLedgerEditDraft) -> Void
-        @State private var merchantName = ""
-        @State private var categoryID: UUID?
-        @State private var notes = ""
 
         var body: some View {
             Group {
@@ -65,27 +65,32 @@ extension TransactionLedgerView {
                         }
 
                         Section("Editable Fields") {
-                            TextField("Merchant", text: $merchantName)
+                            TextField("Merchant", text: merchantNameBinding(for: detail))
                             GroupedCategoryPicker(
                                 title: "Category",
                                 prompt: "Uncategorized",
                                 categories: categories,
                                 categoryGroups: categoryGroups,
-                                selection: $categoryID
+                                selection: categoryBinding(for: detail)
                             )
-                            TextField("Notes", text: $notes, axis: .vertical)
+                            TextField("Notes", text: notesBinding(for: detail), axis: .vertical)
                                 .lineLimit(3, reservesSpace: true)
+                            if isDirty {
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(.orange)
+                                        .frame(width: 8, height: 8)
+                                    Text("Unsaved changes")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                             Button {
-                                onSave(
-                                    TransactionLedgerEditDraft(
-                                        merchantName: merchantName,
-                                        categoryID: categoryID,
-                                        notes: notes
-                                    )
-                                )
+                                onSave(resolvedDraft(for: detail))
                             } label: {
                                 Label("Save Changes", systemImage: "checkmark")
                             }
+                            .disabled(!isDirty)
                             .keyboardShortcut("s", modifiers: [.command])
                         }
 
@@ -113,12 +118,6 @@ extension TransactionLedgerView {
                         }
                     }
                     .formStyle(.grouped)
-                    .onAppear {
-                        load(detail)
-                    }
-                    .onChange(of: detail) { _, newDetail in
-                        load(newDetail)
-                    }
                 } else {
                     ContentUnavailableView(
                         "No Transaction Selected",
@@ -130,10 +129,41 @@ extension TransactionLedgerView {
             .padding()
         }
 
-        private func load(_ detail: TransactionDetail) {
-            merchantName = detail.row.merchantName
-            categoryID = detail.row.categoryID
-            notes = detail.notes ?? ""
+        private func merchantNameBinding(for detail: TransactionDetail) -> Binding<String> {
+            Binding(
+                get: { resolvedDraft(for: detail).merchantName },
+                set: { merchantName in
+                    var nextDraft = resolvedDraft(for: detail)
+                    nextDraft.merchantName = merchantName
+                    onDraftChange(nextDraft)
+                }
+            )
+        }
+
+        private func categoryBinding(for detail: TransactionDetail) -> Binding<UUID?> {
+            Binding(
+                get: { resolvedDraft(for: detail).categoryID },
+                set: { categoryID in
+                    var nextDraft = resolvedDraft(for: detail)
+                    nextDraft.categoryID = categoryID
+                    onDraftChange(nextDraft)
+                }
+            )
+        }
+
+        private func notesBinding(for detail: TransactionDetail) -> Binding<String> {
+            Binding(
+                get: { resolvedDraft(for: detail).notes ?? "" },
+                set: { notes in
+                    var nextDraft = resolvedDraft(for: detail)
+                    nextDraft.notes = notes
+                    onDraftChange(nextDraft)
+                }
+            )
+        }
+
+        private func resolvedDraft(for detail: TransactionDetail) -> TransactionLedgerEditDraft {
+            draft ?? TransactionDetailDraftCoordinator.makeDraft(from: detail)
         }
 
         private func merchantLabel(for row: TransactionLedgerRow) -> String {

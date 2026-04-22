@@ -13,11 +13,23 @@ struct TransactionLedgerView: View {
     @State private var isSearchPresented = false
     @State private var isSyncingControls = false
     @State private var userExpandedSecondaryFilters = false
+    @State private var draftCoordinator = TransactionDetailDraftCoordinator()
 
     private var selectedIDBinding: Binding<UUID?> {
         Binding(
             get: { model.selectedTransactionID },
-            set: { model.selectTransaction(id: $0) }
+            set: { handleSelectionChange(to: $0) }
+        )
+    }
+
+    private var isPresentingSelectionChangeConfirmation: Binding<Bool> {
+        Binding(
+            get: { draftCoordinator.pendingSelectionID != nil },
+            set: { isPresented in
+                if !isPresented {
+                    draftCoordinator.cancelPendingSelectionChange()
+                }
+            }
         )
     }
 
@@ -61,9 +73,28 @@ struct TransactionLedgerView: View {
                 detail: model.selectedTransactionDetail,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
-                onSave: model.updateSelectedTransaction(draft:)
+                draft: draftCoordinator.currentDraft,
+                isDirty: draftCoordinator.isDirty,
+                onDraftChange: { draftCoordinator.updateDraft($0) },
+                onSave: handleSave
             )
             .frame(idealWidth: 360, maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .alert(
+            "Save changes before switching transactions?",
+            isPresented: isPresentingSelectionChangeConfirmation
+        ) {
+            Button("Save Changes") {
+                saveAndApplyPendingSelection()
+            }
+            Button("Discard Changes", role: .destructive) {
+                discardChangesAndApplyPendingSelection()
+            }
+            Button("Cancel", role: .cancel) {
+                draftCoordinator.cancelPendingSelectionChange()
+            }
+        } message: {
+            Text("You have unsaved edits in the inspector. Save them before switching transactions.")
         }
         .navigationTitle("Transactions")
         .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Search transactions")
@@ -75,6 +106,7 @@ struct TransactionLedgerView: View {
         }
         .onAppear {
             syncControlsFromFilter()
+            syncDraftCoordinator()
             if model.selectedTransactionID == nil {
                 model.selectTransaction(
                     id: TransactionLedgerSelectionState.selectionAfterReload(
@@ -89,6 +121,9 @@ struct TransactionLedgerView: View {
                 userExpandedSecondaryFilters = false
             }
             syncControlsFromFilter()
+        }
+        .onChange(of: model.selectedTransactionDetail) { _, _ in
+            syncDraftCoordinator()
         }
     }
 
@@ -347,6 +382,49 @@ struct TransactionLedgerView: View {
 
     private func focusSearch() {
         isSearchPresented = true
+    }
+
+    private func syncDraftCoordinator() {
+        draftCoordinator.load(
+            selectionID: model.selectedTransactionID,
+            detail: model.selectedTransactionDetail
+        )
+    }
+
+    private func handleSelectionChange(to selectionID: UUID?) {
+        switch draftCoordinator.selectionChangeDecision(for: selectionID) {
+        case .proceed:
+            model.selectTransaction(id: selectionID)
+        case .promptToSaveDiscardOrCancel:
+            break
+        }
+    }
+
+    private func handleSave(_ draft: TransactionLedgerEditDraft) {
+        let currentSelectionID = model.selectedTransactionID
+        model.updateSelectedTransaction(draft: draft)
+
+        guard model.selectedTransactionID == currentSelectionID else {
+            return
+        }
+
+        let pendingSelectionID = draftCoordinator.saveSucceeded()
+        if pendingSelectionID != currentSelectionID {
+            model.selectTransaction(id: pendingSelectionID)
+        }
+    }
+
+    private func saveAndApplyPendingSelection() {
+        guard let draft = draftCoordinator.currentDraft else {
+            return
+        }
+
+        handleSave(draft)
+    }
+
+    private func discardChangesAndApplyPendingSelection() {
+        let pendingSelectionID = draftCoordinator.discardChanges()
+        model.selectTransaction(id: pendingSelectionID)
     }
 
     private func clear(_ chip: TransactionLedgerHeaderState.Chip) {
