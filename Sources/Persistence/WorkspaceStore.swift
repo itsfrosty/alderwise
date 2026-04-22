@@ -1806,6 +1806,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
     }
 
     private func insertSourceFile(_ draft: StagedImportSessionDraft, db: Database) throws {
+        guard try accountIsImportEligible(id: draft.accountID, db: db) else {
+            throw WorkspaceStoreError.accountNotImportEligible(draft.accountID)
+        }
+
         let sourceFileColumns = try columnNames(in: "source_files", db: db)
         if sourceFileColumns.contains("filename") {
             try db.execute(
@@ -2907,6 +2911,21 @@ private func accountCanBeDeleted(id: UUID, db: Database) throws -> Bool {
     return !hasTransactions
 }
 
+private func accountIsImportEligible(id: UUID, db: Database) throws -> Bool {
+    try Bool.fetchOne(
+        db,
+        sql: """
+        SELECT EXISTS(
+            SELECT 1
+            FROM accounts
+            WHERE id = ?
+              AND archived_at IS NULL
+        )
+        """,
+        arguments: [id.uuidString]
+    ) ?? false
+}
+
 private func targetExists(id: UUID, db: Database) throws -> Bool {
     try Bool.fetchOne(
         db,
@@ -3368,6 +3387,7 @@ private func pendingReviewClassification(from row: Row) throws -> PendingReviewC
 
 private enum WorkspaceStoreError: Error {
     case insertedStagedSessionNotFound(Int64)
+    case accountNotImportEligible(UUID)
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
     case invalidStoredReviewItem(field: String, value: String)
@@ -3379,7 +3399,12 @@ private enum WorkspaceStoreError: Error {
 
 extension WorkspaceStoreError: LocalizedError {
     var errorDescription: String? {
-        nil
+        switch self {
+        case .accountNotImportEligible:
+            "Archived accounts can't accept new imports."
+        default:
+            nil
+        }
     }
 }
 

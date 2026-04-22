@@ -9,6 +9,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case transactionLedgerUnavailable
     case reviewQueueUnavailable
     case monthlyTargetConflict(MonthlyTargetConflict)
+    case archivedAccountImportUnavailable
     case accountManagementUnavailable
     case accountDeleteBlocked
     case targetManagementUnavailable
@@ -35,6 +36,8 @@ extension WorkspaceServiceError: LocalizedError {
             case .categoryGroupOverlap:
                 "A monthly target cannot overlap a category group and one of its member categories."
             }
+        case .archivedAccountImportUnavailable:
+            "Archived accounts can't accept new imports."
         case .accountManagementUnavailable:
             "Accounts are unavailable for this workspace."
         case .accountDeleteBlocked:
@@ -277,6 +280,11 @@ public struct WorkspaceService: Sendable {
         csvText: String,
         importedAt: Date = .now
     ) throws -> StagedCSVImportResult {
+        let importEligibleAccountIDs = try Set(store.fetchImportEligibleAccounts().map(\.id))
+        guard importEligibleAccountIDs.contains(account.id) else {
+            throw WorkspaceServiceError.archivedAccountImportUnavailable
+        }
+
         guard preview.validation.isReadyForImport else {
             throw WorkspaceServiceError.importPreviewNotReady
         }

@@ -552,6 +552,40 @@ func deleteAccountPermanentlySurfacesDependencyGuard() throws {
 }
 
 @Test
+func stageCSVImportRejectsArchivedAccountsEvenForStaleCallers() throws {
+    let archivedAccountID = UUID(uuidString: "00000000-0000-0000-0000-000000000555")!
+    let staleAccount = Account(
+        id: archivedAccountID,
+        name: "Travel Card",
+        kind: .creditCard,
+        institutionName: "Visa"
+    )
+    let archivedStoreAccount = Account(
+        id: archivedAccountID,
+        name: "Travel Card",
+        kind: .creditCard,
+        institutionName: "Visa",
+        archivedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+    let store = MutableWorkspaceStore(accounts: [archivedStoreAccount])
+    let service = WorkspaceService(store: store)
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,Coffee Shop,-4.75
+    """
+
+    #expect(throws: WorkspaceServiceError.archivedAccountImportUnavailable) {
+        _ = try service.stageCSVImport(
+            preview: try CSVImportPreviewService().makePreview(from: csv),
+            account: staleAccount,
+            originalFilename: "travel-card.csv",
+            csvText: csv
+        )
+    }
+    #expect(store.stagedImportDrafts.isEmpty)
+}
+
+@Test
 func createMonthlyTargetReturnsTargetAndReloadsSnapshot() throws {
     let store = MutableWorkspaceStore()
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!

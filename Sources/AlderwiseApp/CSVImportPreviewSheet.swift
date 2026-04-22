@@ -110,7 +110,7 @@ struct CSVImportPreviewSheet: View {
                 .font(.subheadline)
             Picker("", selection: $selectedAccountID) {
                 if accounts.isEmpty {
-                    Text("No accounts available").tag(nil as Account.ID?)
+                    Text("No active accounts available").tag(nil as Account.ID?)
                 }
                 ForEach(accounts) { account in
                     Text(account.name).tag(account.id as Account.ID?)
@@ -120,7 +120,7 @@ struct CSVImportPreviewSheet: View {
             .frame(width: 240)
 
             if accounts.isEmpty {
-                Text("Create an account before importing.")
+                Text("Restore an archived account or create a new one before importing.")
                     .font(.subheadline)
                     .foregroundStyle(.orange)
             }

@@ -88,7 +88,7 @@ struct TransactionLedgerView: View {
 
                 Picker("Account", selection: accountSelection) {
                     Text("All Accounts").tag(Optional<UUID>.none)
-                    ForEach(snapshot.accounts) { account in
+                    ForEach(snapshot.ledgerFilterAccounts) { account in
                         Text(account.name).tag(Optional(account.id))
                     }
                 }

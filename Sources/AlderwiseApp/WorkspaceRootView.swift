@@ -96,7 +96,7 @@ struct WorkspaceRootView: View {
             if let preview = model.csvImportPreview {
                 CSVImportPreviewSheet(
                     preview: preview,
-                    accounts: model.snapshot.accounts,
+                    accounts: model.snapshot.importEligibleAccounts,
                     originalFilename: model.pendingCSVImport?.originalFilename ?? "CSV file",
                     onCancel: {
                         model.dismissCSVImportPreview()

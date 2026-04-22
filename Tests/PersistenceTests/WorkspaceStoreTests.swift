@@ -591,6 +591,45 @@ func stagedImportRecordsRoundTripThroughOnDiskWorkspace() throws {
 }
 
 @Test
+func createStagedImportSessionRejectsArchivedAccounts() throws {
+    let store = try WorkspaceStore.inMemory()
+    try store.bootstrap()
+    let archivedAccount = try store.createAccount(named: "Travel Card", kind: .creditCard, institutionName: "Visa")
+    _ = try store.archiveAccount(
+        id: archivedAccount.id,
+        archivedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    #expect(throws: (any Error).self) {
+        _ = try store.createStagedImportSession(
+            StagedImportSessionDraft(
+                accountID: archivedAccount.id,
+                originalFilename: "travel-card.csv",
+                contentHash: "content-hash",
+                importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+                rows: [
+                    StagedSourceRowDraft(
+                        sourceLineNumber: 2,
+                        rawPayload: "[\"2026-04-01\",\"Coffee Shop\",\"-4.75\"]",
+                        rowHash: "row-hash",
+                        validationStatus: .valid,
+                        importDecision: .imported(reason: "New source row.")
+                    ),
+                ],
+                mapping: CSVColumnMapping(
+                    dateColumnIndex: 0,
+                    descriptionColumnIndex: 1,
+                    amount: .singleSignedAmount(columnIndex: 2)
+                ),
+                validRowCount: 1,
+                invalidRowCount: 0,
+                status: .staged
+            )
+        )
+    }
+}
+
+@Test
 func migratedLegacySourceFilesWithFilenameColumnAcceptStagedImports() throws {
     let databaseURL = try temporaryDatabaseURL()
     try createLegacyWorkspaceWithFilenameSourceFiles(at: databaseURL)
