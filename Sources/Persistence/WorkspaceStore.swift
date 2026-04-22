@@ -552,10 +552,20 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                 FROM review_items
                 JOIN source_rows ON source_rows.id = review_items.source_row_id
                 JOIN source_files ON source_files.id = source_rows.source_file_id
+                LEFT JOIN transactions ON transactions.id = review_items.transaction_id
                 WHERE review_items.status = ?
+                  AND (
+                    review_items.type != ?
+                    OR transactions.review_status IS NULL
+                    OR transactions.review_status = ?
+                  )
                 ORDER BY review_items.created_at ASC, review_items.id ASC
                 """,
-                arguments: [ReviewItemStatus.pending.rawValue]
+                arguments: [
+                    ReviewItemStatus.pending.rawValue,
+                    ReviewItemType.lowConfidenceCategory.rawValue,
+                    TransactionReviewStatus.pending.rawValue,
+                ]
             )
 
             return try rows.map { row in
@@ -986,8 +996,11 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
             sql: """
             SELECT id, normalized_merchant_name, raw_description, review_status
             FROM transactions
-            WHERE review_status IN (?, ?)
-              AND decision_source IN (?, ?)
+            WHERE review_status = ?
+               OR (
+                    review_status = ?
+                AND decision_source IN (?, ?)
+               )
             """,
             arguments: [
                 TransactionReviewStatus.pending.rawValue,
@@ -1126,6 +1139,33 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         }
     }
 
+    private func resolvePendingLowConfidenceReviewItems(
+        db: Database,
+        transactionIDs: [String]
+    ) throws {
+        guard !transactionIDs.isEmpty else {
+            return
+        }
+
+        let placeholders = Array(repeating: "?", count: transactionIDs.count).joined(separator: ", ")
+        var arguments = StatementArguments([ReviewItemStatus.resolved.rawValue])
+        _ = arguments.append(contentsOf: StatementArguments(transactionIDs))
+        _ = arguments.append(contentsOf: StatementArguments([
+            ReviewItemStatus.pending.rawValue,
+            ReviewItemType.lowConfidenceCategory.rawValue,
+        ]))
+        try db.execute(
+            sql: """
+            UPDATE review_items
+            SET status = ?
+            WHERE transaction_id IN (\(placeholders))
+              AND status = ?
+              AND type = ?
+            """,
+            arguments: arguments
+        )
+    }
+
     public func fetchTransactionLedger(filter: TransactionLedgerFilter = .empty) throws -> [TransactionLedgerRow] {
         try databaseQueue.read { db in
             let query = transactionLedgerQuery(filter: filter, includeIDPredicate: false)
@@ -1236,6 +1276,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
                         notes,
                         id.uuidString,
                     ]
+                )
+                try resolvePendingLowConfidenceReviewItems(
+                    db: db,
+                    transactionIDs: [id.uuidString]
                 )
             } else {
                 try db.execute(
