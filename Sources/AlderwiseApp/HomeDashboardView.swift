@@ -20,6 +20,10 @@ struct HomeDashboardView: View {
         dashboard?.summaryCards ?? []
     }
 
+    private var actions: [HomeDashboardAction] {
+        dashboard?.actions ?? []
+    }
+
     private var targetRows: [HomeDashboardTargetRow] {
         dashboard?.targetRows ?? []
     }
@@ -32,14 +36,6 @@ struct HomeDashboardView: View {
         targetRows.isEmpty == false
     }
 
-    private var createTargetAction: HomeDashboardAction? {
-        dashboard?.actions.first(where: { $0.kind == .createFirstTarget })
-    }
-
-    private var lastMonthValue: String {
-        summaryCards.first { $0.id == "last-month" }?.value ?? currency(snapshot.monthlyReport.lastMonthAcceptedSpend)
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -50,27 +46,19 @@ struct HomeDashboardView: View {
                         hero: dashboard?.hero,
                         qualifier: dashboard?.reviewQualifier,
                         chart: dashboard?.chart,
-                        primaryAction: dashboard?.primaryAction,
-                        actionLabel: { $0.title },
-                        perform: perform,
                         currency: currency,
                         hasActiveTargets: hasActiveTargets,
                         currentMonthAcceptedSpend: snapshot.monthlyReport.currentMonthAcceptedSpend,
-                        lastMonthValue: lastMonthValue,
                         expectedPaceSpend: snapshot.monthlyReport.expectedPaceSpend
                     )
 
                     HomeDashboardSections(
                         hasActiveTargets: hasActiveTargets,
+                        actions: actions,
                         summaryCards: summaryCards,
                         targetRows: targetRows,
                         driverRows: driverRows,
-                        createTargetAction: createTargetAction,
-                        currentMonthAcceptedSpend: snapshot.monthlyReport.currentMonthAcceptedSpend,
-                        lastMonthAcceptedSpend: snapshot.monthlyReport.lastMonthAcceptedSpend,
-                        navigate: navigate,
-                        perform: perform,
-                        currency: currency
+                        perform: perform
                     )
                 }
             }

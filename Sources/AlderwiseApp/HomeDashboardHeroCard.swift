@@ -6,23 +6,17 @@ struct HomeDashboardHeroCard: View {
     let hero: HomeDashboardHero?
     let qualifier: HomeDashboardReviewQualifier?
     let chart: HomeDashboardChart?
-    let primaryAction: HomeDashboardAction?
-    let actionLabel: (HomeDashboardAction) -> String
-    let perform: (HomeDashboardDestination) -> Void
     let currency: (Decimal) -> String
     let hasActiveTargets: Bool
     let currentMonthAcceptedSpend: Decimal
-    let lastMonthValue: String
     let expectedPaceSpend: Decimal
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text(heroHeadline)
-                .font(.headline)
-                .foregroundStyle(heroTint)
+        VStack(alignment: .leading, spacing: 18) {
+            statusLabel
 
             Text(currency(hero?.amount ?? currentMonthAcceptedSpend))
-                .font(.system(size: 34, weight: .semibold))
+                .font(.system(size: 38, weight: .semibold))
 
             Text(heroSubtitle)
                 .foregroundStyle(.secondary)
@@ -33,26 +27,68 @@ struct HomeDashboardHeroCard: View {
                     .foregroundStyle(.secondary)
             }
 
-            if let chart {
-                PaceMiniChart(points: chart.points)
-                    .frame(height: 92)
+            if let qualifier {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "checklist.unchecked")
+                        .foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Accepted-only status")
+                            .font(.subheadline.weight(.semibold))
+                        Text(qualifier.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(12)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
 
-            if let primaryAction {
-                Button {
-                    perform(primaryAction.destination)
-                } label: {
-                    Label(actionLabel(primaryAction), systemImage: destinationSymbol(for: primaryAction.destination))
+            if let chart {
+                VStack(alignment: .leading, spacing: 10) {
+                    PaceMiniChart(points: chart.points)
+                        .frame(height: 112)
+
+                    HStack(spacing: 16) {
+                        legendChip(title: "Actual", symbol: "line.diagonal", tint: .accentColor)
+                        legendChip(title: "Expected", symbol: "ellipsis", tint: .secondary)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
+        .padding(24)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
-    private var heroHeadline: String {
+    private var statusLabel: some View {
+        Label {
+            Text(statusTitle)
+                .font(.headline)
+        } icon: {
+            Image(systemName: statusSymbol)
+        }
+        .foregroundStyle(heroTint)
+    }
+
+    private var heroSubtitle: String {
+        if hasActiveTargets == false {
+            return "Use the month summary and strongest driver below to decide whether you want a monthly limit."
+        }
+
+        let expected = currency(expectedPaceSpend)
+        return "Accepted spending is \(statusDescription) against an expected pace of \(expected)."
+    }
+
+    private var confidenceNote: String? {
+        if hasActiveTargets == false {
+            return "Create a monthly limit to compare current spending against pace."
+        }
+        return "Pace and targets reflect accepted expense activity."
+    }
+
+    private var statusTitle: String {
         if hasActiveTargets == false {
             return "No active targets"
         }
@@ -69,21 +105,34 @@ struct HomeDashboardHeroCard: View {
         }
     }
 
-    private var heroSubtitle: String {
-        if hasActiveTargets == false {
-            return "Last month closed at \(lastMonthValue) on the same accepted-spend basis."
+    private var statusDescription: String {
+        switch hero?.status {
+        case .underPace:
+            return "under pace"
+        case .onPace:
+            return "on pace"
+        case .overPace:
+            return "over pace"
+        case nil:
+            return "tracking current month spend"
         }
-
-        let expected = currency(expectedPaceSpend)
-        let qualifierSuffix = qualifier.map { " \($0.message)" } ?? ""
-        return "Expected pace is \(expected) for this point in the month.\(qualifierSuffix)"
     }
 
-    private var confidenceNote: String? {
+    private var statusSymbol: String {
         if hasActiveTargets == false {
-            return "Create a monthly limit to compare current spending against pace."
+            return "flag.slash"
         }
-        return qualifier == nil ? "Based on accepted expense activity only." : nil
+
+        switch hero?.status {
+        case .underPace:
+            return "arrow.down.circle.fill"
+        case .onPace:
+            return "equal.circle.fill"
+        case .overPace:
+            return "arrow.up.circle.fill"
+        case nil:
+            return "chart.line.uptrend.xyaxis.circle.fill"
+        }
     }
 
     private var heroTint: Color {
@@ -99,15 +148,12 @@ struct HomeDashboardHeroCard: View {
         }
     }
 
-    private func destinationSymbol(for destination: HomeDashboardDestination) -> String {
-        switch destination {
-        case .review:
-            return AppSection.review.systemImage
-        case .targets:
-            return AppSection.targets.systemImage
-        case .transactions:
-            return AppSection.transactions.systemImage
-        }
+    private func legendChip(title: String, symbol: String, tint: Color) -> some View {
+        Label(title, systemImage: symbol)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(.thinMaterial, in: Capsule())
+            .foregroundStyle(tint)
     }
 }
 
