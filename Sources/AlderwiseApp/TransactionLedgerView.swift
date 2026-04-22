@@ -102,6 +102,10 @@ struct TransactionLedgerView: View {
 
                 Spacer(minLength: 12)
 
+                Button("Search", systemImage: "magnifyingglass") {
+                    focusSearch()
+                }
+
                 if !headerState.activeChips.isEmpty {
                     Button("Reset All") {
                         clear(chips: headerState.activeChips)
