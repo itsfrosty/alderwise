@@ -30,7 +30,7 @@ public enum WorkspaceDetailRoute: Equatable, Sendable {
     case transactions
     case review
     case targetsManager
-    case accountsPlaceholder
+    case accountsManager
     case settings
 
     public static func make(for section: AppSection) -> WorkspaceDetailRoute {
@@ -44,7 +44,7 @@ public enum WorkspaceDetailRoute: Equatable, Sendable {
         case .targets:
             .targetsManager
         case .accounts:
-            .accountsPlaceholder
+            .accountsManager
         case .settings:
             .settings
         }

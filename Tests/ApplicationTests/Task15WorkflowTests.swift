@@ -177,6 +177,51 @@ func targetServiceWorkflowSupportsEditDeleteAndHomeActionReference() throws {
     #expect(try service.loadSnapshot().monthlyReport.targets.isEmpty)
 }
 
+@Test
+func accountServiceWorkflowSupportsEditArchiveRestoreAndDeleteWhenUnused() throws {
+    let service = try task15Service()
+
+    let created = try service.createAccount(
+        named: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    _ = try service.updateAccount(
+        id: created.id,
+        named: "Primary Checking",
+        kind: .savings,
+        institutionName: "Community Bank"
+    )
+
+    var snapshot = try service.loadSnapshot()
+    #expect(snapshot.managementAccounts.map(\.name) == ["Primary Checking"])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set([created.id]))
+
+    _ = try service.archiveAccount(
+        id: created.id,
+        archivedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    snapshot = try service.loadSnapshot()
+    #expect(snapshot.summary.accountCount == 0)
+    #expect(snapshot.managementAccounts.first?.isArchived == true)
+    #expect(snapshot.importEligibleAccounts.isEmpty)
+    #expect(snapshot.ledgerFilterAccounts.map(\.id) == [created.id])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set([created.id]))
+
+    _ = try service.restoreAccount(id: created.id)
+
+    snapshot = try service.loadSnapshot()
+    #expect(snapshot.summary.accountCount == 1)
+    #expect(snapshot.importEligibleAccounts.map(\.id) == [created.id])
+
+    try service.deleteAccountPermanently(id: created.id)
+
+    snapshot = try service.loadSnapshot()
+    #expect(snapshot.managementAccounts.isEmpty)
+    #expect(snapshot.summary.accountCount == 0)
+}
+
 func workspaceSnapshotIncludesComputedHomeDashboard() throws {
     let service = try task15Service()
     let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")

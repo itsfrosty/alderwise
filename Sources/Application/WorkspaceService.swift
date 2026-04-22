@@ -9,6 +9,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case transactionLedgerUnavailable
     case reviewQueueUnavailable
     case monthlyTargetConflict(MonthlyTargetConflict)
+    case accountManagementUnavailable
     case accountDeleteBlocked
     case targetManagementUnavailable
     case workspaceMaintenanceUnavailable
@@ -34,6 +35,8 @@ extension WorkspaceServiceError: LocalizedError {
             case .categoryGroupOverlap:
                 "A monthly target cannot overlap a category group and one of its member categories."
             }
+        case .accountManagementUnavailable:
+            "Accounts are unavailable for this workspace."
         case .accountDeleteBlocked:
             "This account can't be deleted because it still has imported files or transactions."
         case .targetManagementUnavailable:
@@ -95,11 +98,13 @@ public struct WorkspaceService: Sendable {
         let managementAccounts = try store.fetchManagementAccounts()
         let importEligibleAccounts = try store.fetchImportEligibleAccounts()
         let ledgerFilterAccounts = try store.fetchLedgerFilterAccounts()
+        let permanentlyDeletableAccountIDs = try store.fetchPermanentlyDeletableAccountIDs()
         return WorkspaceSnapshot(
             summary: summary,
             managementAccounts: managementAccounts,
             importEligibleAccounts: importEligibleAccounts,
             ledgerFilterAccounts: ledgerFilterAccounts,
+            permanentlyDeletableAccountIDs: permanentlyDeletableAccountIDs,
             categories: try store.fetchCategories(),
             categoryGroups: try store.fetchCategoryGroups(),
             pendingReviewItems: try reviewReader?.fetchPendingReviewItems() ?? [],

@@ -46,7 +46,7 @@ struct WorkspaceRootView: View {
         }
         .sheet(isPresented: $model.isPresentingAccountSheet) {
             AccountCreationSheet { name, kind, institutionName in
-                model.createAccount(
+                _ = try model.createAccount(
                     name: name,
                     kind: kind,
                     institutionName: institutionName
@@ -277,7 +277,7 @@ struct WorkspaceRootView: View {
             .keyboardShortcut("t", modifiers: [.command])
         case .accounts:
             Button {
-                model.isPresentingAccountSheet = true
+                model.beginAccountCreation()
             } label: {
                 Label("Create Account", systemImage: "plus")
             }
@@ -368,10 +368,33 @@ struct WorkspaceRootView: View {
                 )
             } else if WorkspaceDetailRoute.make(for: section) == .settings {
                 SettingsView(model: model)
-            } else if WorkspaceDetailRoute.make(for: section) == .accountsPlaceholder {
-                SectionPlaceholderView(section: section, snapshot: snapshot)
+            } else if WorkspaceDetailRoute.make(for: section) == .accountsManager {
+                AccountsManagementView(
+                    accounts: snapshot.managementAccounts,
+                    permanentlyDeletableAccountIDs: snapshot.permanentlyDeletableAccountIDs,
+                    onCreate: {
+                        model.beginAccountCreation()
+                    },
+                    onSaveEdit: { id, name, kind, institutionName in
+                        try model.updateAccount(
+                            id: id,
+                            name: name,
+                            kind: kind,
+                            institutionName: institutionName
+                        )
+                    },
+                    onArchive: { id in
+                        try model.archiveAccount(id: id)
+                    },
+                    onRestore: { id in
+                        try model.restoreAccount(id: id)
+                    },
+                    onDeletePermanently: { id in
+                        try model.deleteAccountPermanently(id: id)
+                    }
+                )
             } else {
-                EmptyView()
+                SectionPlaceholderView(section: section, snapshot: snapshot)
             }
         }
     }

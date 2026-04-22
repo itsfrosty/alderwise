@@ -339,21 +339,64 @@ final class WorkspaceShellModel: ObservableObject {
         }
     }
 
-    func createAccount(name: String, kind: AccountKind, institutionName: String?) {
+    func beginAccountCreation() {
+        isPresentingAccountSheet = true
+    }
+
+    @discardableResult
+    func createAccount(name: String, kind: AccountKind, institutionName: String?) throws -> Account {
         guard let service else {
-            return
+            throw WorkspaceServiceError.accountManagementUnavailable
         }
 
-        do {
-            _ = try service.createAccount(
-                named: name,
-                kind: kind,
-                institutionName: institutionName
-            )
-            reload()
-        } catch {
-            state = .failed(error.localizedDescription)
+        let account = try service.createAccount(
+            named: name,
+            kind: kind,
+            institutionName: institutionName
+        )
+        reload()
+        return account
+    }
+
+    func updateAccount(id: UUID, name: String, kind: AccountKind, institutionName: String?) throws {
+        guard let service else {
+            throw WorkspaceServiceError.accountManagementUnavailable
         }
+
+        _ = try service.updateAccount(
+            id: id,
+            named: name,
+            kind: kind,
+            institutionName: institutionName
+        )
+        reload()
+    }
+
+    func archiveAccount(id: UUID) throws {
+        guard let service else {
+            throw WorkspaceServiceError.accountManagementUnavailable
+        }
+
+        _ = try service.archiveAccount(id: id)
+        reload()
+    }
+
+    func restoreAccount(id: UUID) throws {
+        guard let service else {
+            throw WorkspaceServiceError.accountManagementUnavailable
+        }
+
+        _ = try service.restoreAccount(id: id)
+        reload()
+    }
+
+    func deleteAccountPermanently(id: UUID) throws {
+        guard let service else {
+            throw WorkspaceServiceError.accountManagementUnavailable
+        }
+
+        try service.deleteAccountPermanently(id: id)
+        reload()
     }
 
     func beginCSVImport() {

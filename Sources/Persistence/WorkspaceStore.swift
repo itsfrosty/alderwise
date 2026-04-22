@@ -466,6 +466,32 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Staged
         }
     }
 
+    public func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT id
+                FROM accounts
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM source_files WHERE source_files.account_id = accounts.id
+                )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM import_sessions WHERE import_sessions.account_id = accounts.id
+                )
+                  AND NOT EXISTS (
+                    SELECT 1 FROM transactions WHERE transactions.account_id = accounts.id
+                )
+                """
+            )
+
+            return Set(rows.compactMap { row in
+                let idText: String = row["id"]
+                return UUID(uuidString: idText)
+            })
+        }
+    }
+
     public func fetchCategories() throws -> [BudgetCategory] {
         try databaseQueue.read { db in
             let rows = try Row.fetchAll(

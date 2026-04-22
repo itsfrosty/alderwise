@@ -165,7 +165,7 @@ func homeDashboardPrioritizesOverLimitTargetsWhenReviewBacklogIsEmpty() {
 @Test
 func targetsSectionUsesDedicatedManagerRoute() {
     #expect(WorkspaceDetailRoute.make(for: .targets) == .targetsManager)
-    #expect(WorkspaceDetailRoute.make(for: .accounts) == .accountsPlaceholder)
+    #expect(WorkspaceDetailRoute.make(for: .accounts) == .accountsManager)
 }
 
 @Test

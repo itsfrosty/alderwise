@@ -1,3 +1,4 @@
+import Foundation
 import Domain
 
 public struct WorkspaceSnapshot: Equatable, Sendable {
@@ -5,6 +6,7 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
     public var managementAccounts: [Account]
     public var importEligibleAccounts: [Account]
     public var ledgerFilterAccounts: [Account]
+    public var permanentlyDeletableAccountIDs: Set<UUID>
     public var categories: [BudgetCategory]
     public var categoryGroups: [BudgetCategoryGroup]
     public var pendingReviewItems: [PendingReviewItem]
@@ -22,6 +24,7 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
         managementAccounts: [Account],
         importEligibleAccounts: [Account]? = nil,
         ledgerFilterAccounts: [Account]? = nil,
+        permanentlyDeletableAccountIDs: Set<UUID> = [],
         categories: [BudgetCategory] = [],
         categoryGroups: [BudgetCategoryGroup] = [],
         pendingReviewItems: [PendingReviewItem] = [],
@@ -34,6 +37,7 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
         self.managementAccounts = managementAccounts
         self.importEligibleAccounts = importEligibleAccounts ?? managementAccounts.filter { !$0.isArchived }
         self.ledgerFilterAccounts = ledgerFilterAccounts ?? managementAccounts
+        self.permanentlyDeletableAccountIDs = permanentlyDeletableAccountIDs
         self.categories = categories
         self.categoryGroups = categoryGroups
         self.pendingReviewItems = pendingReviewItems

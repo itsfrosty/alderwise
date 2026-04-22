@@ -28,6 +28,10 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
         accounts
     }
 
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        Set(accounts.map(\.id))
+    }
+
     func fetchCategories() throws -> [BudgetCategory] {
         []
     }
@@ -170,6 +174,10 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
 
     func fetchLedgerFilterAccounts() throws -> [Account] {
         accounts.sorted { $0.name < $1.name }
+    }
+
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        Set(accounts.filter { !$0.isArchived }.map(\.id))
     }
 
     func fetchCategories() throws -> [BudgetCategory] {
@@ -433,6 +441,7 @@ func loadSnapshotReturnsSummaryAndAccountsFromStore() throws {
     #expect(snapshot.managementAccounts.map(\.name) == ["Checking"])
     #expect(snapshot.importEligibleAccounts.map(\.name) == ["Checking"])
     #expect(snapshot.ledgerFilterAccounts.map(\.name) == ["Checking"])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set(store.accounts.map(\.id)))
     #expect(snapshot.pendingReviewItems == [reviewItem])
 }
 
@@ -461,6 +470,7 @@ func loadSnapshotSeparatesArchivedAccountVisibility() throws {
     #expect(snapshot.managementAccounts.map(\.name) == ["Checking", "Travel Card"])
     #expect(snapshot.importEligibleAccounts.map(\.name) == ["Checking"])
     #expect(snapshot.ledgerFilterAccounts.map(\.name) == ["Checking", "Travel Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set([activeAccount.id, archivedAccount.id]))
 }
 
 @Test
@@ -479,6 +489,7 @@ func createAccountReturnsCreatedAccountAndUpdatedSnapshot() throws {
     #expect(snapshot.summary.accountCount == 1)
     #expect(snapshot.managementAccounts.map(\.name) == ["Travel Card"])
     #expect(snapshot.importEligibleAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set([created.id]))
 }
 
 @Test
@@ -494,6 +505,7 @@ func seedSampleDataCreatesStarterAccountsOnlyOnce() throws {
     #expect(snapshot.summary.accountCount == 2)
     #expect(snapshot.managementAccounts.map(\.name) == ["Checking", "Daily Card"])
     #expect(snapshot.importEligibleAccounts.map(\.name) == ["Checking", "Daily Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs.count == 2)
 }
 
 @Test
@@ -516,12 +528,14 @@ func archiveAndRestoreAccountUpdateVisibilityContracts() throws {
     #expect(snapshot.managementAccounts.map(\.name) == ["Travel Card"])
     #expect(snapshot.importEligibleAccounts.isEmpty)
     #expect(snapshot.ledgerFilterAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs.isEmpty)
 
     _ = try service.restoreAccount(id: created.id)
 
     snapshot = try service.loadSnapshot()
     #expect(snapshot.summary.accountCount == 1)
     #expect(snapshot.importEligibleAccounts.map(\.name) == ["Travel Card"])
+    #expect(snapshot.permanentlyDeletableAccountIDs == Set([created.id]))
 }
 
 @Test

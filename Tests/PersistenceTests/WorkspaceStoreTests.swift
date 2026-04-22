@@ -167,6 +167,7 @@ func createdAccountsAppearInSummaryAndFetchResults() throws {
     #expect(accounts.map(\.name) == ["Card", "Checking"])
     #expect(try store.fetchImportEligibleAccounts().map(\.name) == ["Card", "Checking"])
     #expect(try store.fetchLedgerFilterAccounts().map(\.name) == ["Card", "Checking"])
+    #expect(try store.fetchPermanentlyDeletableAccountIDs().count == 2)
 }
 
 @Test
@@ -220,6 +221,7 @@ func archivingAndRestoringAccountsUpdatesVisibilityContracts() throws {
     #expect(try store.fetchManagementAccounts().map(\.name) == ["Checking"])
     #expect(try store.fetchImportEligibleAccounts().isEmpty)
     #expect(try store.fetchLedgerFilterAccounts().map(\.name) == ["Checking"])
+    #expect(try store.fetchPermanentlyDeletableAccountIDs() == Set([account.id]))
 
     _ = try store.restoreAccount(id: account.id)
 
@@ -244,6 +246,7 @@ func updateAccountPersistsMetadataChanges() throws {
     #expect(updated.kind == .savings)
     #expect(updated.institutionName == "Community Bank")
     #expect(try store.fetchManagementAccounts().map(\.name) == ["Primary Checking"])
+    #expect(try store.fetchPermanentlyDeletableAccountIDs() == Set([account.id]))
 }
 
 @Test
@@ -266,6 +269,7 @@ func deleteAccountPermanentlyRejectsDependentHistoryAndLeavesRowsIntact() throws
 
     let stagedImportAccount = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
     let transactionAccount = try store.createAccount(named: "Card", kind: .creditCard, institutionName: "Visa")
+    let unusedAccount = try store.createAccount(named: "Savings", kind: .savings, institutionName: "Local Bank")
     try insertSourceFileAndImportSession(databaseURL: databaseURL, accountID: stagedImportAccount.id)
     try insertTransaction(
         databaseURL: databaseURL,
@@ -282,6 +286,7 @@ func deleteAccountPermanentlyRejectsDependentHistoryAndLeavesRowsIntact() throws
     #expect(throws: AccountManagementError.deleteBlockedByDependencies(transactionAccount.id)) {
         try store.deleteAccountPermanently(id: transactionAccount.id)
     }
+    #expect(try store.fetchPermanentlyDeletableAccountIDs() == Set([unusedAccount.id]))
 
     let counts = try DatabaseQueue(path: databaseURL.path).read { db in
         (
@@ -292,7 +297,7 @@ func deleteAccountPermanentlyRejectsDependentHistoryAndLeavesRowsIntact() throws
         )
     }
 
-    #expect(counts.accounts == 2)
+    #expect(counts.accounts == 3)
     #expect(counts.sourceFiles == 1)
     #expect(counts.importSessions == 1)
     #expect(counts.transactions == 1)

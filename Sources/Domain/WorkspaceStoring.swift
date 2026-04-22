@@ -6,6 +6,7 @@ public protocol WorkspaceReading: Sendable {
     func fetchManagementAccounts() throws -> [Account]
     func fetchImportEligibleAccounts() throws -> [Account]
     func fetchLedgerFilterAccounts() throws -> [Account]
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID>
     func fetchCategories() throws -> [BudgetCategory]
     func fetchCategoryGroups() throws -> [BudgetCategoryGroup]
 }
