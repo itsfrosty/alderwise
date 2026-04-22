@@ -5,7 +5,7 @@ import GRDB
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleWriting, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 

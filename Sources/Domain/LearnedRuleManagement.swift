@@ -41,19 +41,6 @@ public struct LearnedRuleSummary: Identifiable, Equatable, Sendable {
         self.lifecycle = lifecycle
     }
 
-    public var classificationRule: ClassificationRule? {
-        guard let categoryID else {
-            return nil
-        }
-        return ClassificationRule(
-            id: id,
-            merchantPattern: merchantPattern,
-            categoryID: categoryID,
-            merchantName: merchantName,
-            matchKind: matchKind
-        )
-    }
-
     public var isDisabled: Bool {
         if case .disabled = lifecycle {
             true
@@ -94,19 +81,6 @@ public struct ManagedLearnedRule: Identifiable, Equatable, Sendable {
         self.lifecycle = lifecycle
     }
 
-    public var classificationRule: ClassificationRule? {
-        guard let categoryID else {
-            return nil
-        }
-        return ClassificationRule(
-            id: id,
-            merchantPattern: merchantPattern,
-            categoryID: categoryID,
-            merchantName: merchantName,
-            matchKind: matchKind
-        )
-    }
-
     public var isDisabled: Bool {
         if case .disabled = lifecycle {
             true
@@ -124,20 +98,6 @@ public protocol LearnedRuleReading: Sendable {
     func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary]
     func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary?
     func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule?
-}
-
-public extension LearnedRuleReading {
-    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
-        []
-    }
-
-    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
-        nil
-    }
-
-    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
-        nil
-    }
 }
 
 public protocol LearnedRuleWriting: Sendable {

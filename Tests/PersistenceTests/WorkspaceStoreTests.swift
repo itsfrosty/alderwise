@@ -3182,6 +3182,40 @@ func fetchLearnedRuleSummaryAndDetailResolveDisabledRulesByID() throws {
 }
 
 @Test
+func disableAndEnableLearnedRuleRoundTripsClassifierVisibility() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let disabledAt = Date(timeIntervalSince1970: 1_775_171_320)
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    try insertRule(
+        databaseURL: databaseURL,
+        id: learnedRuleID,
+        pattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    #expect(try store.fetchClassificationRules().map(\.id) == [learnedRuleID])
+
+    let disabledRule = try store.disableLearnedRule(id: learnedRuleID, disabledAt: disabledAt)
+    #expect(disabledRule.id == learnedRuleID)
+    #expect(disabledRule.disabledAt == disabledAt)
+    #expect(try store.fetchClassificationRules().isEmpty)
+    #expect(try #require(try store.fetchLearnedRuleDetail(id: learnedRuleID)).disabledAt == disabledAt)
+
+    let enabledRule = try store.enableLearnedRule(id: learnedRuleID)
+    #expect(enabledRule.id == learnedRuleID)
+    #expect(enabledRule.disabledAt == nil)
+    #expect(try store.fetchClassificationRules().map(\.id) == [learnedRuleID])
+    #expect(try #require(try store.fetchLearnedRuleSummary(id: learnedRuleID)).disabledAt == nil)
+}
+
+@Test
 func fetchClassificationRulesKeepsContainsLearnedRulesVisible() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -3217,6 +3251,39 @@ func fetchClassificationRulesKeepsContainsLearnedRulesVisible() throws {
     #expect(managedRules[0].merchantName == "Coffee Shop")
     #expect(managedRules[0].matchKind == .contains)
     #expect(managedRules[0].disabledAt == nil)
+}
+
+@Test
+func bootstrapAddsDisabledAtToLegacyRulesTableWithoutDeletingRows() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    let legacyRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000333")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    try insertLegacyRuleWithoutDisabledAt(
+        databaseURL: databaseURL,
+        id: legacyRuleID,
+        pattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let ruleColumns = try DatabaseQueue(path: databaseURL.path).read { db in
+        Set(try Row.fetchAll(db, sql: "PRAGMA table_info(rules)").map { row in
+            row["name"] as String
+        })
+    }
+    let managedRules = try store.fetchLearnedRuleSummaries()
+    let classifierRules = try store.fetchClassificationRules()
+
+    #expect(ruleColumns.contains("disabled_at"))
+    #expect(managedRules.map(\.id) == [legacyRuleID])
+    #expect(managedRules.first?.disabledAt == nil)
+    #expect(classifierRules.map(\.id) == [legacyRuleID])
 }
 
 @Test
@@ -4095,6 +4162,32 @@ private func insertRule(
                 matchKind.rawValue,
                 createdAt,
                 disabledAt,
+            ]
+        )
+    }
+}
+
+private func insertLegacyRuleWithoutDisabledAt(
+    databaseURL: URL,
+    id: UUID,
+    pattern: String,
+    categoryID: UUID?,
+    merchantName: String?,
+    createdAt: Date
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO rules (id, pattern, category_id, merchant_name, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                id.uuidString,
+                pattern,
+                categoryID?.uuidString,
+                merchantName,
+                createdAt,
             ]
         )
     }
