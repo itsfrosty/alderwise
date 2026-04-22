@@ -47,6 +47,14 @@ public struct WorkspaceRestoreResult: Equatable, Sendable {
     }
 }
 
+public struct WorkspaceResetResult: Equatable, Sendable {
+    public var preResetBackupURL: URL
+
+    public init(preResetBackupURL: URL) {
+        self.preResetBackupURL = preResetBackupURL
+    }
+}
+
 public protocol WorkspaceMaintenanceManaging: Sendable {
     func fetchWorkspaceMetadata() throws -> WorkspaceMetadata
     func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup
@@ -55,6 +63,7 @@ public protocol WorkspaceMaintenanceManaging: Sendable {
         safetyBackupDirectory: URL?,
         now: Date
     ) throws -> WorkspaceRestoreResult
+    func resetWorkspace() throws -> WorkspaceResetResult
 }
 
 public struct WorkspacePreferences: Equatable, Sendable {
@@ -93,12 +102,17 @@ public extension WorkspaceMaintenanceManaging {
             now: now
         )
     }
+
+    func resetWorkspace() throws -> WorkspaceResetResult {
+        throw WorkspaceMaintenanceError.resetNotImplementedYet
+    }
 }
 
 public enum WorkspaceMaintenanceError: Error, Equatable, Sendable {
     case onDiskWorkspaceRequired
     case restoreSourceIsCurrentWorkspace
     case invalidRestoreCandidate(String)
+    case resetNotImplementedYet
 }
 
 extension WorkspaceMaintenanceError: LocalizedError {
@@ -110,6 +124,8 @@ extension WorkspaceMaintenanceError: LocalizedError {
             "Choose a backup file that is different from the active workspace."
         case .invalidRestoreCandidate(let reason):
             "The selected file is not a supported Alderwise workspace backup. \(reason)"
+        case .resetNotImplementedYet:
+            "Workspace reset is not implemented yet for this workspace."
         }
     }
 }

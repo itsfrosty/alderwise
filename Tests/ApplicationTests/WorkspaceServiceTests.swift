@@ -223,6 +223,281 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     }
 }
 
+private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
+    var summary: WorkspaceSummary = .empty
+    var accounts: [Account] = []
+    var backupCallCount = 0
+    var restoreCallCount = 0
+    var resetCallCount = 0
+    var lastRestoreBackupURL: URL?
+    var backup: WorkspaceBackup = WorkspaceBackup(
+        fileURL: URL(fileURLWithPath: "/tmp/backup.sqlite"),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_200),
+        sizeBytes: 4096
+    )
+    var restoreResult: WorkspaceRestoreResult = WorkspaceRestoreResult(
+        restoredFromURL: URL(fileURLWithPath: "/tmp/canned-restore-result.sqlite"),
+        safetyBackup: WorkspaceBackup(
+            fileURL: URL(fileURLWithPath: "/tmp/safety-backup.sqlite"),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_260),
+            sizeBytes: 2048
+        ),
+        restoredAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+    var resetResult: WorkspaceResetResult = WorkspaceResetResult(
+        preResetBackupURL: URL(fileURLWithPath: "/tmp/pre-reset-backup.sqlite")
+    )
+
+    func fetchSummary() throws -> WorkspaceSummary {
+        summary
+    }
+
+    func fetchAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchCategories() throws -> [BudgetCategory] {
+        []
+    }
+
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] {
+        []
+    }
+
+    func fetchWorkspaceMetadata() throws -> WorkspaceMetadata {
+        WorkspaceMetadata(
+            databaseURL: URL(fileURLWithPath: "/tmp/workspace.sqlite"),
+            databaseExists: true,
+            databaseSizeBytes: 1024,
+            modifiedAt: Date(timeIntervalSince1970: 1_775_171_200)
+        )
+    }
+
+    func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(name: named, kind: kind, institutionName: institutionName)
+    }
+
+    func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
+        StagedImportSession(
+            id: 1,
+            sourceFile: StagedSourceFile(
+                id: 1,
+                accountID: draft.accountID,
+                originalFilename: draft.originalFilename,
+                contentHash: draft.contentHash,
+                importedAt: draft.importedAt,
+                rowCount: draft.rows.count
+            ),
+            mapping: draft.mapping,
+            validRowCount: draft.validRowCount,
+            invalidRowCount: draft.invalidRowCount,
+            status: draft.status,
+            rows: draft.rows.enumerated().map { index, row in
+                StagedSourceRow(
+                    id: Int64(index + 1),
+                    sourceFileID: 1,
+                    sourceLineNumber: row.sourceLineNumber,
+                    rawPayload: row.rawPayload,
+                    rowHash: row.rowHash,
+                    validationStatus: row.validationStatus
+                )
+            }
+        )
+    }
+
+    func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
+        []
+    }
+
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        [:]
+    }
+
+    func fetchLikelyDuplicateTransactions(
+        accountID: UUID,
+        candidates: [NormalizedImportCandidate]
+    ) throws -> [LikelyDuplicateCandidate] {
+        []
+    }
+
+    func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup {
+        backupCallCount += 1
+        return backup
+    }
+
+    func restoreWorkspaceBackup(
+        from backupURL: URL,
+        safetyBackupDirectory: URL?,
+        now: Date
+    ) throws -> WorkspaceRestoreResult {
+        restoreCallCount += 1
+        lastRestoreBackupURL = backupURL
+        return restoreResult
+    }
+
+    func resetWorkspace() throws -> WorkspaceResetResult {
+        resetCallCount += 1
+        return resetResult
+    }
+}
+
+@Test
+func resetWorkspaceThrowsWhenMaintenanceIsUnavailable() throws {
+    let service = WorkspaceService(store: StubWorkspaceStore(summary: .empty, accounts: []))
+
+    #expect(throws: WorkspaceServiceError.workspaceMaintenanceUnavailable) {
+        try service.resetWorkspace()
+    }
+}
+
+@Test
+func createWorkspaceBackupReturnsTypedOutcomeData() throws {
+    let store = MaintenanceWorkspaceStore()
+    let service = WorkspaceService(store: store)
+
+    let backup = try service.createWorkspaceBackup()
+
+    #expect(backup.fileURL == URL(fileURLWithPath: "/tmp/backup.sqlite"))
+    #expect(backup.createdAt == Date(timeIntervalSince1970: 1_775_171_200))
+    #expect(backup.sizeBytes == 4096)
+    #expect(store.backupCallCount == 1)
+    #expect(store.restoreCallCount == 0)
+    #expect(store.resetCallCount == 0)
+}
+
+@Test
+func restoreWorkspaceBackupReturnsTypedOutcomeData() throws {
+    let store = MaintenanceWorkspaceStore()
+    let service = WorkspaceService(store: store)
+    let sourceURL = URL(fileURLWithPath: "/tmp/incoming-backup.sqlite")
+
+    let result = try service.restoreWorkspaceBackup(from: sourceURL)
+
+    #expect(store.lastRestoreBackupURL == sourceURL)
+    #expect(result.restoredFromURL == URL(fileURLWithPath: "/tmp/canned-restore-result.sqlite"))
+    #expect(result.safetyBackup?.fileURL == URL(fileURLWithPath: "/tmp/safety-backup.sqlite"))
+    #expect(result.safetyBackup?.sizeBytes == 2048)
+    #expect(store.backupCallCount == 0)
+    #expect(store.restoreCallCount == 1)
+    #expect(store.resetCallCount == 0)
+}
+
+private final class DefaultResetBridgeMaintenanceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
+    func fetchSummary() throws -> WorkspaceSummary {
+        .empty
+    }
+
+    func fetchAccounts() throws -> [Account] {
+        []
+    }
+
+    func fetchCategories() throws -> [BudgetCategory] {
+        []
+    }
+
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] {
+        []
+    }
+
+    func fetchWorkspaceMetadata() throws -> WorkspaceMetadata {
+        WorkspaceMetadata(
+            databaseURL: URL(fileURLWithPath: "/tmp/workspace.sqlite"),
+            databaseExists: true,
+            databaseSizeBytes: 0,
+            modifiedAt: nil
+        )
+    }
+
+    func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(name: named, kind: kind, institutionName: institutionName)
+    }
+
+    func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
+        StagedImportSession(
+            id: 1,
+            sourceFile: StagedSourceFile(
+                id: 1,
+                accountID: draft.accountID,
+                originalFilename: draft.originalFilename,
+                contentHash: draft.contentHash,
+                importedAt: draft.importedAt,
+                rowCount: draft.rows.count
+            ),
+            mapping: draft.mapping,
+            validRowCount: draft.validRowCount,
+            invalidRowCount: draft.invalidRowCount,
+            status: draft.status,
+            rows: draft.rows.enumerated().map { index, row in
+                StagedSourceRow(
+                    id: Int64(index + 1),
+                    sourceFileID: 1,
+                    sourceLineNumber: row.sourceLineNumber,
+                    rawPayload: row.rawPayload,
+                    rowHash: row.rowHash,
+                    validationStatus: row.validationStatus
+                )
+            }
+        )
+    }
+
+    func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
+        []
+    }
+
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        [:]
+    }
+
+    func fetchLikelyDuplicateTransactions(
+        accountID: UUID,
+        candidates: [NormalizedImportCandidate]
+    ) throws -> [LikelyDuplicateCandidate] {
+        []
+    }
+
+    func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup {
+        WorkspaceBackup(
+            fileURL: URL(fileURLWithPath: "/tmp/bridge-backup.sqlite"),
+            createdAt: now,
+            sizeBytes: 1
+        )
+    }
+
+    func restoreWorkspaceBackup(
+        from backupURL: URL,
+        safetyBackupDirectory: URL?,
+        now: Date
+    ) throws -> WorkspaceRestoreResult {
+        WorkspaceRestoreResult(
+            restoredFromURL: backupURL,
+            safetyBackup: nil,
+            restoredAt: now
+        )
+    }
+}
+
+@Test
+func resetWorkspaceReturnsTypedOutcomeData() throws {
+    let store = MaintenanceWorkspaceStore()
+    let service = WorkspaceService(store: store)
+
+    let result = try service.resetWorkspace()
+
+    #expect(result.preResetBackupURL == URL(fileURLWithPath: "/tmp/pre-reset-backup.sqlite"))
+    #expect(store.backupCallCount == 0)
+    #expect(store.restoreCallCount == 0)
+    #expect(store.resetCallCount == 1)
+}
+
+@Test
+func resetWorkspaceSurfacesDefaultBridgeErrorWhenMaintenanceUsesProtocolDefault() throws {
+    let service = WorkspaceService(store: DefaultResetBridgeMaintenanceStore())
+
+    #expect(throws: WorkspaceMaintenanceError.resetNotImplementedYet) {
+        try service.resetWorkspace()
+    }
+}
+
 @Test
 func loadSnapshotReturnsSummaryAndAccountsFromStore() throws {
     let reviewItem = PendingReviewItem(
