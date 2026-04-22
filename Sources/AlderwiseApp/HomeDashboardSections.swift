@@ -261,7 +261,7 @@ struct HomeDashboardSections: View {
     }
 
     private func actionID(for action: HomeDashboardAction) -> String {
-        "\(action.kind)-\(destinationID(for: action.destination))-\(action.prominence)"
+        "\(action.kind)-\(destinationID(for: action.destination))"
     }
 
     private func destinationID(for destination: HomeDashboardDestination) -> String {
