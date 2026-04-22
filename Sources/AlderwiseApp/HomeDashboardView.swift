@@ -28,8 +28,16 @@ struct HomeDashboardView: View {
         dashboard?.driverRows ?? []
     }
 
+    private var hasActiveTargets: Bool {
+        targetRows.isEmpty == false
+    }
+
     private var createTargetAction: HomeDashboardAction? {
         dashboard?.actions.first(where: { $0.kind == .createFirstTarget })
+    }
+
+    private var lastMonthValue: String {
+        summaryCards.first { $0.id == "last-month" }?.value ?? currency(snapshot.monthlyReport.lastMonthAcceptedSpend)
     }
 
     var body: some View {
@@ -46,13 +54,14 @@ struct HomeDashboardView: View {
                         actionLabel: { $0.title },
                         perform: perform,
                         currency: currency,
-                        hasActiveTargets: targetRows.isEmpty == false,
+                        hasActiveTargets: hasActiveTargets,
                         currentMonthAcceptedSpend: snapshot.monthlyReport.currentMonthAcceptedSpend,
-                        lastMonthAcceptedSpend: snapshot.monthlyReport.lastMonthAcceptedSpend,
+                        lastMonthValue: lastMonthValue,
                         expectedPaceSpend: snapshot.monthlyReport.expectedPaceSpend
                     )
 
                     HomeDashboardSections(
+                        hasActiveTargets: hasActiveTargets,
                         summaryCards: summaryCards,
                         targetRows: targetRows,
                         driverRows: driverRows,

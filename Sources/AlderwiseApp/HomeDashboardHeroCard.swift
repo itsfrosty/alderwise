@@ -12,7 +12,7 @@ struct HomeDashboardHeroCard: View {
     let currency: (Decimal) -> String
     let hasActiveTargets: Bool
     let currentMonthAcceptedSpend: Decimal
-    let lastMonthAcceptedSpend: Decimal
+    let lastMonthValue: String
     let expectedPaceSpend: Decimal
 
     var body: some View {
@@ -71,7 +71,6 @@ struct HomeDashboardHeroCard: View {
 
     private var heroSubtitle: String {
         if hasActiveTargets == false {
-            let lastMonthValue = currency(lastMonthAcceptedSpend)
             return "Last month closed at \(lastMonthValue) on the same accepted-spend basis."
         }
 

@@ -3,6 +3,7 @@ import Domain
 import SwiftUI
 
 struct HomeDashboardSections: View {
+    let hasActiveTargets: Bool
     let summaryCards: [HomeDashboardSummaryCard]
     let targetRows: [HomeDashboardTargetRow]
     let driverRows: [HomeDashboardDriverRow]
@@ -15,7 +16,7 @@ struct HomeDashboardSections: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            if targetRows.isEmpty {
+            if hasActiveTargets == false {
                 noTargetsSection
             } else {
                 targetsSection
