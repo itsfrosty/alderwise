@@ -45,6 +45,19 @@ struct LearnedRulesManagerView: View {
     }
 
     var body: some View {
+        switch destination.mode {
+        case .learned:
+            learnedManagerContent
+        case .seeded:
+            SeededRulesListView(
+                model: model,
+                categories: categories,
+                snapshot: snapshot
+            )
+        }
+    }
+
+    private var learnedManagerContent: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
 
