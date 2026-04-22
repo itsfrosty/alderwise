@@ -32,14 +32,6 @@ struct WorkspaceRootView: View {
         )
     }
 
-    private var pendingRestoreBackupURL: URL? {
-        if case .restoreBackup(let backupURL) = model.pendingMaintenanceAction {
-            backupURL
-        } else {
-            nil
-        }
-    }
-
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -206,12 +198,6 @@ struct WorkspaceRootView: View {
         } message: {
             Text(model.sampleDataMessage ?? "")
         }
-        .modifier(
-            WorkspaceRecoveryFeedbackModifier(
-                model: model,
-                pendingRestoreBackupURL: pendingRestoreBackupURL
-            )
-        )
     }
 
     private var sidebar: some View {
@@ -235,160 +221,6 @@ struct WorkspaceRootView: View {
         } catch {
             return .failure(error)
         }
-    }
-
-    private struct WorkspaceRecoveryFeedbackModifier: ViewModifier {
-        let model: WorkspaceShellModel
-        let pendingRestoreBackupURL: URL?
-
-        private var isPresentingResetConfirmation: Bool {
-            if case .reset = model.pendingMaintenanceAction {
-                true
-            } else {
-                false
-            }
-        }
-
-        func body(content: Content) -> some View {
-            content
-                .confirmationDialog(
-                    "Restore Workspace Backup?",
-                    isPresented: Binding(
-                        get: { pendingRestoreBackupURL != nil },
-                        set: { isPresented in
-                            if !isPresented {
-                                model.cancelPendingMaintenanceAction()
-                            }
-                        }
-                    ),
-                    titleVisibility: .visible,
-                    presenting: pendingRestoreBackupURL
-                ) { _ in
-                    Button("Cancel", role: .cancel) {
-                        model.cancelPendingMaintenanceAction()
-                    }
-
-                    Button("Overwrite Workspace", role: .destructive) {
-                        model.confirmPendingMaintenanceAction()
-                    }
-                } message: { backupURL in
-                    Text(
-                        "A safety backup of the current workspace will be created before \(backupURL.lastPathComponent) overwrites it."
-                    )
-                }
-                .confirmationDialog(
-                    "Reset Workspace?",
-                    isPresented: Binding(
-                        get: { isPresentingResetConfirmation },
-                        set: { isPresented in
-                            if !isPresented {
-                                model.cancelPendingMaintenanceAction()
-                            }
-                        }
-                    ),
-                    titleVisibility: .visible
-                ) {
-                    Button("Cancel", role: .cancel) {
-                        model.cancelPendingMaintenanceAction()
-                    }
-
-                    Button("Reset Workspace", role: .destructive) {
-                        model.confirmPendingMaintenanceAction()
-                    }
-                } message: {
-                    Text(
-                        "Reset removes workspace data from this Mac and returns the workspace to a clean state. A mandatory backup is created first; if that backup cannot be created, reset is blocked. External backup files are not deleted."
-                    )
-                }
-                .alert(
-                    "Workspace Updated",
-                    isPresented: Binding(
-                        get: { model.latestMaintenanceOutcome != nil },
-                        set: { isPresented in
-                            if !isPresented {
-                                model.dismissLatestMaintenanceOutcome()
-                            }
-                        }
-                    ),
-                    presenting: maintenanceAlertState
-                ) { state in
-                    if let revealURL = state.revealURL {
-                        Button("Reveal in Finder") {
-                            NSWorkspace.shared.activateFileViewerSelecting([revealURL])
-                            model.dismissLatestMaintenanceOutcome()
-                        }
-                    }
-
-                    Button("OK") {
-                        model.dismissLatestMaintenanceOutcome()
-                    }
-                } message: { state in
-                    Text(state.message)
-                }
-                .alert(
-                    "Workspace Maintenance Failed",
-                    isPresented: Binding(
-                        get: { model.latestMaintenanceFailure != nil },
-                        set: { isPresented in
-                            if !isPresented {
-                                model.dismissLatestMaintenanceFailure()
-                            }
-                        }
-                    )
-                ) {
-                    Button("OK") {
-                        model.dismissLatestMaintenanceFailure()
-                    }
-                } message: {
-                    Text(model.latestMaintenanceFailure?.message ?? "")
-                }
-        }
-
-        private var maintenanceAlertState: MaintenanceAlertState? {
-            guard let outcome = model.latestMaintenanceOutcome else {
-                return nil
-            }
-
-            switch outcome {
-            case .backupCreated(let backup):
-                return MaintenanceAlertState(
-                    message: "Backup created:\n\(backup.fileURL.path)",
-                    revealURL: backup.fileURL
-                )
-            case .restored(let result):
-                if let safetyBackup = result.safetyBackup {
-                    return MaintenanceAlertState(
-                        message: """
-                        Workspace restored from \(result.restoredFromURL.lastPathComponent).
-
-                        Safety backup:
-                        \(safetyBackup.fileURL.path)
-                        """,
-                        revealURL: safetyBackup.fileURL
-                    )
-                }
-
-                return MaintenanceAlertState(
-                    message: "Workspace restored from \(result.restoredFromURL.lastPathComponent).",
-                    revealURL: result.restoredFromURL
-                )
-            case .reset(let result):
-                return MaintenanceAlertState(
-                    message: """
-                    Workspace reset completed.
-
-                    Mandatory backup:
-                    \(result.preResetBackupURL.path)
-                    """,
-                    revealURL: result.preResetBackupURL
-                )
-            }
-        }
-    }
-
-    private struct MaintenanceAlertState {
-        let message: String
-        let revealURL: URL?
     }
 
     @ViewBuilder
@@ -461,6 +293,7 @@ struct WorkspaceRootView: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
+            .modifier(WorkspaceMaintenanceFeedbackModifier(model: model))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .loading:
             ProgressView("Loading workspace…")

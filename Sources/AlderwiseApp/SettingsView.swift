@@ -1,3 +1,4 @@
+import Application
 import AppKit
 import Domain
 import SwiftUI
@@ -23,6 +24,7 @@ struct SettingsView: View {
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .modifier(WorkspaceMaintenanceFeedbackModifier(model: model))
     }
 
     private var workspaceSection: some View {

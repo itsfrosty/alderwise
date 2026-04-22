@@ -1,18 +1,18 @@
 import Domain
 import Foundation
 
-enum PendingWorkspaceMaintenanceAction: Equatable {
+public enum PendingWorkspaceMaintenanceAction: Equatable {
     case retryWorkspaceRecovery
     case restoreBackup(URL)
     case reset
 }
 
-enum WorkspaceMaintenanceOutcome: Equatable {
+public enum WorkspaceMaintenanceOutcome: Equatable {
     case backupCreated(WorkspaceBackup)
     case restored(WorkspaceRestoreResult)
     case reset(WorkspaceResetResult)
 
-    var message: String {
+    public var message: String {
         switch self {
         case .backupCreated(let backup):
             return "Backup created at \(backup.fileURL.path)"
@@ -27,24 +27,29 @@ enum WorkspaceMaintenanceOutcome: Equatable {
     }
 }
 
-struct WorkspaceMaintenanceFailure: Equatable {
-    enum Operation: Equatable {
+public struct WorkspaceMaintenanceFailure: Equatable {
+    public enum Operation: Equatable {
         case preferencesUpdate
         case backup
         case restore
         case reset
     }
 
-    var operation: Operation
-    var message: String
+    public var operation: Operation
+    public var message: String
+
+    public init(operation: Operation, message: String) {
+        self.operation = operation
+        self.message = message
+    }
 }
 
-enum WorkspaceStatus: Equatable {
+public enum WorkspaceStatus: Equatable {
     case loading
     case available(WorkspaceMetadata?)
     case failedToOpen(String)
 
-    var metadata: WorkspaceMetadata? {
+    public var metadata: WorkspaceMetadata? {
         switch self {
         case .available(let metadata):
             metadata
