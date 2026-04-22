@@ -413,11 +413,8 @@ struct TransactionLedgerView: View {
     }
 
     private func handleSave(_ draft: TransactionLedgerEditDraft) {
-        guard model.updateSelectedTransaction(draft: draft) else {
-            return
-        }
-
-        applyPendingSelectionChange(draftCoordinator.saveSucceeded())
+        let didSave = model.updateSelectedTransaction(draft: draft)
+        applyPendingSelectionChange(draftCoordinator.completeSave(didSucceed: didSave))
     }
 
     private func saveAndApplyPendingSelection() {

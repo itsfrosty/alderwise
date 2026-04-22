@@ -87,7 +87,11 @@ struct TransactionDetailDraftCoordinator {
         pendingSelection = .none
     }
 
-    mutating func saveSucceeded() -> PendingSelectionChange {
+    mutating func completeSave(didSucceed: Bool) -> PendingSelectionChange {
+        guard didSucceed else {
+            return .none
+        }
+
         savedDraft = currentDraft
         let pendingSelection = pendingSelection
         self.pendingSelection = .none
