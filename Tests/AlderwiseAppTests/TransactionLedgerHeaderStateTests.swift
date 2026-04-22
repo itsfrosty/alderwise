@@ -38,6 +38,18 @@ func searchOnlyFilterProducesExpectedScopeAndChip() {
 }
 
 @Test
+func whitespaceOnlySearchDoesNotProduceActiveSearchState() {
+    let state = TransactionLedgerHeaderState(
+        rows: [makeRow()],
+        filter: TransactionLedgerFilter(searchText: "  \n\t  ")
+    )
+
+    #expect(state.scopeSummaryText == "All transactions")
+    #expect(state.activeChips.isEmpty)
+    #expect(state.zeroResultsState == nil)
+}
+
+@Test
 func categoryOnlyFilterProducesExpectedScopeAndChip() {
     let categoryID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
     let state = TransactionLedgerHeaderState(
@@ -75,6 +87,36 @@ func dateOnlyFilterProducesExpectedScopeAndChip() {
 
     #expect(state.scopeSummaryText == "Date: Jan 5, 2026 - Jan 9, 2026")
     #expect(state.activeChips == [.dateRange(start: startDate, end: endDate)])
+}
+
+@Test
+func startOnlyDateFilterProducesExpectedScopeAndChip() {
+    let formatting = fixedFormatting()
+    let startDate = makeDate(year: 2026, month: 1, day: 5)
+    let state = TransactionLedgerHeaderState(
+        rows: [makeRow()],
+        filter: TransactionLedgerFilter(startDate: startDate),
+        formatting: formatting
+    )
+
+    #expect(state.scopeSummaryText == "Date: From Jan 5, 2026")
+    #expect(state.activeChips == [.dateRange(start: startDate, end: nil)])
+    #expect(state.activeChips.first?.text(using: formatting) == "From Jan 5, 2026")
+}
+
+@Test
+func endOnlyDateFilterProducesExpectedScopeAndChip() {
+    let formatting = fixedFormatting()
+    let endDate = makeDate(year: 2026, month: 1, day: 9)
+    let state = TransactionLedgerHeaderState(
+        rows: [makeRow()],
+        filter: TransactionLedgerFilter(endDate: endDate),
+        formatting: formatting
+    )
+
+    #expect(state.scopeSummaryText == "Date: Through Jan 9, 2026")
+    #expect(state.activeChips == [.dateRange(start: nil, end: endDate)])
+    #expect(state.activeChips.first?.text(using: formatting) == "Through Jan 9, 2026")
 }
 
 @Test
@@ -130,6 +172,32 @@ func zeroResultsStateReturnsResetAndClearSearchAffordances() {
 }
 
 @Test
+func zeroResultsStateWithOnlySearchShowsClearSearchAffordance() {
+    let state = TransactionLedgerHeaderState(
+        rows: [],
+        filter: TransactionLedgerFilter(searchText: "coffee")
+    )
+
+    #expect(state.zeroResultsState?.title == "No transactions match these filters")
+    #expect(state.zeroResultsState?.message == "Try clearing the current search to broaden the ledger.")
+    #expect(state.zeroResultsState?.showsResetFilters == false)
+    #expect(state.zeroResultsState?.showsClearSearch == true)
+}
+
+@Test
+func zeroResultsStateWithOnlyNonSearchFiltersShowsResetAffordance() {
+    let state = TransactionLedgerHeaderState(
+        rows: [],
+        filter: TransactionLedgerFilter(direction: .expense)
+    )
+
+    #expect(state.zeroResultsState?.title == "No transactions match these filters")
+    #expect(state.zeroResultsState?.message == "Try removing one or more filters to broaden the ledger.")
+    #expect(state.zeroResultsState?.showsResetFilters == true)
+    #expect(state.zeroResultsState?.showsClearSearch == false)
+}
+
+@Test
 func dateRangeChipFormattingIsDeterministic() {
     let formatting = fixedFormatting()
     let startDate = makeDate(year: 2026, month: 2, day: 3)
@@ -137,6 +205,24 @@ func dateRangeChipFormattingIsDeterministic() {
     let chip = TransactionLedgerHeaderState.Chip.dateRange(start: startDate, end: endDate)
 
     #expect(chip.text(using: formatting) == "Feb 3, 2026 - Feb 7, 2026")
+}
+
+@Test
+func injectedFormattingUsesLocalizedDateOrder() {
+    let timeZone = TimeZone(secondsFromGMT: 0)!
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = timeZone
+    let formatting = TransactionLedgerHeaderState.Formatting(
+        locale: Locale(identifier: "en_GB"),
+        timeZone: timeZone,
+        calendar: calendar
+    )
+    let chip = TransactionLedgerHeaderState.Chip.dateRange(
+        start: makeDate(year: 2026, month: 1, day: 5),
+        end: makeDate(year: 2026, month: 1, day: 9)
+    )
+
+    #expect(chip.text(using: formatting) == "5 Jan 2026 - 9 Jan 2026")
 }
 
 @Test
@@ -247,7 +333,8 @@ private func fixedFormatting() -> TransactionLedgerHeaderState.Formatting {
     return TransactionLedgerHeaderState.Formatting(
         locale: Locale(identifier: "en_US_POSIX"),
         timeZone: timeZone,
-        calendar: calendar
+        calendar: calendar,
+        dateTemplate: "MMM d, yyyy"
     )
 }
 

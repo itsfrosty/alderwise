@@ -37,6 +37,22 @@ func selectionFallsBackToFirstVisibleTransactionWhenCurrentSelectionIsFilteredOu
 }
 
 @Test
+func selectionFallsBackToFirstVisibleTransactionWhenThereIsNoCurrentSelection() {
+    let firstVisibleID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    let rows = [
+        makeRow(id: firstVisibleID),
+        makeRow(id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!),
+    ]
+
+    let nextSelection = TransactionLedgerSelectionState.selectionAfterReload(
+        currentSelectionID: nil,
+        visibleRows: rows
+    )
+
+    #expect(nextSelection == firstVisibleID)
+}
+
+@Test
 func selectionClearsWhenFilteredLedgerIsEmpty() {
     let nextSelection = TransactionLedgerSelectionState.selectionAfterReload(
         currentSelectionID: UUID(uuidString: "99999999-9999-9999-9999-999999999999")!,

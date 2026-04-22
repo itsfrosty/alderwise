@@ -6,13 +6,28 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         var locale: Locale
         var timeZone: TimeZone
         var calendar: Calendar
+        var dateStyle: DateFormatter.Style
+        var dateTemplate: String?
+
+        init(
+            locale: Locale,
+            timeZone: TimeZone,
+            calendar: Calendar,
+            dateStyle: DateFormatter.Style = .medium,
+            dateTemplate: String? = nil
+        ) {
+            self.locale = locale
+            self.timeZone = timeZone
+            self.calendar = calendar
+            self.dateStyle = dateStyle
+            self.dateTemplate = dateTemplate
+        }
 
         static var current: Formatting {
-            var calendar = Calendar(identifier: .gregorian)
-            calendar.timeZone = .current
+            let calendar = Calendar.autoupdatingCurrent
             return Formatting(
-                locale: .current,
-                timeZone: .current,
+                locale: .autoupdatingCurrent,
+                timeZone: .autoupdatingCurrent,
                 calendar: calendar
             )
         }
@@ -22,7 +37,12 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
             formatter.locale = locale
             formatter.timeZone = timeZone
             formatter.calendar = calendar
-            formatter.dateFormat = "MMM d, yyyy"
+            formatter.timeStyle = .none
+            if let dateTemplate {
+                formatter.setLocalizedDateFormatFromTemplate(dateTemplate)
+            } else {
+                formatter.dateStyle = dateStyle
+            }
             return formatter.string(from: date)
         }
     }
