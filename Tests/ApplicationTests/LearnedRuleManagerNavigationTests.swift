@@ -30,5 +30,28 @@ func learnedRulesDestinationCarriesOnlyModeAndSelection() {
 
     #expect(labels == ["mode", "selectedLearnedRuleID"])
     #expect(labels.contains { $0.localizedCaseInsensitiveContains("search") } == false)
+    #expect(labels.contains { $0.localizedCaseInsensitiveContains("focus") } == false)
     #expect(labels.contains { $0.localizedCaseInsensitiveContains("filter") } == false)
+}
+
+@Test
+func reviewCreatedLearnedRuleActionRulesDeepLinkTargetsSettingsRules() {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000412")!
+
+    let action = ReviewCreatedLearnedRuleAction.settingsRules(
+        ruleID: learnedRuleID,
+        merchantLabel: "Coffee Shop"
+    )
+
+    #expect(action.ruleID == learnedRuleID)
+    #expect(action.merchantLabel == "Coffee Shop")
+    #expect(
+        action.destination
+            == .rules(
+                LearnedRulesDestination(
+                    mode: .learned,
+                    selectedLearnedRuleID: learnedRuleID
+                )
+            )
+    )
 }

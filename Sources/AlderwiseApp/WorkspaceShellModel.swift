@@ -311,13 +311,15 @@ final class WorkspaceShellModel: ObservableObject {
         settingsDestination = SettingsShellState.sidebarSelection(destination).destination
     }
 
-    func showLearnedRules(selectedLearnedRuleID: UUID? = nil) {
-        settingsDestination = SettingsShellState.deepLink(
-            SettingsDestination.learnedRulesRoute(
-                selectedLearnedRuleID: selectedLearnedRuleID
-            )
-        ).destination
+    func showSettingsDestination(_ destination: SettingsDestination) {
+        settingsDestination = SettingsShellState.deepLink(destination).destination
         pendingAppSectionNavigation = .settings
+    }
+
+    func showLearnedRules(selectedLearnedRuleID: UUID? = nil) {
+        showSettingsDestination(
+            .learnedRulesRoute(selectedLearnedRuleID: selectedLearnedRuleID)
+        )
     }
 
     func consumePendingAppSectionNavigation() {

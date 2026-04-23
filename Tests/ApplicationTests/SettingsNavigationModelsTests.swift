@@ -50,3 +50,23 @@ func settingsDestinationMapsToSidebarDestination() {
     #expect(SettingsDestination.backupsAndRecovery.sidebarDestination == .backupsAndRecovery)
     #expect(rulesDestination.sidebarDestination == .rules)
 }
+
+@Test
+func reviewCreatedLearnedRuleActionRulesDestinationMapsToRulesSidebarSelection() {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000424")!
+    let action = ReviewCreatedLearnedRuleAction.settingsRules(
+        ruleID: learnedRuleID,
+        merchantLabel: "Coffee Shop"
+    )
+
+    #expect(action.destination.sidebarDestination == .rules)
+    #expect(
+        action.destination
+            == .rules(
+                LearnedRulesDestination(
+                    mode: .learned,
+                    selectedLearnedRuleID: learnedRuleID
+                )
+            )
+    )
+}

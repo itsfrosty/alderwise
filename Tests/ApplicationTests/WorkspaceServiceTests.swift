@@ -2086,9 +2086,13 @@ func approveClassificationReviewItemReturnsDeepLinkActionForCreatedLearnedRule()
     )
     let action = try #require(result.createdLearnedRuleAction)
 
-    #expect(action.ruleID == learnedRuleID)
-    #expect(action.merchantLabel == "Coffee Shop")
-    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: learnedRuleID))
+    #expect(
+        action
+            == .settingsRules(
+                ruleID: learnedRuleID,
+                merchantLabel: "Coffee Shop"
+            )
+    )
 }
 
 @Test
@@ -2125,7 +2129,13 @@ func approveClassificationReviewItemPrefersTheNewlyCreatedRuleOverExistingMatchi
     let action = try #require(result.createdLearnedRuleAction)
 
     #expect(action.ruleID == createdRuleID)
-    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: createdRuleID))
+    #expect(
+        action
+            == .settingsRules(
+                ruleID: createdRuleID,
+                merchantLabel: "Coffee Shop"
+            )
+    )
 }
 
 @Test

@@ -168,13 +168,6 @@ struct LearnedRulesManagerView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Button {
-                model.selectSettingsDestination(.overview)
-            } label: {
-                Label("Back to Settings", systemImage: "chevron.left")
-            }
-            .buttonStyle(.plain)
-
             VStack(alignment: .leading, spacing: 4) {
                 Text("Rules")
                     .font(.largeTitle.bold())
@@ -306,7 +299,6 @@ struct LearnedRulesManagerView: View {
         }
 
         lastSyncedDestination = destination
-        searchText = ""
 
         if let selectedLearnedRuleID = destination.selectedLearnedRuleID {
             selectedRowID = .learned(selectedLearnedRuleID)
