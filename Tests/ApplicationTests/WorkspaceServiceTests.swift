@@ -2246,6 +2246,23 @@ func createLearnedRulePersistsManualDraftAndReturnsManagedRule() throws {
 }
 
 @Test
+func createLearnedRuleRejectsDraftsWithoutCategory() {
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+
+    #expect(throws: WorkspaceServiceError.learnedRuleCategoryRequired) {
+        try service.createLearnedRule(
+            LearnedRuleDraft(
+                merchantPattern: "coffee shop",
+                categoryID: nil,
+                merchantName: "Coffee Shop",
+                matchKind: .exactNormalizedMerchant
+            )
+        )
+    }
+}
+
+@Test
 func duplicateLearnedRuleAsDraftCopiesOnlyEditableFields() throws {
     let ruleID = UUID(uuidString: "00000000-0000-0000-0000-000000000552")!
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000553")!

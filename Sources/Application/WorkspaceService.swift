@@ -9,6 +9,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case transactionLedgerUnavailable
     case reviewQueueUnavailable
     case learnedRuleManagementUnavailable
+    case learnedRuleCategoryRequired
     case monthlyTargetConflict(MonthlyTargetConflict)
     case archivedAccountImportUnavailable
     case accountManagementUnavailable
@@ -32,6 +33,8 @@ extension WorkspaceServiceError: LocalizedError {
             "The review queue is unavailable for this workspace."
         case .learnedRuleManagementUnavailable:
             "Learned rules are unavailable for this workspace."
+        case .learnedRuleCategoryRequired:
+            "Learned rules require a category before saving."
         case .monthlyTargetConflict(let conflict):
             switch conflict {
             case .duplicateScope:
@@ -169,6 +172,9 @@ public struct WorkspaceService: Sendable {
         _ draft: LearnedRuleDraft,
         createdAt: Date = .now
     ) throws -> ManagedLearnedRule {
+        guard draft.categoryID != nil else {
+            throw WorkspaceServiceError.learnedRuleCategoryRequired
+        }
         guard let learnedRuleWriter = store as? any LearnedRuleWriting else {
             throw WorkspaceServiceError.learnedRuleManagementUnavailable
         }

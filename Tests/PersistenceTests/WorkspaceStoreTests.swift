@@ -3647,6 +3647,28 @@ func createLearnedRulePersistsManualRulesUsingReviewAlignedNormalizationAndOrder
 }
 
 @Test
+func createLearnedRuleRejectsDraftsWithoutCategory() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    do {
+        _ = try store.createLearnedRule(
+            LearnedRuleDraft(
+                merchantPattern: "coffee shop",
+                categoryID: nil,
+                merchantName: "Coffee Shop",
+                matchKind: .exactNormalizedMerchant
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_440)
+        )
+        Issue.record("Expected createLearnedRule to reject drafts without a category.")
+    } catch {
+        #expect(error.localizedDescription == "Learned rules require a category before saving.")
+    }
+}
+
+@Test
 func disableAndEnableLearnedRuleRoundTripsClassifierVisibility() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

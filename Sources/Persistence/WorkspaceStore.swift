@@ -1154,6 +1154,9 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
             guard let merchantPattern = draft.normalizedMerchantPattern else {
                 throw WorkspaceStoreError.invalidLearnedRulePattern
             }
+            guard let categoryID = draft.categoryID else {
+                throw WorkspaceStoreError.invalidLearnedRuleCategory
+            }
 
             let learnedRuleID = UUID()
             try db.execute(
@@ -1164,7 +1167,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 arguments: [
                     learnedRuleID.uuidString,
                     merchantPattern,
-                    draft.categoryID?.uuidString,
+                    categoryID.uuidString,
                     draft.merchantName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
                     draft.matchKind.rawValue,
                     createdAt,
@@ -4051,6 +4054,7 @@ private func isAcceptedTransactionPromotableToUserOnEdit(
 private enum WorkspaceStoreError: Error {
     case insertedStagedSessionNotFound(Int64)
     case learnedRuleNotFound(UUID)
+    case invalidLearnedRuleCategory
     case invalidLearnedRulePattern
     case accountNotImportEligible(UUID)
     case invalidStoredAccountID(String)
@@ -4067,6 +4071,8 @@ extension WorkspaceStoreError: LocalizedError {
         switch self {
         case .accountNotImportEligible:
             "Archived accounts can't accept new imports."
+        case .invalidLearnedRuleCategory:
+            "Learned rules require a category before saving."
         case .invalidLearnedRulePattern:
             "Learned rules require a non-empty merchant pattern."
         case .learnedRuleNotFound(let id):
