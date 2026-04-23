@@ -459,6 +459,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 db,
                 sql: "SELECT COUNT(*) FROM transactions WHERE is_hidden = 0"
             ) ?? 0
+            let hiddenTransactionCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM transactions WHERE is_hidden = 1"
+            ) ?? 0
             let reviewCount = try Int.fetchOne(
                 db,
                 sql: """
@@ -479,7 +483,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 accountCount: accountCount,
                 transactionCount: transactionCount,
                 reviewCount: reviewCount,
-                targetCount: targetCount
+                targetCount: targetCount,
+                hiddenTransactionCount: hiddenTransactionCount
             )
         }
     }
@@ -1467,7 +1472,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
 
     public func fetchTransactionDetail(id: UUID) throws -> TransactionDetail? {
         try databaseQueue.read { db in
-            var query = transactionLedgerQuery(filter: .empty, includeIDPredicate: true)
+            var query = transactionLedgerQuery(
+                filter: TransactionLedgerFilter(visibility: .all),
+                includeIDPredicate: true
+            )
             appendArgument(id.uuidString, to: &query.arguments)
             guard let row = try Row.fetchOne(db, sql: query.sql, arguments: query.arguments) else {
                 return nil

@@ -103,6 +103,39 @@ func transactionDetailWorkflowRoundTripsEditableFieldsAndProvenance() throws {
 }
 
 @Test
+func transactionVisibilityWorkflowHidesFromActiveLedgerButKeepsHiddenDetailAccessible() throws {
+    let service = try task15Service()
+    let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,Taco Shop,-12.50
+    """
+    _ = try task15Stage(csv: csv, account: account, service: service)
+    let transaction = try #require(try service.loadSnapshot().transactions.first)
+
+    try service.setTransactionHidden(id: transaction.id, isHidden: true)
+
+    let activeSnapshot = try service.loadSnapshot()
+    let hiddenSnapshot = try service.loadSnapshot(filter: TransactionLedgerFilter(visibility: .hidden))
+    let hiddenDetail = try #require(try service.loadTransactionDetail(id: transaction.id))
+
+    #expect(activeSnapshot.transactions.isEmpty)
+    #expect(activeSnapshot.summary.transactionCount == 0)
+    #expect(activeSnapshot.summary.hiddenTransactionCount == 1)
+    #expect(hiddenSnapshot.transactions.map(\.id) == [transaction.id])
+    #expect(hiddenDetail.row.id == transaction.id)
+    #expect(hiddenDetail.row.isHidden)
+
+    try service.setTransactionHidden(id: transaction.id, isHidden: false)
+
+    let restoredSnapshot = try service.loadSnapshot()
+
+    #expect(restoredSnapshot.transactions.map(\.id) == [transaction.id])
+    #expect(restoredSnapshot.summary.transactionCount == 1)
+    #expect(restoredSnapshot.summary.hiddenTransactionCount == 0)
+}
+
+@Test
 func targetCreationWorkflowUpdatesSnapshotAndAcceptedExpenseProgress() throws {
     let service = try task15Service()
     let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")

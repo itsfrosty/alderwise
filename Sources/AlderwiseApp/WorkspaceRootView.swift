@@ -39,6 +39,7 @@ struct WorkspaceRootView: View {
             detailView(for: selectedSection)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .navigationSplitViewStyle(.balanced)
         .environmentObject(model)
         .onChange(of: model.pendingAppSectionNavigation) { _, section in
             guard let section else {

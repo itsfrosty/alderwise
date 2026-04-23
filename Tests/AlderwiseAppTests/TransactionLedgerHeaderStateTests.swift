@@ -21,7 +21,7 @@ func emptyFilterProducesAllTransactionsScope() {
         filter: .empty
     )
 
-    #expect(state.scopeSummaryText == "All transactions")
+    #expect(state.scopeSummaryText == "Active transactions")
     #expect(state.activeChips.isEmpty)
     #expect(state.zeroResultsState == nil)
 }
@@ -44,7 +44,7 @@ func whitespaceOnlySearchDoesNotProduceActiveSearchState() {
         filter: TransactionLedgerFilter(searchText: "  \n\t  ")
     )
 
-    #expect(state.scopeSummaryText == "All transactions")
+    #expect(state.scopeSummaryText == "Active transactions")
     #expect(state.activeChips.isEmpty)
     #expect(state.zeroResultsState == nil)
 }

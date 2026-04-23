@@ -168,7 +168,7 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
 
     private static func scopeSummaryText(for chips: [Chip], formatting: Formatting) -> String {
         guard let chip = chips.only, chips.count == 1 else {
-            return chips.isEmpty ? "All transactions" : "Filtered transactions"
+            return chips.isEmpty ? "Active transactions" : "Filtered transactions"
         }
 
         switch chip {
