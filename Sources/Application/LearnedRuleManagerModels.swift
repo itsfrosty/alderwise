@@ -99,6 +99,19 @@ public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
             )
         )
     }
+
+    public var matchingTransactionsFilter: TransactionLedgerFilter {
+        TransactionLedgerFilter(ruleFilterIntent: matchingTransactionsFilterIntent)
+    }
+
+    public var matchingTransactionsFilterIntent: TransactionLedgerRuleFilterIntent {
+        TransactionLedgerRuleFilterIntent(
+            source: .learnedRule(id),
+            merchantPattern: merchantPattern,
+            merchantLabel: merchantName?.nilIfEmpty ?? merchantPattern,
+            matchKind: matchKind
+        )
+    }
 }
 
 public struct SeededRuleSourceRow: Identifiable, Equatable, Sendable {
@@ -138,6 +151,12 @@ public struct SeededRuleSourceRow: Identifiable, Equatable, Sendable {
                 userEnteredMerchantText: userEnteredMerchantText
             )
         )
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 

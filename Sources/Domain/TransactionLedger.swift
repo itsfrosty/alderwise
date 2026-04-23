@@ -24,6 +24,44 @@ public struct TransactionImportOrigin: Equatable, Sendable {
     }
 }
 
+public struct TransactionLedgerRuleFilterIntent: Equatable, Sendable {
+    public enum Source: Hashable, Sendable {
+        case learnedRule(UUID)
+    }
+
+    public var source: Source
+    public var merchantPattern: String
+    public var merchantLabel: String
+    public var matchKind: ClassificationRuleMatchKind
+
+    public init(
+        source: Source,
+        merchantPattern: String,
+        merchantLabel: String,
+        matchKind: ClassificationRuleMatchKind
+    ) {
+        self.source = source
+        self.merchantPattern = merchantPattern
+        self.merchantLabel = merchantLabel
+        self.matchKind = matchKind
+    }
+
+    public func matches(
+        _ row: TransactionLedgerRow,
+        merchantNormalizer: MerchantNormalizer = MerchantNormalizer()
+    ) -> Bool {
+        LearnedRuleMatcher.matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            candidate: LearnedRuleMatchCandidate(
+                normalizedMerchantName: merchantNormalizer.normalize(row.merchantName),
+                rawDescription: row.rawDescription
+            ),
+            merchantNormalizer: merchantNormalizer
+        )
+    }
+}
+
 public struct TransactionLedgerFilter: Equatable, Sendable {
     public var searchText: String
     public var startDate: Date?
@@ -34,6 +72,7 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
     public var direction: TransactionDirection?
     public var reviewStatus: TransactionReviewStatus?
     public var importSessionID: Int64?
+    public var ruleFilterIntent: TransactionLedgerRuleFilterIntent?
 
     public init(
         searchText: String = "",
@@ -44,7 +83,8 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         categoryGroupID: UUID? = nil,
         direction: TransactionDirection? = nil,
         reviewStatus: TransactionReviewStatus? = nil,
-        importSessionID: Int64? = nil
+        importSessionID: Int64? = nil,
+        ruleFilterIntent: TransactionLedgerRuleFilterIntent? = nil
     ) {
         self.searchText = searchText
         self.startDate = startDate
@@ -55,6 +95,7 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         self.direction = direction
         self.reviewStatus = reviewStatus
         self.importSessionID = importSessionID
+        self.ruleFilterIntent = ruleFilterIntent
     }
 
     public static let empty = TransactionLedgerFilter()

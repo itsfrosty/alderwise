@@ -75,6 +75,33 @@ func importOnlyFilterProducesExpectedScopeAndChip() {
 }
 
 @Test
+func ruleFilterOnlyProducesExpectedScopeAndChip() {
+    let ruleID = UUID(uuidString: "55555555-5555-5555-5555-555555555555")!
+    let state = TransactionLedgerHeaderState(
+        rows: [makeRow()],
+        filter: TransactionLedgerFilter(
+            ruleFilterIntent: TransactionLedgerRuleFilterIntent(
+                source: .learnedRule(ruleID),
+                merchantPattern: "coffee shop",
+                merchantLabel: "Coffee Shop",
+                matchKind: .exactNormalizedMerchant
+            )
+        )
+    )
+
+    #expect(state.scopeSummaryText == "Matching rule: Coffee Shop")
+    #expect(
+        state.activeChips
+            == [
+                .ruleMatch(
+                    .learnedRule(ruleID),
+                    "Coffee Shop"
+                )
+            ]
+    )
+}
+
+@Test
 func dateOnlyFilterProducesExpectedScopeAndChip() {
     let formatting = fixedFormatting()
     let startDate = makeDate(year: 2026, month: 1, day: 5)
@@ -198,6 +225,27 @@ func zeroResultsStateWithOnlyNonSearchFiltersShowsResetAffordance() {
 }
 
 @Test
+func zeroResultsStateWithOnlyRuleFilterShowsResetAffordance() {
+    let ruleID = UUID(uuidString: "66666666-6666-6666-6666-666666666666")!
+    let state = TransactionLedgerHeaderState(
+        rows: [],
+        filter: TransactionLedgerFilter(
+            ruleFilterIntent: TransactionLedgerRuleFilterIntent(
+                source: .learnedRule(ruleID),
+                merchantPattern: "coffee shop",
+                merchantLabel: "Coffee Shop",
+                matchKind: .prefixNormalizedMerchant
+            )
+        )
+    )
+
+    #expect(state.zeroResultsState?.title == "No transactions match these filters")
+    #expect(state.zeroResultsState?.message == "Try removing one or more filters to broaden the ledger.")
+    #expect(state.zeroResultsState?.showsResetFilters == true)
+    #expect(state.zeroResultsState?.showsClearSearch == false)
+}
+
+@Test
 func dateRangeChipFormattingIsDeterministic() {
     let formatting = fixedFormatting()
     let startDate = makeDate(year: 2026, month: 2, day: 3)
@@ -302,6 +350,29 @@ func removingSearchChipPreservesOtherFilters() {
     #expect(nextFilter.searchText.isEmpty)
     #expect(nextFilter.accountID == accountID)
     #expect(nextFilter.direction == .expense)
+}
+
+@Test
+func removingRuleMatchChipClearsOnlyRuleFilterIntent() {
+    let accountID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    let ruleID = UUID(uuidString: "77777777-7777-7777-7777-777777777777")!
+    let filter = TransactionLedgerFilter(
+        accountID: accountID,
+        ruleFilterIntent: TransactionLedgerRuleFilterIntent(
+            source: .learnedRule(ruleID),
+            merchantPattern: "coffee shop",
+            merchantLabel: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant
+        )
+    )
+
+    let nextFilter = TransactionLedgerHeaderState.removing(
+        .ruleMatch(.learnedRule(ruleID), "Coffee Shop"),
+        from: filter
+    )
+
+    #expect(nextFilter.accountID == accountID)
+    #expect(nextFilter.ruleFilterIntent == nil)
 }
 
 @Test

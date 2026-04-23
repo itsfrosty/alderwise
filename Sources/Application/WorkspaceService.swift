@@ -167,6 +167,15 @@ public struct WorkspaceService: Sendable {
         )
     }
 
+    public func transactions(
+        matching ruleFilterIntent: TransactionLedgerRuleFilterIntent,
+        in rows: [TransactionLedgerRow]
+    ) -> [TransactionLedgerRow] {
+        rows.filter { row in
+            ruleFilterIntent.matches(row, merchantNormalizer: merchantNormalizer)
+        }
+    }
+
     @discardableResult
     public func createLearnedRule(
         _ draft: LearnedRuleDraft,

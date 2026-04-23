@@ -56,6 +56,7 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
 
     enum Chip: Equatable, Hashable, Sendable {
         case search(String)
+        case ruleMatch(TransactionLedgerRuleFilterIntent.Source, String)
         case account(UUID, String)
         case category(UUID, String)
         case categoryGroup(UUID, String)
@@ -68,6 +69,8 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
             switch self {
             case .search(let text):
                 return text
+            case .ruleMatch(_, let label):
+                return label
             case .account(_, let name),
                     .category(_, let name),
                     .categoryGroup(_, let name),
@@ -126,6 +129,8 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         switch chip {
         case .search:
             nextFilter.searchText = ""
+        case .ruleMatch:
+            nextFilter.ruleFilterIntent = nil
         case .account:
             nextFilter.accountID = nil
         case .category:
@@ -164,6 +169,8 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         switch chip {
         case .search(let text):
             return "Search: \"\(text)\""
+        case .ruleMatch(_, let label):
+            return "Matching rule: \(label)"
         case .account(_, let name):
             return "Account: \(name)"
         case .category(_, let name):
@@ -224,6 +231,9 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         if filter.hasSearchText {
             chips.append(.search(filter.trimmedSearchText))
         }
+        if let ruleFilterIntent = filter.ruleFilterIntent {
+            chips.append(.ruleMatch(ruleFilterIntent.source, ruleFilterIntent.merchantLabel))
+        }
         if let accountID = filter.accountID {
             chips.append(.account(accountID, accountName ?? "Selected account"))
         }
@@ -262,6 +272,7 @@ private extension TransactionLedgerFilter {
     var hasNonSearchCriteria: Bool {
         startDate != nil ||
         endDate != nil ||
+        ruleFilterIntent != nil ||
         accountID != nil ||
         categoryID != nil ||
         categoryGroupID != nil ||

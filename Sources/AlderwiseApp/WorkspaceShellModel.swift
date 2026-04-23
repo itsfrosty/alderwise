@@ -344,6 +344,28 @@ final class WorkspaceShellModel: ObservableObject {
         reload()
     }
 
+    func showTransactions(filter: TransactionLedgerFilter, clearSelection: Bool = false) {
+        if clearSelection {
+            selectTransaction(id: nil)
+        }
+        pendingAppSectionNavigation = .transactions
+        updateTransactionFilter(filter)
+    }
+
+    func matchingTransactions(in rows: [TransactionLedgerRow]) -> [TransactionLedgerRow] {
+        guard let ruleFilterIntent = transactionFilter.ruleFilterIntent else {
+            return rows
+        }
+
+        guard let service else {
+            return rows.filter { row in
+                ruleFilterIntent.matches(row)
+            }
+        }
+
+        return service.transactions(matching: ruleFilterIntent, in: rows)
+    }
+
     func selectTransaction(id: UUID?) {
         selectedTransactionID = id
         loadSelectedTransactionDetail(id: id)

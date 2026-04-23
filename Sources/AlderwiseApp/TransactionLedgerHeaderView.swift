@@ -48,6 +48,8 @@ struct TransactionLedgerHeaderView: View {
         switch chip {
         case .search(let text):
             return "Search: \(text)"
+        case .ruleMatch(_, let label):
+            return "Matching rule: \(label)"
         case .account(_, let name):
             return "Account: \(name)"
         case .category(_, let name):
@@ -69,6 +71,8 @@ struct TransactionLedgerHeaderView: View {
         switch chip {
         case .search:
             return "magnifyingglass"
+        case .ruleMatch:
+            return "slider.horizontal.3"
         case .account:
             return "building.columns"
         case .category:

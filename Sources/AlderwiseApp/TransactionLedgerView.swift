@@ -44,7 +44,7 @@ struct TransactionLedgerView: View {
 
     private var headerState: TransactionLedgerHeaderState {
         TransactionLedgerHeaderState(
-            rows: snapshot.transactions,
+            rows: visibleTransactions,
             filter: model.transactionFilter,
             accountName: selectedAccountName,
             categoryName: selectedCategoryName,
@@ -62,6 +62,10 @@ struct TransactionLedgerView: View {
 
     private var hasActiveSecondaryFilters: Bool {
         hasActiveSecondaryFilters(in: model.transactionFilter)
+    }
+
+    private var visibleTransactions: [TransactionLedgerRow] {
+        model.matchingTransactions(in: snapshot.transactions)
     }
 
     private var secondaryFiltersExpansion: Binding<Bool> {
@@ -130,7 +134,7 @@ struct TransactionLedgerView: View {
                 model.selectTransaction(
                     id: TransactionLedgerSelectionState.selectionAfterReload(
                         currentSelectionID: nil,
-                        visibleRows: snapshot.transactions
+                        visibleRows: visibleTransactions
                     )
                 )
             }
@@ -254,7 +258,7 @@ struct TransactionLedgerView: View {
 
     private var transactionList: some View {
         List(selection: selectedIDBinding) {
-            ForEach(snapshot.transactions) { transaction in
+            ForEach(visibleTransactions) { transaction in
                 TransactionLedgerView.Row(transaction: transaction)
                     .tag(transaction.id)
             }
@@ -524,7 +528,7 @@ private extension TransactionLedgerHeaderState.Chip {
         switch self {
         case .direction, .review, .importSession, .dateRange:
             return true
-        case .search, .account, .category, .categoryGroup:
+        case .search, .ruleMatch, .account, .category, .categoryGroup:
             return false
         }
     }

@@ -287,6 +287,12 @@ struct LearnedRulesManagerView: View {
             LearnedRuleDetailView(
                 row: selectedLearnedRule,
                 categoryName: categoryName(for: selectedLearnedRule.categoryID),
+                onViewMatchingTransactions: {
+                    model.showTransactions(
+                        filter: selectedLearnedRule.matchingTransactionsFilter,
+                        clearSelection: true
+                    )
+                },
                 onDuplicate: {
                     _ = model.beginDuplicateLearnedRule(id: selectedLearnedRule.id)
                 },
@@ -553,6 +559,7 @@ private struct LearnedRuleRowView: View {
 private struct LearnedRuleDetailView: View {
     let row: ManagedLearnedRuleRow
     let categoryName: String?
+    var onViewMatchingTransactions: () -> Void
     var onDuplicate: () -> Void
     var onDisable: () -> Void
     var onEnable: () -> Void
@@ -603,6 +610,13 @@ private struct LearnedRuleDetailView: View {
                 )
 
                 HStack(spacing: 12) {
+                    Button {
+                        onViewMatchingTransactions()
+                    } label: {
+                        Label("View Matching Transactions", systemImage: "list.bullet.rectangle")
+                    }
+                    .buttonStyle(.bordered)
+
                     if supportsDuplicateDraft {
                         Button {
                             onDuplicate()
