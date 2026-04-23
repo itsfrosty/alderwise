@@ -19,6 +19,17 @@ public extension ClassificationRuleMatchKind {
         self == .contains
     }
 
+    var precedenceExplanation: String {
+        switch self {
+        case .exactNormalizedMerchant:
+            "Precedence: Exact merchant beats Shared prefix and Contains for the same merchant text."
+        case .prefixNormalizedMerchant:
+            "Precedence: Shared prefix beats Contains, but Exact merchant beats Shared prefix when both match."
+        case .contains:
+            "Precedence: Contains is checked after Exact merchant and Shared prefix."
+        }
+    }
+
     var manualAuthoringHelpText: String {
         switch self {
         case .exactNormalizedMerchant:
@@ -239,6 +250,10 @@ public struct LearnedRuleMatchCandidate: Equatable, Sendable {
 }
 
 public enum LearnedRuleMatcher {
+    public static func normalizedUserEnteredMerchantText(_ userEnteredMerchantText: String) -> String {
+        MerchantNormalizer().normalize(userEnteredMerchantText)
+    }
+
     public static func normalizedPattern(
         _ merchantPattern: String,
         fallbackPattern: String? = nil
@@ -274,6 +289,18 @@ public enum LearnedRuleMatcher {
         normalizedMerchantName
             .normalizedClassificationPattern
             .matchesClassificationPattern(merchantPattern, matchKind: matchKind)
+    }
+
+    public static func testMatch(
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind,
+        userEnteredMerchantText: String
+    ) -> Bool {
+        matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: normalizedUserEnteredMerchantText(userEnteredMerchantText)
+        )
     }
 }
 

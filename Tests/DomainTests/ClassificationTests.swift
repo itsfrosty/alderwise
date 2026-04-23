@@ -505,6 +505,54 @@ func readOnlyLearnedRuleMatcherReusesExactPrefixAndContainsMatchingSemantics() {
 }
 
 @Test
+func userFacingPrecedenceStatementsDescribeExactPrefixContainsOrder() {
+    #expect(
+        ClassificationRuleMatchKind.exactNormalizedMerchant.precedenceExplanation
+            == "Precedence: Exact merchant beats Shared prefix and Contains for the same merchant text."
+    )
+    #expect(
+        ClassificationRuleMatchKind.prefixNormalizedMerchant.precedenceExplanation
+            == "Precedence: Shared prefix beats Contains, but Exact merchant beats Shared prefix when both match."
+    )
+    #expect(
+        ClassificationRuleMatchKind.contains.precedenceExplanation
+            == "Precedence: Contains is checked after Exact merchant and Shared prefix."
+    )
+}
+
+@Test
+func testMatchNormalizesUserEnteredMerchantTextForExactPrefixAndContainsRules() {
+    #expect(
+        LearnedRuleMatcher.testMatch(
+            merchantPattern: "coffee shop",
+            matchKind: .exactNormalizedMerchant,
+            userEnteredMerchantText: "  COFFEE SHOP  "
+        )
+    )
+    #expect(
+        LearnedRuleMatcher.testMatch(
+            merchantPattern: "99pledg",
+            matchKind: .prefixNormalizedMerchant,
+            userEnteredMerchantText: "99PLEDG*ONIR BAWEJA"
+        )
+    )
+    #expect(
+        LearnedRuleMatcher.testMatch(
+            merchantPattern: "coffee",
+            matchKind: .contains,
+            userEnteredMerchantText: "DAILY COFFEE ROASTERS"
+        )
+    )
+    #expect(
+        LearnedRuleMatcher.testMatch(
+            merchantPattern: "coffee shop",
+            matchKind: .exactNormalizedMerchant,
+            userEnteredMerchantText: "Coffee Shop Downtown"
+        ) == false
+    )
+}
+
+@Test
 func patternLikeMerchantsOfferExactAndPrefixLearningOptions() {
     let options = ReviewRuleLearningOption.options(forNormalizedMerchantName: "99pledg onir baweja")
 

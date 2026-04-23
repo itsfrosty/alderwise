@@ -298,7 +298,7 @@ struct LearnedRulesManagerView: View {
                 }
             )
         } else if let selectedSeededRule {
-            SeededRuleDetailView(
+            SeededRuleDetailPanel(
                 row: selectedSeededRule,
                 categoryName: categoryName(for: selectedSeededRule.categoryID)
             )
@@ -556,6 +556,7 @@ private struct LearnedRuleDetailView: View {
     var onDuplicate: () -> Void
     var onDisable: () -> Void
     var onEnable: () -> Void
+    @State private var testMatchInput = ""
 
     private var supportsDuplicateDraft: Bool {
         row.matchKind.isAdvancedManualAuthoringOption
@@ -591,6 +592,15 @@ private struct LearnedRuleDetailView: View {
 
                 Text(effectStatement)
                     .foregroundStyle(.secondary)
+
+                RuleTestMatchSection(
+                    title: "Test Match",
+                    prompt: "Enter merchant text",
+                    input: $testMatchInput,
+                    result: row.testMatch(userEnteredMerchantText: testMatchInput),
+                    precedenceExplanation: row.precedenceExplanation,
+                    subjectLabel: "rule"
+                )
 
                 HStack(spacing: 12) {
                     if supportsDuplicateDraft {
@@ -664,6 +674,118 @@ private struct LearnedRuleDetailView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(.thinMaterial, in: Capsule())
+    }
+}
+
+private struct SeededRuleDetailPanel: View {
+    let row: SeededRuleSourceRow
+    let categoryName: String?
+    @State private var testMatchInput = ""
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(row.merchantPattern)
+                        .font(.title2.bold())
+                    HStack(spacing: 8) {
+                        detailBadge(title: row.sourceKind.sectionTitle, tint: .accentColor)
+                        detailBadge(title: "Read-only", tint: .secondary)
+                    }
+                    Text("This seeded source is read-only and cannot be edited, enabled, or disabled from this view.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: 640, alignment: .leading)
+                }
+
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+                    detailRow(title: "Read-only", value: "Yes")
+                    detailRow(title: "Source type", value: row.sourceKind.detailSourceTypeText)
+                    detailRow(title: "Merchant pattern", value: row.merchantPattern)
+                    detailRow(title: RuleDisplayText.matchedBy, value: row.matchKind.ruleDisplayLabel)
+                    detailRow(title: "Category", value: categoryName ?? "No category")
+                    detailRow(title: "Merchant Name", value: row.merchantName ?? "Not provided")
+                }
+
+                RuleTestMatchSection(
+                    title: "Test Match",
+                    prompt: "Enter merchant text",
+                    input: $testMatchInput,
+                    result: row.testMatch(userEnteredMerchantText: testMatchInput),
+                    precedenceExplanation: row.precedenceExplanation,
+                    subjectLabel: "source"
+                )
+
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    @ViewBuilder
+    private func detailRow(title: String, value: String) -> some View {
+        GridRow {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder
+    private func detailBadge(title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.thinMaterial, in: Capsule())
+    }
+}
+
+private struct RuleTestMatchSection: View {
+    let title: String
+    let prompt: String
+    @Binding var input: String
+    let result: RuleTestMatchResult
+    let precedenceExplanation: String
+    let subjectLabel: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline)
+
+            Text(precedenceExplanation)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField(prompt, text: $input)
+                .textFieldStyle(.roundedBorder)
+
+            if trimmedInput.isEmpty {
+                Text("Tests only this selected rule or source after Alderwise normalizes the merchant text.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(result.isMatch ? "Matches this \(subjectLabel)." : "Does not match this \(subjectLabel).")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(result.isMatch ? .green : .secondary)
+
+                    LabeledContent("Normalized text", value: result.normalizedMerchantText)
+                        .font(.caption)
+                }
+                .padding(10)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+        }
+        .frame(maxWidth: 420, alignment: .leading)
+    }
+
+    private var trimmedInput: String {
+        input.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

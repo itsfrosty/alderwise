@@ -2062,6 +2062,51 @@ func seededHeuristicsDoNotAppearInTheManagerSnapshot() throws {
 }
 
 @Test
+func learnedManagerRowsExposePrecedenceHelpAndSelectedRuleTestMatch() throws {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000611")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000612")!
+    let store = MutableWorkspaceStore()
+    store.learnedRuleSummaries = [
+        LearnedRuleSummary(
+            id: learnedRuleID,
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lifecycle: .active
+        )
+    ]
+
+    let snapshot = try WorkspaceService(store: store).loadLearnedRuleManagerSnapshot()
+    let row = try #require(snapshot.learned.rows.first)
+
+    #expect(
+        row.precedenceExplanation
+            == "Precedence: Exact merchant beats Shared prefix and Contains for the same merchant text."
+    )
+    #expect(row.testMatch(userEnteredMerchantText: " COFFEE SHOP ").isMatch)
+    #expect(row.testMatch(userEnteredMerchantText: "Coffee Shop Downtown").isMatch == false)
+}
+
+@Test
+func seededManagerRowsExposePrecedenceHelpAndSelectedSourceTestMatch() throws {
+    let snapshot = try WorkspaceService(
+        store: MutableWorkspaceStore(),
+        classifier: SeededClassification.liveClassifier()
+    ).loadLearnedRuleManagerSnapshot()
+    let row = try #require(
+        snapshot.seeded.rows.first { $0.matchKind == .contains }
+    )
+
+    #expect(
+        row.precedenceExplanation
+            == "Precedence: Contains is checked after Exact merchant and Shared prefix."
+    )
+    #expect(row.testMatch(userEnteredMerchantText: " \(row.merchantPattern.uppercased()) merchant ").isMatch)
+}
+
+@Test
 func loadLearnedRuleManagerSnapshotFailsWithoutLearnedRuleReader() throws {
     let service = WorkspaceService(store: DefaultResetBridgeMaintenanceStore())
 

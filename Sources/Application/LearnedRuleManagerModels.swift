@@ -11,6 +11,16 @@ public enum SeededRuleSourceKind: Equatable, Sendable {
     case curatedPrefill
 }
 
+public struct RuleTestMatchResult: Equatable, Sendable {
+    public var normalizedMerchantText: String
+    public var isMatch: Bool
+
+    public init(normalizedMerchantText: String, isMatch: Bool) {
+        self.normalizedMerchantText = normalizedMerchantText
+        self.isMatch = isMatch
+    }
+}
+
 public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
     public var id: UUID
     public var merchantPattern: String
@@ -74,6 +84,21 @@ public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
     public static var detailSourceText: String {
         "Learned from Review"
     }
+
+    public var precedenceExplanation: String {
+        matchKind.precedenceExplanation
+    }
+
+    public func testMatch(userEnteredMerchantText: String) -> RuleTestMatchResult {
+        RuleTestMatchResult(
+            normalizedMerchantText: LearnedRuleMatcher.normalizedUserEnteredMerchantText(userEnteredMerchantText),
+            isMatch: LearnedRuleMatcher.testMatch(
+                merchantPattern: merchantPattern,
+                matchKind: matchKind,
+                userEnteredMerchantText: userEnteredMerchantText
+            )
+        )
+    }
 }
 
 public struct SeededRuleSourceRow: Identifiable, Equatable, Sendable {
@@ -98,6 +123,21 @@ public struct SeededRuleSourceRow: Identifiable, Equatable, Sendable {
         self.merchantName = merchantName
         self.matchKind = matchKind
         self.sourceKind = sourceKind
+    }
+
+    public var precedenceExplanation: String {
+        matchKind.precedenceExplanation
+    }
+
+    public func testMatch(userEnteredMerchantText: String) -> RuleTestMatchResult {
+        RuleTestMatchResult(
+            normalizedMerchantText: LearnedRuleMatcher.normalizedUserEnteredMerchantText(userEnteredMerchantText),
+            isMatch: LearnedRuleMatcher.testMatch(
+                merchantPattern: merchantPattern,
+                matchKind: matchKind,
+                userEnteredMerchantText: userEnteredMerchantText
+            )
+        )
     }
 }
 
