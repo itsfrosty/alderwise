@@ -153,6 +153,23 @@ EOF
   chmod +x "$temp_dir/stubs/log"
 }
 
+run_run_contract() {
+  local temp_dir
+  temp_dir="$(mktemp -d)"
+  trap 'rm -rf "$temp_dir"' RETURN
+
+  make_stub_environment "$temp_dir"
+  write_open_stub "$temp_dir"
+
+  PATH="$temp_dir/stubs:$PATH" \
+  OPEN_BIN="$temp_dir/stubs/open" \
+  "$SCRIPT_PATH" run >/dev/null 2>&1
+
+  assert_file_contains "$temp_dir/command.log" "pkill -x AlderwiseApp"
+  assert_file_contains "$temp_dir/command.log" "open -n "
+  assert_file_order "$temp_dir/command.log" "pkill -x AlderwiseApp" "open -n "
+}
+
 run_debug_contract() {
   local temp_dir
   temp_dir="$(mktemp -d)"
@@ -325,6 +342,7 @@ run_help_contract() {
 }
 
 run_help_contract
+run_run_contract
 run_debug_contract
 run_verify_contract
 run_verify_success_contract
