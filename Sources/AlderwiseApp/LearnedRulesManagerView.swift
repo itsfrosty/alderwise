@@ -29,6 +29,10 @@ struct LearnedRulesManagerView: View {
         seededRows.filter { $0.sourceKind == .curatedPrefill }
     }
 
+    private var categoryNamesByID: [UUID: String] {
+        Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
+    }
+
     private var filteredLearnedRows: [ManagedLearnedRuleRow] {
         learnedRows.filter(matchesSearch)
     }
@@ -301,6 +305,12 @@ struct LearnedRulesManagerView: View {
         lastSyncedDestination = destination
 
         if let selectedLearnedRuleID = destination.selectedLearnedRuleID {
+            searchText = LearnedRulesManagerRouteSync.revealedSearchTextForDeepLink(
+                currentSearchText: searchText,
+                selectedLearnedRuleID: selectedLearnedRuleID,
+                learnedRows: learnedRows,
+                categoryNamesByID: categoryNamesByID
+            )
             selectedRowID = .learned(selectedLearnedRuleID)
             return
         }
@@ -377,16 +387,11 @@ struct LearnedRulesManagerView: View {
     }
 
     private func matchesSearch(_ row: ManagedLearnedRuleRow) -> Bool {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard query.isEmpty == false else {
-            return true
-        }
-
-        return row.merchantPattern.lowercased().contains(query)
-            || row.merchantName?.lowercased().contains(query) == true
-            || scopeLabel(for: row.matchKind).lowercased().contains(query)
-            || statusLabel(for: row).lowercased().contains(query)
-            || categoryName(for: row.categoryID)?.lowercased().contains(query) == true
+        LearnedRulesManagerRouteSync.matchesLearnedRule(
+            row,
+            searchText: searchText,
+            categoryName: categoryName(for: row.categoryID)
+        )
     }
 
     private func matchesSearch(_ row: SeededRuleSourceRow) -> Bool {
@@ -424,6 +429,64 @@ struct LearnedRulesManagerView: View {
         case .curatedPrefill:
             "Curated starter prefill"
         }
+    }
+}
+
+enum LearnedRulesManagerRouteSync {
+    static func revealedSearchTextForDeepLink(
+        currentSearchText: String,
+        selectedLearnedRuleID: UUID,
+        learnedRows: [ManagedLearnedRuleRow],
+        categoryNamesByID: [UUID: String]
+    ) -> String {
+        let normalizedSearchText = normalizedSearchText(currentSearchText)
+        guard normalizedSearchText.isEmpty == false,
+              let row = learnedRows.first(where: { $0.id == selectedLearnedRuleID }) else {
+            return currentSearchText
+        }
+
+        let categoryName = row.categoryID.flatMap { categoryNamesByID[$0] }
+        if matchesLearnedRule(row, searchText: currentSearchText, categoryName: categoryName) {
+            return currentSearchText
+        }
+
+        return ""
+    }
+
+    static func matchesLearnedRule(
+        _ row: ManagedLearnedRuleRow,
+        searchText: String,
+        categoryName: String?
+    ) -> Bool {
+        let query = normalizedSearchText(searchText)
+        guard query.isEmpty == false else {
+            return true
+        }
+
+        return row.merchantPattern.lowercased().contains(query)
+            || row.merchantName?.lowercased().contains(query) == true
+            || scopeLabel(for: row.matchKind).lowercased().contains(query)
+            || statusLabel(for: row).lowercased().contains(query)
+            || categoryName?.lowercased().contains(query) == true
+    }
+
+    private static func normalizedSearchText(_ searchText: String) -> String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func scopeLabel(for matchKind: ClassificationRuleMatchKind) -> String {
+        switch matchKind {
+        case .contains:
+            "Contains"
+        case .exactNormalizedMerchant:
+            "Exact merchant"
+        case .prefixNormalizedMerchant:
+            "Shared prefix"
+        }
+    }
+
+    private static func statusLabel(for row: ManagedLearnedRuleRow) -> String {
+        row.isDisabled ? "Disabled" : "Active"
     }
 }
 
