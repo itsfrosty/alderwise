@@ -69,7 +69,7 @@ public protocol ReportingReading: Sendable {
 }
 
 public protocol WorkspaceInsightReading: Sendable {
-    func fetchWorkspaceInsightSummary() throws -> WorkspaceInsightSummary
+    func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary
 }
 
 public protocol TargetManagementReading: Sendable {

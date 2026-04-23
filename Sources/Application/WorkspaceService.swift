@@ -140,9 +140,10 @@ public struct WorkspaceService: Sendable {
         let reportingReader = store as? any ReportingReading
         let insightReader = store as? any WorkspaceInsightReading
         let reviewReader = store as? any ReviewQueueReading
+        let referenceDate = Date()
         let summary = try store.fetchSummary()
-        let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: .now) ?? .empty
-        let insights = try insightReader?.fetchWorkspaceInsightSummary() ?? .empty
+        let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: referenceDate) ?? .empty
+        let insights = try insightReader?.fetchWorkspaceInsightSummary(referenceDate: referenceDate) ?? .empty
         let managementAccounts = try store.fetchManagementAccounts()
         let importEligibleAccounts = try store.fetchImportEligibleAccounts()
         let ledgerFilterAccounts = try store.fetchLedgerFilterAccounts()

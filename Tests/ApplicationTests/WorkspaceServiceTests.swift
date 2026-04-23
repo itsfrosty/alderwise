@@ -149,6 +149,102 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
+private struct StubWorkspaceStoreWithInsights: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, LearnedRuleReading, WorkspaceInsightReading {
+    var base: StubWorkspaceStore
+    var insights: WorkspaceInsightSummary
+
+    func fetchSummary() throws -> WorkspaceSummary {
+        try base.fetchSummary()
+    }
+
+    func fetchAccounts() throws -> [Account] {
+        try base.fetchAccounts()
+    }
+
+    func fetchManagementAccounts() throws -> [Account] {
+        try base.fetchManagementAccounts()
+    }
+
+    func fetchImportEligibleAccounts() throws -> [Account] {
+        try base.fetchImportEligibleAccounts()
+    }
+
+    func fetchLedgerFilterAccounts() throws -> [Account] {
+        try base.fetchLedgerFilterAccounts()
+    }
+
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        try base.fetchPermanentlyDeletableAccountIDs()
+    }
+
+    func fetchCategories() throws -> [BudgetCategory] {
+        try base.fetchCategories()
+    }
+
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] {
+        try base.fetchCategoryGroups()
+    }
+
+    func fetchPendingReviewItems() throws -> [PendingReviewItem] {
+        try base.fetchPendingReviewItems()
+    }
+
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
+        try base.fetchLearnedRuleSummaries()
+    }
+
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? {
+        try base.fetchLearnedRuleSummary(id: id)
+    }
+
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? {
+        try base.fetchLearnedRuleDetail(id: id)
+    }
+
+    func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try base.createAccount(named: named, kind: kind, institutionName: institutionName)
+    }
+
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try base.updateAccount(id: id, named: named, kind: kind, institutionName: institutionName)
+    }
+
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        try base.archiveAccount(id: id, archivedAt: archivedAt)
+    }
+
+    func restoreAccount(id: UUID) throws -> Account {
+        try base.restoreAccount(id: id)
+    }
+
+    func deleteAccountPermanently(id: UUID) throws {
+        try base.deleteAccountPermanently(id: id)
+    }
+
+    func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
+        try base.createStagedImportSession(draft)
+    }
+
+    func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
+        try base.fetchExistingSourceRowHashes(accountID: accountID, rowHashes: rowHashes)
+    }
+
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        try base.fetchExistingSourceRowHashCounts(accountID: accountID, rowHashes: rowHashes)
+    }
+
+    func fetchLikelyDuplicateTransactions(
+        accountID: UUID,
+        candidates: [NormalizedImportCandidate]
+    ) throws -> [LikelyDuplicateCandidate] {
+        try base.fetchLikelyDuplicateTransactions(accountID: accountID, candidates: candidates)
+    }
+
+    func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary {
+        insights
+    }
+}
+
 private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
@@ -1016,6 +1112,54 @@ func loadSnapshotFallsBackToEmptyInsightsWhenStoreDoesNotImplementInsightsReader
     let snapshot = try WorkspaceService(store: store).loadSnapshot()
 
     #expect(snapshot.insights == .empty)
+}
+
+@Test
+func loadSnapshotThreadsWorkspaceInsightsWhenStoreImplementsInsightsReader() throws {
+    let baseStore = StubWorkspaceStore(
+        summary: WorkspaceSummary(
+            accountCount: 1,
+            transactionCount: 24,
+            reviewCount: 0,
+            targetCount: 0
+        ),
+        accounts: [
+            Account(name: "Checking", kind: .checking, institutionName: "Local Bank"),
+        ]
+    )
+    let insights = WorkspaceInsightSummary(
+        insights: [
+            WorkspaceInsight(
+                kind: .recurringCharge(
+                    RecurringChargeInsightDetail(
+                        accountID: baseStore.accounts[0].id,
+                        normalizedMerchantName: "netflix",
+                        cadence: .monthly,
+                        observationCount: 3,
+                        amountRange: RecurringChargeAmountRange(
+                            minimum: Decimal(15.49),
+                            maximum: Decimal(15.49)
+                        ),
+                        supportingTransactionIDs: [
+                            UUID(uuidString: "00000000-0000-0000-0000-000000000301")!,
+                            UUID(uuidString: "00000000-0000-0000-0000-000000000302")!,
+                            UUID(uuidString: "00000000-0000-0000-0000-000000000303")!,
+                        ],
+                        lastObservedDate: Date(timeIntervalSince1970: 1_776_902_400),
+                        nextExpectedDateWindow: nil
+                    )
+                ),
+                confidence: 0.92,
+                rank: 1,
+                score: 92
+            ),
+        ]
+    )
+    let store = StubWorkspaceStoreWithInsights(base: baseStore, insights: insights)
+
+    let snapshot = try WorkspaceService(store: store).loadSnapshot()
+
+    #expect(snapshot.insights == insights)
 }
 
 @Test
