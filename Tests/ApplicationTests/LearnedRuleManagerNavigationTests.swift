@@ -13,7 +13,7 @@ func learnedRulesRouteForcesLearnedModeAndPreservesSelectedRuleID() {
 
     #expect(
         destination
-            == .learnedRules(
+            == .rules(
                 LearnedRulesDestination(
                     mode: .learned,
                     selectedLearnedRuleID: learnedRuleID

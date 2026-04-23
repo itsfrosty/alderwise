@@ -10,24 +10,10 @@ struct SettingsView: View {
         Group {
             switch model.settingsDestination {
             case .overview:
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        Text("Settings")
-                            .font(.largeTitle.bold())
-
-                        workspaceSection
-                        backupAndRecoverySection
-                        dangerZoneSection
-                        suggestionsSection
-                            .padding(.top, 8)
-                        learnedRulesSection
-
-                        Spacer(minLength: 0)
-                    }
-                    .padding(24)
-                    .frame(maxWidth: .infinity, alignment: .topLeading)
-                }
-            case .learnedRules(let destination):
+                overviewContent
+            case .backupsAndRecovery:
+                backupsAndRecoveryContent
+            case .rules(let destination):
                 LearnedRulesManagerView(
                     model: model,
                     destination: destination,
@@ -38,6 +24,42 @@ struct SettingsView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .modifier(WorkspaceMaintenanceFeedbackModifier(model: model))
+    }
+
+    private var overviewContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Settings")
+                    .font(.largeTitle.bold())
+
+                workspaceSection
+                backupAndRecoverySection
+                dangerZoneSection
+                suggestionsSection
+                    .padding(.top, 8)
+                learnedRulesSection
+
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+    }
+
+    private var backupsAndRecoveryContent: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Backup and Recovery")
+                    .font(.largeTitle.bold())
+
+                backupAndRecoverySection
+                dangerZoneSection
+
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
     }
 
     private var workspaceSection: some View {

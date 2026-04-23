@@ -29,7 +29,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var isPresentingTargetSheet = false
     @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
     @Published var selectedTargetID: UUID?
-    @Published private(set) var settingsDestination: SettingsDestination = .overview
+    @Published private(set) var settingsDestination: SettingsDestination = SettingsShellState.directEntry().destination
     @Published private(set) var learnedRuleManagerSnapshot: LearnedRuleManagerSnapshot?
     @Published private(set) var reviewCreatedLearnedRuleAction: ReviewCreatedLearnedRuleAction?
     @Published private(set) var pendingAppSectionNavigation: AppSection?
@@ -292,13 +292,19 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func selectSettingsDestination(_ destination: SettingsDestination) {
-        settingsDestination = destination
+        settingsDestination = SettingsShellState.deepLink(destination).destination
+    }
+
+    func selectSettingsSidebarDestination(_ destination: SettingsSidebarDestination) {
+        settingsDestination = SettingsShellState.sidebarSelection(destination).destination
     }
 
     func showLearnedRules(selectedLearnedRuleID: UUID? = nil) {
-        settingsDestination = SettingsDestination.learnedRulesRoute(
-            selectedLearnedRuleID: selectedLearnedRuleID
-        )
+        settingsDestination = SettingsShellState.deepLink(
+            SettingsDestination.learnedRulesRoute(
+                selectedLearnedRuleID: selectedLearnedRuleID
+            )
+        ).destination
         pendingAppSectionNavigation = .settings
     }
 
