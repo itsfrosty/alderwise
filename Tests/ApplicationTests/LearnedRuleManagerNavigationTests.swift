@@ -13,7 +13,7 @@ func learnedRulesRouteForcesLearnedModeAndPreservesSelectedLearnedRuleSelection(
 
     #expect(
         destination
-            == .learnedRules(
+            == .rules(
                 LearnedRulesDestination(
                     mode: .learned,
                     selection: .learnedRule(learnedRuleID)
@@ -37,7 +37,7 @@ func learnedRulesRouteForcesSeededModeAndPreservesSelectedSeededSourceSelection(
 
     #expect(
         destination
-            == .learnedRules(
+            == .rules(
                 LearnedRulesDestination(
                     mode: .seeded,
                     selection: .seededSource(seededSourceID)
@@ -54,6 +54,7 @@ func learnedRulesDestinationCarriesOnlyModeAndSelectionPayload() {
 
     #expect(labels == ["mode", "selection"])
     #expect(labels.contains { $0.localizedCaseInsensitiveContains("search") } == false)
+    #expect(labels.contains { $0.localizedCaseInsensitiveContains("focus") } == false)
     #expect(labels.contains { $0.localizedCaseInsensitiveContains("filter") } == false)
 }
 
@@ -83,4 +84,18 @@ func matchingTransactionsFilterUsesExplicitRuleIntentInsteadOfSearchOrSecondaryF
     #expect(intent.merchantPattern == "coffee shop")
     #expect(intent.merchantLabel == "Coffee Shop")
     #expect(intent.matchKind == .prefixNormalizedMerchant)
+}
+
+@Test
+func reviewCreatedLearnedRuleActionRulesDeepLinkTargetsSettingsRules() {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000412")!
+
+    let action = ReviewCreatedLearnedRuleAction.settingsRules(
+        ruleID: learnedRuleID,
+        merchantLabel: "Coffee Shop"
+    )
+
+    #expect(action.ruleID == learnedRuleID)
+    #expect(action.merchantLabel == "Coffee Shop")
+    #expect(action.destination == .learnedRulesRoute(selection: .learnedRule(learnedRuleID)))
 }

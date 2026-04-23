@@ -93,6 +93,18 @@ public struct ReviewCreatedLearnedRuleAction: Equatable, Sendable {
         self.merchantLabel = merchantLabel
         self.destination = destination
     }
+
+    public static func settingsRules(
+        ruleID: UUID,
+        merchantLabel: String,
+        destination: SettingsDestination? = nil
+    ) -> ReviewCreatedLearnedRuleAction {
+        ReviewCreatedLearnedRuleAction(
+            ruleID: ruleID,
+            merchantLabel: merchantLabel,
+            destination: destination ?? .learnedRulesRoute(selectedLearnedRuleID: ruleID)
+        )
+    }
 }
 
 public struct ReviewApprovalResult: Equatable, Sendable {
@@ -768,7 +780,7 @@ public struct WorkspaceService: Sendable {
         }
 
         let merchantLabel = matchingSummary.merchantName?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return ReviewCreatedLearnedRuleAction(
+        return ReviewCreatedLearnedRuleAction.settingsRules(
             ruleID: matchingSummary.id,
             merchantLabel: merchantLabel?.isEmpty == false
                 ? merchantLabel ?? matchingSummary.merchantPattern

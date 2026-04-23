@@ -29,6 +29,10 @@ struct LearnedRulesManagerView: View {
         seededRows.filter { $0.sourceKind == .curatedPrefill }
     }
 
+    private var categoryNamesByID: [UUID: String] {
+        Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
+    }
+
     private var filteredLearnedRows: [ManagedLearnedRuleRow] {
         learnedRows.filter(matchesSearch)
     }
@@ -183,22 +187,13 @@ struct LearnedRulesManagerView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 18) {
-                    Button {
-                        model.selectSettingsDestination(.overview)
-                    } label: {
-                        Label("Back to Settings", systemImage: "chevron.left")
-                    }
-                    .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Rules")
+                        .font(.largeTitle.bold())
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Rules")
-                            .font(.largeTitle.bold())
-
-                        Text("\(RuleDisplayText.yourRules), \(RuleDisplayText.builtInAutoApplied), and \(RuleDisplayText.builtInReviewFirst) in one place.")
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: 720, alignment: .leading)
-                    }
+                    Text("\(RuleDisplayText.yourRules), \(RuleDisplayText.builtInAutoApplied), and \(RuleDisplayText.builtInReviewFirst) in one place.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: 720, alignment: .leading)
                 }
 
                 Spacer(minLength: 0)
@@ -208,8 +203,8 @@ struct LearnedRulesManagerView: View {
                 } label: {
                     Label("New Rule", systemImage: "plus")
                 }
-                .buttonStyle(.borderedProminent)
             }
+            .buttonStyle(.borderedProminent)
         }
     }
 
@@ -362,11 +357,16 @@ struct LearnedRulesManagerView: View {
         }
 
         lastSyncedDestination = destination
-        searchText = ""
 
         if let selection = destination.selection {
             switch selection {
             case .learnedRule(let id):
+                searchText = LearnedRulesManagerRouteSync.revealedSearchTextForDeepLink(
+                    currentSearchText: searchText,
+                    selectedLearnedRuleID: id,
+                    learnedRows: learnedRows,
+                    categoryNamesByID: categoryNamesByID
+                )
                 selectedRowID = .learned(id)
             case .seededSource(let id):
                 selectedRowID = .seeded(id)
@@ -446,16 +446,11 @@ struct LearnedRulesManagerView: View {
     }
 
     private func matchesSearch(_ row: ManagedLearnedRuleRow) -> Bool {
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        guard query.isEmpty == false else {
-            return true
-        }
-
-        return row.merchantPattern.lowercased().contains(query)
-            || row.merchantName?.lowercased().contains(query) == true
-            || row.matchKind.ruleDisplayLabel.lowercased().contains(query)
-            || statusLabel(for: row).lowercased().contains(query)
-            || categoryName(for: row.categoryID)?.lowercased().contains(query) == true
+        LearnedRulesManagerRouteSync.matchesLearnedRule(
+            row,
+            searchText: searchText,
+            categoryName: categoryName(for: row.categoryID)
+        )
     }
 
     private func matchesSearch(_ row: SeededRuleSourceRow) -> Bool {
@@ -477,6 +472,64 @@ struct LearnedRulesManagerView: View {
 
     private func sourceTypeLabel(for row: SeededRuleSourceRow) -> String {
         row.sourceKind.sectionTitle
+    }
+}
+
+enum LearnedRulesManagerRouteSync {
+    static func revealedSearchTextForDeepLink(
+        currentSearchText: String,
+        selectedLearnedRuleID: UUID,
+        learnedRows: [ManagedLearnedRuleRow],
+        categoryNamesByID: [UUID: String]
+    ) -> String {
+        let normalizedSearchText = normalizedSearchText(currentSearchText)
+        guard normalizedSearchText.isEmpty == false,
+              let row = learnedRows.first(where: { $0.id == selectedLearnedRuleID }) else {
+            return currentSearchText
+        }
+
+        let categoryName = row.categoryID.flatMap { categoryNamesByID[$0] }
+        if matchesLearnedRule(row, searchText: currentSearchText, categoryName: categoryName) {
+            return currentSearchText
+        }
+
+        return ""
+    }
+
+    static func matchesLearnedRule(
+        _ row: ManagedLearnedRuleRow,
+        searchText: String,
+        categoryName: String?
+    ) -> Bool {
+        let query = normalizedSearchText(searchText)
+        guard query.isEmpty == false else {
+            return true
+        }
+
+        return row.merchantPattern.lowercased().contains(query)
+            || row.merchantName?.lowercased().contains(query) == true
+            || scopeLabel(for: row.matchKind).lowercased().contains(query)
+            || statusLabel(for: row).lowercased().contains(query)
+            || categoryName?.lowercased().contains(query) == true
+    }
+
+    private static func normalizedSearchText(_ searchText: String) -> String {
+        searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private static func scopeLabel(for matchKind: ClassificationRuleMatchKind) -> String {
+        switch matchKind {
+        case .contains:
+            "Contains"
+        case .exactNormalizedMerchant:
+            "Exact merchant"
+        case .prefixNormalizedMerchant:
+            "Shared prefix"
+        }
+    }
+
+    private static func statusLabel(for row: ManagedLearnedRuleRow) -> String {
+        row.isDisabled ? "Disabled" : "Active"
     }
 }
 

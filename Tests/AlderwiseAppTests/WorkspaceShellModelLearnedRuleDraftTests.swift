@@ -37,7 +37,7 @@ func showLearnedRulesPreservesSeededSelectionDeepLink() throws {
     #expect(
         model.settingsDestination == .learnedRulesRoute(selection: .seededSource(seededSourceID))
     )
-    #expect(model.pendingAppSectionNavigation == .settings)
+    #expect(model.pendingAppSectionNavigation == .rules)
 }
 
 @Test

@@ -13,3 +13,20 @@ func reviewSectionExplainsWhenQueueIsEmpty() {
     #expect(AppSection.review.emptyStateTitle == "Everything important has been reviewed")
     #expect(AppSection.review.emptyStateMessage.contains("needs your attention"))
 }
+
+@Test
+func rulesSectionIsPromotedAheadOfTargetsInSidebarOrder() {
+    #expect(
+        AppSection.allCases == [
+            .home,
+            .transactions,
+            .review,
+            .rules,
+            .targets,
+            .accounts,
+            .settings,
+        ]
+    )
+    #expect(AppSection.rules.title == "Rules")
+    #expect(AppSection.rules.systemImage == "slider.horizontal.3")
+}

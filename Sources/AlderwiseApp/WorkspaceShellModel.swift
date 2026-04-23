@@ -456,13 +456,33 @@ final class WorkspaceShellModel: ObservableObject {
         selectedTargetID = id
     }
 
-    func selectSettingsDestination(_ destination: SettingsDestination) {
+    func directSettingsSidebarEntry() {
+        settingsDestination = .overview
+    }
+
+    func directRulesSidebarEntry() {
+        settingsDestination = .learnedRulesRoute()
+    }
+
+    func prepareForSidebarSelection(_ section: AppSection) {
+        switch section {
+        case .settings:
+            directSettingsSidebarEntry()
+        case .rules:
+            directRulesSidebarEntry()
+        case .home, .transactions, .review, .targets, .accounts:
+            break
+        }
+    }
+
+    func showRulesDestination(_ destination: SettingsDestination) {
         settingsDestination = destination
+        pendingAppSectionNavigation = .rules
     }
 
     func showLearnedRules(selection: LearnedRulesDestination.Selection? = nil) {
         settingsDestination = SettingsDestination.learnedRulesRoute(selection: selection)
-        pendingAppSectionNavigation = .settings
+        pendingAppSectionNavigation = .rules
     }
 
     func showLearnedRules(selectedLearnedRuleID: UUID?) {

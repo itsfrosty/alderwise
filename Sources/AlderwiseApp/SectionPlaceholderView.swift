@@ -29,7 +29,7 @@ struct SectionPlaceholderView: View {
         switch section {
         case .home:
             false
-        case .accounts, .transactions, .review, .targets, .settings:
+        case .accounts, .transactions, .review, .rules, .targets, .settings:
             true
         }
     }

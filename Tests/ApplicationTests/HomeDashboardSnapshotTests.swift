@@ -374,6 +374,7 @@ func homeDashboardPrimaryActionCompatibilityUsesTheFirstRankedAction() {
 
 @Test
 func targetsSectionUsesDedicatedManagerRoute() {
+    #expect(WorkspaceDetailRoute.make(for: .rules) == .rulesManager)
     #expect(WorkspaceDetailRoute.make(for: .targets) == .targetsManager)
     #expect(WorkspaceDetailRoute.make(for: .accounts) == .accountsManager)
 }

@@ -251,14 +251,18 @@ public struct LearnedRulesDestination: Equatable, Sendable {
         self.mode = mode
         self.selection = selection
     }
+
+    public init(mode: LearnedRuleManagerMode, selectedLearnedRuleID: UUID?) {
+        self.init(mode: mode, selection: selectedLearnedRuleID.map { .learnedRule($0) })
+    }
 }
 
 public enum SettingsDestination: Equatable, Sendable {
     case overview
-    case learnedRules(LearnedRulesDestination)
+    case rules(LearnedRulesDestination)
 
     public static func learnedRulesRoute(
-        selection: LearnedRulesDestination.Selection? = nil
+        selection: LearnedRulesDestination.Selection?
     ) -> SettingsDestination {
         let mode: LearnedRuleManagerMode
         switch selection {
@@ -268,7 +272,7 @@ public enum SettingsDestination: Equatable, Sendable {
             mode = .learned
         }
 
-        return SettingsDestination.learnedRules(
+        return SettingsDestination.rules(
             LearnedRulesDestination(
                 mode: mode,
                 selection: selection
