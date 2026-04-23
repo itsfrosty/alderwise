@@ -26,12 +26,23 @@ struct TransactionLedgerView: View {
     @State private var isSyncingControls = false
     @State private var userExpandedSecondaryFilters = false
     @State private var draftCoordinator = TransactionDetailDraftCoordinator()
+    @State private var listSelectionID: UUID?
 
-    private var selectedIDBinding: Binding<UUID?> {
-        Binding(
-            get: { model.selectedTransactionID },
-            set: { handleSelectionChange(to: $0) }
+    init(snapshot: WorkspaceSnapshot, model: WorkspaceShellModel) {
+        self.snapshot = snapshot
+        self.model = model
+        _searchText = State(initialValue: model.transactionFilter.searchText)
+        _hasStartDate = State(initialValue: model.transactionFilter.startDate != nil)
+        _hasEndDate = State(initialValue: model.transactionFilter.endDate != nil)
+        _startDate = State(initialValue: model.transactionFilter.startDate ?? Date())
+        _endDate = State(initialValue: model.transactionFilter.endDate ?? Date())
+        _draftCoordinator = State(
+            initialValue: TransactionDetailDraftCoordinator(
+                selectionID: model.selectedTransactionID,
+                detail: model.selectedTransactionDetail
+            )
         )
+        _listSelectionID = State(initialValue: model.selectedTransactionID)
     }
 
     private var isPresentingSelectionChangeConfirmation: Binding<Bool> {
@@ -94,7 +105,7 @@ struct TransactionLedgerView: View {
                 onSetHidden: { model.setSelectedTransactionHidden($0) },
                 onViewLearnedRule: { model.showLearnedRules(selectedLearnedRuleID: $0) }
             )
-            .frame(idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+                .frame(idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
         .alert(
             "Save changes before switching transactions?",
@@ -120,23 +131,20 @@ struct TransactionLedgerView: View {
         .onChange(of: searchText) { _, _ in
             applyFilters()
         }
-        .onAppear {
-            syncControlsFromFilter()
-            syncDraftCoordinator()
-            if model.selectedTransactionID == nil {
-                model.selectTransaction(
-                    id: TransactionLedgerSelectionState.selectionAfterReload(
-                        currentSelectionID: nil,
-                        visibleRows: snapshot.transactions
-                    )
-                )
-            }
-        }
         .onChange(of: model.transactionFilter) { oldFilter, newFilter in
             if hasActiveSecondaryFilters(in: oldFilter), !hasActiveSecondaryFilters(in: newFilter) {
                 userExpandedSecondaryFilters = false
             }
             syncControlsFromFilter()
+        }
+        .onChange(of: listSelectionID) { _, newSelectionID in
+            guard newSelectionID != model.selectedTransactionID else {
+                return
+            }
+            handleSelectionChange(to: newSelectionID)
+        }
+        .onChange(of: model.selectedTransactionID) { _, _ in
+            syncListSelectionFromModel()
         }
         .onChange(of: model.selectedTransactionDetail) { _, _ in
             syncDraftCoordinator()
@@ -250,26 +258,65 @@ struct TransactionLedgerView: View {
         } else if snapshot.transactions.isEmpty {
             emptyLedgerView
         } else {
-            transactionList
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 6) {
+                        ForEach(snapshot.transactions) { transaction in
+                            Button {
+                                listSelectionID = transaction.id
+                            } label: {
+                                TransactionLedgerView.Row(transaction: transaction)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 4)
+                                    .background(rowBackground(for: transaction.id))
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
+                            .contextMenu {
+                                Button(transaction.isHidden ? "Unhide Transaction" : "Hide Transaction") {
+                                    _ = model.setTransactionHidden(id: transaction.id, isHidden: !transaction.isHidden)
+                                }
+                                .disabled(
+                                    transaction.id == model.selectedTransactionID && draftCoordinator.isDirty
+                                )
+                            }
+                            .id(transaction.id)
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 8)
+                }
+                .background(.background)
+                .onAppear {
+                    scrollSelectionIfNeeded(with: proxy, animated: false)
+                }
+                .onChange(of: model.selectedTransactionID) { _, _ in
+                    scrollSelectionIfNeeded(with: proxy, animated: true)
+                }
+                .onMoveCommand { direction in
+                    switch direction {
+                    case .down:
+                        moveSelection(by: 1)
+                    case .up:
+                        moveSelection(by: -1)
+                    default:
+                        break
+                    }
+                }
+            }
         }
     }
 
-    private var transactionList: some View {
-        List(selection: selectedIDBinding) {
-            ForEach(snapshot.transactions) { transaction in
-                TransactionLedgerView.Row(transaction: transaction)
-                    .tag(transaction.id)
-                    .contextMenu {
-                        Button(transaction.isHidden ? "Unhide Transaction" : "Hide Transaction") {
-                            _ = model.setTransactionHidden(id: transaction.id, isHidden: !transaction.isHidden)
-                        }
-                        .disabled(
-                            transaction.id == model.selectedTransactionID && draftCoordinator.isDirty
-                        )
-                    }
-            }
+    @ViewBuilder
+    private func rowBackground(for transactionID: UUID) -> some View {
+        if listSelectionID == transactionID {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.accentColor.opacity(0.16))
+        } else {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.clear)
         }
-        .listStyle(.inset)
     }
 
     private var visibilitySelection: Binding<TransactionVisibilityFilter> {
@@ -502,6 +549,7 @@ struct TransactionLedgerView: View {
         case .proceed:
             model.selectTransaction(id: selectionID)
         case .promptToSaveDiscardOrCancel:
+            syncListSelectionFromModel()
             break
         }
     }
@@ -595,6 +643,52 @@ struct TransactionLedgerView: View {
 
         if searchText != filter.searchText {
             searchText = filter.searchText
+        }
+    }
+
+    private func syncListSelectionFromModel() {
+        if listSelectionID != model.selectedTransactionID {
+            listSelectionID = model.selectedTransactionID
+        }
+    }
+
+    private func moveSelection(by offset: Int) {
+        guard snapshot.transactions.isEmpty == false else {
+            return
+        }
+
+        let currentSelectionID = listSelectionID ?? model.selectedTransactionID
+        let currentIndex = if let currentSelectionID,
+                              let index = snapshot.transactions.firstIndex(where: { $0.id == currentSelectionID }) {
+            index
+        } else if offset > 0 {
+            snapshot.transactions.startIndex
+        } else {
+            snapshot.transactions.index(before: snapshot.transactions.endIndex)
+        }
+
+        let nextIndex = min(
+            max(currentIndex + offset, snapshot.transactions.startIndex),
+            snapshot.transactions.index(before: snapshot.transactions.endIndex)
+        )
+        listSelectionID = snapshot.transactions[nextIndex].id
+    }
+
+    private func scrollSelectionIfNeeded(with proxy: ScrollViewProxy, animated: Bool) {
+        guard let selectedTransactionID = model.selectedTransactionID else {
+            return
+        }
+
+        let scroll = {
+            proxy.scrollTo(selectedTransactionID, anchor: .center)
+        }
+
+        if animated {
+            withAnimation(.easeInOut(duration: 0.16)) {
+                scroll()
+            }
+        } else {
+            scroll()
         }
     }
 }
