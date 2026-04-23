@@ -119,6 +119,7 @@ final class WorkspaceShellModel: ObservableObject {
     private let reviewRulePreviewDebounceDelay: Duration
     private var scheduledReviewRulePreview: ReviewRulePreviewScheduleToken?
     private var scheduledLearnedRuleDraftPreview: ReviewRulePreviewScheduleToken?
+    private var preservesClearedTransactionSelectionOnNextReload = false
 
     private static let learnedRuleDraftPreviewItemID = UUID(
         uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff"
@@ -346,6 +347,7 @@ final class WorkspaceShellModel: ObservableObject {
 
     func showTransactions(filter: TransactionLedgerFilter, clearSelection: Bool = false) {
         if clearSelection {
+            preservesClearedTransactionSelectionOnNextReload = true
             selectTransaction(id: nil)
         }
         pendingAppSectionNavigation = .transactions
@@ -367,6 +369,9 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func selectTransaction(id: UUID?) {
+        if id != nil {
+            preservesClearedTransactionSelectionOnNextReload = false
+        }
         selectedTransactionID = id
         loadSelectedTransactionDetail(id: id)
     }
@@ -805,11 +810,16 @@ final class WorkspaceShellModel: ObservableObject {
         if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
             self.selectedTargetID = nil
         }
-        let transactionID = if let selectedTransactionID,
-                               snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
-            selectedTransactionID
+        let visibleTransactions = matchingTransactions(in: snapshot.transactions)
+        let transactionID: UUID?
+        if preservesClearedTransactionSelectionOnNextReload {
+            transactionID = nil
+            preservesClearedTransactionSelectionOnNextReload = false
         } else {
-            snapshot.transactions.first?.id
+            transactionID = TransactionLedgerSelectionState.selectionAfterReload(
+                currentSelectionID: selectedTransactionID,
+                visibleRows: visibleTransactions
+            )
         }
         selectedTransactionID = transactionID
         loadSelectedTransactionDetail(id: transactionID)

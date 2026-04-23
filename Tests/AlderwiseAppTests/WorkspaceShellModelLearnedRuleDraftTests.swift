@@ -37,6 +37,43 @@ func showLearnedRulesPreservesSeededSelectionDeepLink() {
 
 @Test
 @MainActor
+func showTransactionsWithRuleFilterClearsHiddenSelectionAfterReload() {
+    let matchingRow = makeTransactionLedgerRow(
+        id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+        merchantName: "Coffee Shop"
+    )
+    let hiddenRow = makeTransactionLedgerRow(
+        id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
+        merchantName: "Grocery Market"
+    )
+    let store = LearnedRuleDraftWorkspaceStore()
+    store.transactionRows = [hiddenRow, matchingRow]
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: WorkspaceService(store: store)
+    )
+    let filter = TransactionLedgerFilter(
+        ruleFilterIntent: TransactionLedgerRuleFilterIntent(
+            source: .learnedRule(UUID(uuidString: "33333333-3333-3333-3333-333333333333")!),
+            merchantPattern: "coffee shop",
+            merchantLabel: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant
+        )
+    )
+
+    #expect(model.selectedTransactionID == hiddenRow.id)
+
+    model.showTransactions(filter: filter, clearSelection: true)
+
+    #expect(model.pendingAppSectionNavigation == .transactions)
+    #expect(model.transactionFilter == filter)
+    #expect(model.selectedTransactionID == nil)
+    #expect(model.selectedTransactionDetail == nil)
+    #expect(model.matchingTransactions(in: model.snapshot.transactions).map(\.id) == [matchingRow.id])
+}
+
+@Test
+@MainActor
 func beginDuplicateLearnedRuleLoadsEditableDraftIntoSheet() {
     let ruleID = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
     let categoryID = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
@@ -302,12 +339,13 @@ func learnedRuleDraftViewKeepsContainsBehindAdvancedDisclosure() throws {
     #expect(source.contains("manualAuthoringWarningText"))
 }
 
-private final class LearnedRuleDraftWorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleManaging, TargetManaging, WorkspacePreferencesManaging {
+private final class LearnedRuleDraftWorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleManaging, TargetManaging, WorkspacePreferencesManaging, TransactionLedgerReading {
     var summary: WorkspaceSummary = .empty
     var accounts: [Account] = []
     var learnedRuleSummaries: [LearnedRuleSummary] = []
     var createdDrafts: [LearnedRuleDraft] = []
     var nextCreatedLearnedRuleID: UUID
+    var transactionRows: [TransactionLedgerRow] = []
 
     init(nextCreatedLearnedRuleID: UUID = UUID(uuidString: "99999999-9999-9999-9999-999999999999")!) {
         self.nextCreatedLearnedRuleID = nextCreatedLearnedRuleID
@@ -463,6 +501,29 @@ private final class LearnedRuleDraftWorkspaceStore: @unchecked Sendable, Workspa
     }
 
     func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {}
+
+    func fetchTransactionLedger(filter: TransactionLedgerFilter) throws -> [TransactionLedgerRow] {
+        transactionRows
+    }
+
+    func fetchTransactionDetail(id: UUID) throws -> TransactionDetail? {
+        guard let row = transactionRows.first(where: { $0.id == id }) else {
+            return nil
+        }
+
+        return TransactionDetail(
+            row: row,
+            notes: nil,
+            decisionSource: nil,
+            decisionSourceReference: nil,
+            confidence: nil,
+            duplicateStatus: "none"
+        )
+    }
+
+    func fetchTransactionImportOrigins() throws -> [TransactionImportOrigin] {
+        []
+    }
 }
 
 @MainActor
@@ -496,6 +557,24 @@ private final class ManualLearnedRuleDraftPreviewScheduler {
             await operation()
         }
     }
+}
+
+private func makeTransactionLedgerRow(id: UUID, merchantName: String) -> TransactionLedgerRow {
+    TransactionLedgerRow(
+        id: id,
+        accountID: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+        accountName: "Checking",
+        categoryID: UUID(uuidString: "55555555-5555-5555-5555-555555555555")!,
+        categoryName: "Dining",
+        rawDescription: merchantName.uppercased(),
+        merchantName: merchantName,
+        amount: Decimal(-12.34),
+        transactionDate: Date(timeIntervalSince1970: 1_777_000_000),
+        postedDate: nil,
+        direction: .expense,
+        reviewStatus: .accepted,
+        importOrigin: nil
+    )
 }
 
 @MainActor

@@ -130,7 +130,7 @@ struct TransactionLedgerView: View {
         .onAppear {
             syncControlsFromFilter()
             syncDraftCoordinator()
-            if model.selectedTransactionID == nil {
+            if model.selectedTransactionID == nil, model.transactionFilter.ruleFilterIntent == nil {
                 model.selectTransaction(
                     id: TransactionLedgerSelectionState.selectionAfterReload(
                         currentSelectionID: nil,
