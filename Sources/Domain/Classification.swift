@@ -14,6 +14,32 @@ public enum ClassificationRuleMatchKind: String, Codable, Equatable, Sendable {
     case prefixNormalizedMerchant = "prefix_normalized_merchant"
 }
 
+public extension ClassificationRuleMatchKind {
+    var isAdvancedManualAuthoringOption: Bool {
+        self == .contains
+    }
+
+    var manualAuthoringHelpText: String {
+        switch self {
+        case .exactNormalizedMerchant:
+            "Exact merchant matches one normalized merchant name."
+        case .prefixNormalizedMerchant:
+            "Shared prefix matches merchants that start with the same normalized prefix."
+        case .contains:
+            "Contains matches any normalized merchant name that includes this text."
+        }
+    }
+
+    var manualAuthoringWarningText: String? {
+        switch self {
+        case .contains:
+            "Contains can match multiple merchants and may recategorize accepted transactions that are already in this workspace."
+        case .exactNormalizedMerchant, .prefixNormalizedMerchant:
+            nil
+        }
+    }
+}
+
 public struct ClassificationAssignment: Codable, Equatable, Sendable {
     public var categoryID: UUID
     public var merchantName: String?

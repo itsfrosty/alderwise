@@ -2295,6 +2295,16 @@ func learnedRuleDraftSheetSaveValidationAllowsExactAndSharedPrefixButNotContains
 }
 
 @Test
+func manualRuleAuthoringKeepsContainsBehindAdvancedDisclosureAndOutOfReview() throws {
+    let learnedRulesSource = try sourceText(in: "Sources/AlderwiseApp/LearnedRulesManagerView.swift")
+    let reviewSource = try sourceText(in: "Sources/AlderwiseApp/ReviewQueueView.swift")
+
+    #expect(learnedRulesSource.contains("DisclosureGroup(\"Advanced\""))
+    #expect(learnedRulesSource.contains("manualAuthoringWarningText"))
+    #expect(reviewSource.contains("Text(\"Contains\")") == false)
+}
+
+@Test
 func createLearnedRulePersistsManualDraftAndReturnsManagedRule() throws {
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000551")!
     let createdAt = Date(timeIntervalSince1970: 1_776_355_340)
@@ -2423,6 +2433,61 @@ func previewLearnedRuleImpactReturnsReadyCountsWhenEligible() throws {
 }
 
 @Test
+func previewLearnedRuleImpactReusesExistingCountsForContainsRules() throws {
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000568")!
+    let store = MutableWorkspaceStore()
+    store.pendingReviewItems = [
+        PendingReviewItem(
+            id: reviewItemID,
+            type: .lowConfidenceCategory,
+            status: .pending,
+            reason: nil,
+            createdAt: Date(timeIntervalSince1970: 1_776_355_460),
+            sourceFile: PendingReviewSourceFile(
+                accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000569")!,
+                originalFilename: "checking.csv"
+            ),
+            sourceRow: PendingReviewSourceRow(
+                id: 1,
+                sourceLineNumber: 2,
+                rowHash: "row-contains",
+                rawPayload: #"["2026-04-03","Daily Coffee","-4.75"]"#
+            ),
+            duplicateTransactionID: nil,
+            classification: PendingReviewClassification(
+                normalizedMerchantName: "daily coffee",
+                prefill: nil,
+                source: nil,
+                sourceReference: nil,
+                confidence: nil
+            )
+        )
+    ]
+    store.previewLearnedRuleImpactResult = LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 6,
+        matchedPendingReviewItemCount: 2
+    )
+    let service = WorkspaceService(store: store)
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: reviewItemID,
+        createRuleEnabled: true,
+        merchantPattern: "coffee",
+        matchKind: .contains
+    )
+
+    #expect(preview == .ready(LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 6,
+        matchedPendingReviewItemCount: 2
+    )))
+    #expect(store.lastPreviewLearnedRuleRequest == PreviewLearnedRuleRequest(
+        merchantPattern: "coffee",
+        matchKind: .contains,
+        excludingReviewItemID: reviewItemID
+    ))
+}
+
+@Test
 func previewLearnedRuleImpactReturnsNoEligiblePreviewWhenRuleCreationIsDisabled() throws {
     let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000563")!
     let store = MutableWorkspaceStore()
@@ -2524,4 +2589,13 @@ private func makeTransactionDetail(
         confidence: 1,
         duplicateStatus: "unique"
     )
+}
+
+private func sourceText(in relativePath: String) throws -> String {
+    let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let sourceURL = repoRoot.appendingPathComponent(relativePath)
+    return try String(contentsOf: sourceURL, encoding: .utf8)
 }

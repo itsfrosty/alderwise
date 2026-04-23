@@ -169,6 +169,7 @@ struct LearnedRulesManagerView: View {
                 sheet: sheet,
                 categories: categories,
                 draft: learnedRuleDraftBinding,
+                previewPhase: model.learnedRuleDraftPreviewState?.phase,
                 onCancel: {
                     model.dismissLearnedRuleDraftSheet()
                 },
@@ -552,7 +553,8 @@ private struct LearnedRuleDetailView: View {
     var onEnable: () -> Void
 
     private var supportsDuplicateDraft: Bool {
-        LearnedRuleDraftSheet.supportsBasicManualAuthoring(matchKind: row.matchKind)
+        row.matchKind.isAdvancedManualAuthoringOption
+            || LearnedRuleDraftSheet.supportsBasicManualAuthoring(matchKind: row.matchKind)
     }
 
     var body: some View {
@@ -612,13 +614,6 @@ private struct LearnedRuleDetailView: View {
                         .tint(.red)
                     }
                 }
-
-                if supportsDuplicateDraft == false {
-                    Text("Contains authoring stays unavailable in this sheet until advanced rule authoring lands.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
                 Spacer(minLength: 0)
             }
             .padding(24)
@@ -671,8 +666,11 @@ private struct LearnedRuleDraftSheetView: View {
     let sheet: LearnedRuleDraftSheet
     let categories: [BudgetCategory]
     @Binding var draft: LearnedRuleDraft
+    let previewPhase: WorkspaceShellModel.ReviewRulePreviewPhase?
     var onCancel: () -> Void
     var onSave: () -> Void
+
+    @State private var isAdvancedExpanded = false
 
     private var currentSheet: LearnedRuleDraftSheet {
         var current = sheet
@@ -687,15 +685,55 @@ private struct LearnedRuleDraftSheetView: View {
                     TextField("Merchant Pattern", text: $draft.merchantPattern, axis: .vertical)
                         .lineLimit(2, reservesSpace: true)
 
-                    Picker("Match Scope", selection: $draft.matchKind) {
-                        ForEach(currentSheet.allowedMatchKinds, id: \.self) { matchKind in
-                            Text(matchKind.ruleDisplayLabel).tag(matchKind)
+                    if draft.matchKind.isAdvancedManualAuthoringOption {
+                        LabeledContent("Match Scope", value: draft.matchKind.ruleDisplayLabel)
+                    } else {
+                        Picker("Match Scope", selection: $draft.matchKind) {
+                            ForEach(currentSheet.allowedMatchKinds, id: \.self) { matchKind in
+                                Text(matchKind.ruleDisplayLabel).tag(matchKind)
+                            }
                         }
                     }
 
                     Text(matchScopeHelpText)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    DisclosureGroup("Advanced", isExpanded: advancedDisclosureBinding) {
+                        Button {
+                            draft.matchKind = .contains
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(ClassificationRuleMatchKind.contains.ruleDisplayLabel)
+                                    Text(ClassificationRuleMatchKind.contains.manualAuthoringHelpText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if draft.matchKind == .contains {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if draft.matchKind.isAdvancedManualAuthoringOption {
+                            Button("Switch back to Exact merchant") {
+                                draft.matchKind = .exactNormalizedMerchant
+                            }
+                            .font(.caption)
+                        }
+                    }
+
+                    if draft.matchKind == .contains {
+                        LearnedRuleDraftContainsPreviewView(
+                            warningText: draft.matchKind.manualAuthoringWarningText,
+                            previewPhase: previewPhase
+                        )
+                    }
                 }
 
                 Section("Assignment") {
@@ -728,7 +766,7 @@ private struct LearnedRuleDraftSheetView: View {
                     Button(currentSheet.confirmationTitle) {
                         onSave()
                     }
-                    .disabled(currentSheet.canSave == false)
+                    .disabled(canSave == false)
                 }
             }
         }
@@ -745,13 +783,97 @@ private struct LearnedRuleDraftSheetView: View {
     }
 
     private var matchScopeHelpText: String {
-        switch draft.matchKind {
-        case .exactNormalizedMerchant:
-            "Exact merchant matches one normalized merchant name."
-        case .prefixNormalizedMerchant:
-            "Shared prefix matches merchants that start with the same normalized prefix."
-        case .contains:
-            "Contains authoring is not available in this sheet yet."
+        draft.matchKind.manualAuthoringHelpText
+    }
+
+    private var canSave: Bool {
+        draft.categoryID != nil
+            && draft.normalizedMerchantPattern != nil
+            && (
+                draft.matchKind.isAdvancedManualAuthoringOption
+                    || currentSheet.allowedMatchKinds.contains(draft.matchKind)
+            )
+    }
+
+    private var advancedDisclosureBinding: Binding<Bool> {
+        Binding(
+            get: { isAdvancedExpanded || draft.matchKind.isAdvancedManualAuthoringOption },
+            set: { isExpanded in
+                isAdvancedExpanded = isExpanded || draft.matchKind.isAdvancedManualAuthoringOption
+            }
+        )
+    }
+}
+
+private struct LearnedRuleDraftContainsPreviewView: View {
+    let warningText: String?
+    let previewPhase: WorkspaceShellModel.ReviewRulePreviewPhase?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let warningText {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    Text(warningText)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let previewPhase {
+                previewSummary(for: previewPhase)
+            }
         }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func previewSummary(
+        for previewPhase: WorkspaceShellModel.ReviewRulePreviewPhase
+    ) -> some View {
+        switch previewPhase {
+        case .loading:
+            ProgressView("Checking matching transactions…")
+                .font(.caption)
+                .controlSize(.small)
+        case .ready(let preview):
+            VStack(alignment: .leading, spacing: 4) {
+                Text(readyTitle(for: preview))
+                    .font(.caption.weight(.semibold))
+                Text("Preview counts accepted transactions and pending review items that would match after saving.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .noEligiblePreview:
+            Text("Enter a merchant pattern to preview broader matches before saving.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .unavailable:
+            Text("Preview is unavailable in this workspace.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .error(let message):
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Preview failed.")
+                    .font(.caption.weight(.semibold))
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func readyTitle(for preview: LearnedRuleImpactPreview) -> String {
+        if preview.matchedAcceptedTransactionCount == 0,
+           preview.matchedPendingReviewItemCount == 0 {
+            return "Saving this rule would not affect any other items."
+        }
+
+        return "Saving this rule would affect \(preview.matchedAcceptedTransactionCount) accepted transaction\(preview.matchedAcceptedTransactionCount == 1 ? "" : "s") and \(preview.matchedPendingReviewItemCount) pending review item\(preview.matchedPendingReviewItemCount == 1 ? "" : "s")."
     }
 }

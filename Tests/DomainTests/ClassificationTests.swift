@@ -498,6 +498,43 @@ func patternLikeMerchantsOfferExactAndPrefixLearningOptions() {
 }
 
 @Test
+func reviewLearningOptionsNeverExposeContainsMatching() {
+    let patternLikeOptions = ReviewRuleLearningOption.options(
+        forNormalizedMerchantName: "99pledg onir baweja"
+    )
+    let ordinaryOptions = ReviewRuleLearningOption.options(
+        forNormalizedMerchantName: "daily coffee roasters"
+    )
+
+    #expect(
+        patternLikeOptions.allSatisfy { option in
+            switch option {
+            case .exactNormalizedMerchant, .prefixNormalizedMerchant:
+                true
+            }
+        }
+    )
+    #expect(
+        ordinaryOptions.allSatisfy { option in
+            switch option {
+            case .exactNormalizedMerchant, .prefixNormalizedMerchant:
+                true
+            }
+        }
+    )
+}
+
+@Test
+func containsMatchKindUsesStrongerManualAuthoringWarningCopy() {
+    #expect(ClassificationRuleMatchKind.contains.isAdvancedManualAuthoringOption)
+    #expect(
+        ClassificationRuleMatchKind.contains.manualAuthoringWarningText
+            == "Contains can match multiple merchants and may recategorize accepted transactions that are already in this workspace."
+    )
+    #expect(ClassificationRuleMatchKind.prefixNormalizedMerchant.manualAuthoringWarningText == nil)
+}
+
+@Test
 func ordinaryMerchantsOnlyOfferExactLearning() {
     let options = ReviewRuleLearningOption.options(forNormalizedMerchantName: "dishdash 408 7741889 ca")
 

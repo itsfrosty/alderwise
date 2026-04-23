@@ -108,6 +108,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var latestMaintenanceFailure: WorkspaceMaintenanceFailure?
     @Published private(set) var workspaceStatus: WorkspaceStatus = .loading
     @Published private(set) var reviewRulePreviewState: ReviewRulePreviewState?
+    @Published private(set) var learnedRuleDraftPreviewState: ReviewRulePreviewState?
     @Published private(set) var learnedRuleDraftSheet: LearnedRuleDraftSheet?
 
     private let store: WorkspaceStore?
@@ -117,6 +118,11 @@ final class WorkspaceShellModel: ObservableObject {
     private let reviewRulePreviewLoader: @MainActor @Sendable (ReviewRulePreviewKey) async throws -> LearnedRuleImpactPreviewState
     private let reviewRulePreviewDebounceDelay: Duration
     private var scheduledReviewRulePreview: ReviewRulePreviewScheduleToken?
+    private var scheduledLearnedRuleDraftPreview: ReviewRulePreviewScheduleToken?
+
+    private static let learnedRuleDraftPreviewItemID = UUID(
+        uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    )!
 
     init(
         store: WorkspaceStore?,
@@ -406,6 +412,7 @@ final class WorkspaceShellModel: ObservableObject {
 
     func beginNewLearnedRule() {
         learnedRuleDraftSheet = .newRule()
+        clearLearnedRuleDraftPreview()
         learnedRuleManagerActionErrorMessage = nil
     }
 
@@ -421,11 +428,8 @@ final class WorkspaceShellModel: ObservableObject {
                 learnedRuleManagerActionErrorMessage = "The selected learned rule is no longer available."
                 return false
             }
-            guard LearnedRuleDraftSheet.supportsBasicManualAuthoring(matchKind: draft.matchKind) else {
-                learnedRuleManagerActionErrorMessage = LearnedRuleDraftSheet.unsupportedMatchKindMessage
-                return false
-            }
             learnedRuleDraftSheet = .duplicateRule(sourceRuleID: id, draft: draft)
+            updateLearnedRuleDraftPreview(for: draft)
             learnedRuleManagerActionErrorMessage = nil
             return true
         } catch {
@@ -440,10 +444,12 @@ final class WorkspaceShellModel: ObservableObject {
         }
         learnedRuleDraftSheet.draft = draft
         self.learnedRuleDraftSheet = learnedRuleDraftSheet
+        updateLearnedRuleDraftPreview(for: draft)
     }
 
     func dismissLearnedRuleDraftSheet() {
         learnedRuleDraftSheet = nil
+        clearLearnedRuleDraftPreview()
     }
 
     @discardableResult
@@ -455,7 +461,8 @@ final class WorkspaceShellModel: ObservableObject {
         guard let learnedRuleDraftSheet else {
             return false
         }
-        guard learnedRuleDraftSheet.allowedMatchKinds.contains(learnedRuleDraftSheet.draft.matchKind) else {
+        guard learnedRuleDraftSheet.draft.matchKind.isAdvancedManualAuthoringOption
+            || learnedRuleDraftSheet.allowedMatchKinds.contains(learnedRuleDraftSheet.draft.matchKind) else {
             learnedRuleManagerActionErrorMessage = LearnedRuleDraftSheet.unsupportedMatchKindMessage
             return false
         }
@@ -465,6 +472,7 @@ final class WorkspaceShellModel: ObservableObject {
             reload()
             settingsDestination = .learnedRulesRoute(selectedLearnedRuleID: createdRule.id)
             self.learnedRuleDraftSheet = nil
+            clearLearnedRuleDraftPreview()
             learnedRuleManagerActionErrorMessage = nil
             return true
         } catch {
@@ -852,6 +860,66 @@ final class WorkspaceShellModel: ObservableObject {
                 return
             }
             reviewRulePreviewState = ReviewRulePreviewState(
+                key: key,
+                phase: .error(error.localizedDescription)
+            )
+        }
+    }
+
+    private func updateLearnedRuleDraftPreview(for draft: LearnedRuleDraft) {
+        scheduledLearnedRuleDraftPreview?.cancel()
+        scheduledLearnedRuleDraftPreview = nil
+
+        guard draft.matchKind == .contains else {
+            learnedRuleDraftPreviewState = nil
+            return
+        }
+
+        let key = ReviewRulePreviewKey(
+            reviewItemID: Self.learnedRuleDraftPreviewItemID,
+            createRuleEnabled: true,
+            merchantName: draft.merchantName ?? "",
+            merchantPattern: draft.merchantPattern,
+            matchKind: draft.matchKind
+        )
+
+        learnedRuleDraftPreviewState = ReviewRulePreviewState(key: key, phase: .loading)
+        scheduledLearnedRuleDraftPreview = reviewRulePreviewScheduler.schedule(
+            reviewRulePreviewDebounceDelay
+        ) { [weak self] in
+            await self?.loadLearnedRuleDraftPreview(for: key)
+        }
+    }
+
+    private func clearLearnedRuleDraftPreview() {
+        scheduledLearnedRuleDraftPreview?.cancel()
+        scheduledLearnedRuleDraftPreview = nil
+        learnedRuleDraftPreviewState = nil
+    }
+
+    private func loadLearnedRuleDraftPreview(for key: ReviewRulePreviewKey) async {
+        do {
+            let preview = try await reviewRulePreviewLoader(key)
+            guard learnedRuleDraftPreviewState?.key == key else {
+                return
+            }
+
+            let phase: ReviewRulePreviewPhase
+            switch preview {
+            case .ready(let impact):
+                phase = .ready(impact)
+            case .noEligiblePreview:
+                phase = .noEligiblePreview
+            case .unavailable:
+                phase = .unavailable
+            }
+
+            learnedRuleDraftPreviewState = ReviewRulePreviewState(key: key, phase: phase)
+        } catch {
+            guard learnedRuleDraftPreviewState?.key == key else {
+                return
+            }
+            learnedRuleDraftPreviewState = ReviewRulePreviewState(
                 key: key,
                 phase: .error(error.localizedDescription)
             )

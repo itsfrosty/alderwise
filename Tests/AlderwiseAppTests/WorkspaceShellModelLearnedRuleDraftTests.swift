@@ -54,7 +54,7 @@ func beginDuplicateLearnedRuleLoadsEditableDraftIntoSheet() {
 
 @Test
 @MainActor
-func beginDuplicateLearnedRuleRejectsContainsRulesUntilAdvancedAuthoringLands() {
+func beginDuplicateLearnedRuleLoadsContainsRuleIntoAdvancedDraftSheet() {
     let ruleID = UUID(uuidString: "abababab-abab-abab-abab-abababababab")!
     let categoryID = UUID(uuidString: "cdcdcdcd-cdcd-cdcd-cdcd-cdcdcdcdcdcd")!
     let store = LearnedRuleDraftWorkspaceStore()
@@ -74,9 +74,10 @@ func beginDuplicateLearnedRuleRejectsContainsRulesUntilAdvancedAuthoringLands() 
 
     let didBegin = model.beginDuplicateLearnedRule(id: ruleID)
 
-    #expect(didBegin == false)
-    #expect(model.learnedRuleDraftSheet == nil)
-    #expect(model.learnedRuleManagerActionErrorMessage == LearnedRuleDraftSheet.unsupportedMatchKindMessage)
+    #expect(didBegin)
+    #expect(model.learnedRuleDraftSheet?.mode == .duplicateRule(sourceRuleID: ruleID))
+    #expect(model.learnedRuleDraftSheet?.draft.matchKind == .contains)
+    #expect(model.learnedRuleManagerActionErrorMessage == nil)
 }
 
 @Test
@@ -151,9 +152,10 @@ func saveLearnedRuleDraftCreatesSharedPrefixRuleThroughShellModel() {
 
 @Test
 @MainActor
-func saveLearnedRuleDraftRejectsContainsMatchKind() {
+func saveLearnedRuleDraftCreatesContainsRuleThroughShellModel() {
     let categoryID = UUID(uuidString: "12121212-1212-1212-1212-121212121212")!
-    let store = LearnedRuleDraftWorkspaceStore()
+    let createdRuleID = UUID(uuidString: "34343434-3434-3434-3434-343434343434")!
+    let store = LearnedRuleDraftWorkspaceStore(nextCreatedLearnedRuleID: createdRuleID)
     let service = WorkspaceService(store: store)
     let model = WorkspaceShellModel(store: nil, service: service)
     model.beginNewLearnedRule()
@@ -168,10 +170,75 @@ func saveLearnedRuleDraftRejectsContainsMatchKind() {
 
     let didSave = model.saveLearnedRuleDraft()
 
-    #expect(didSave == false)
-    #expect(store.createdDrafts.isEmpty)
-    #expect(model.learnedRuleDraftSheet?.draft.matchKind == .contains)
-    #expect(model.learnedRuleManagerActionErrorMessage == LearnedRuleDraftSheet.unsupportedMatchKindMessage)
+    #expect(didSave)
+    #expect(store.createdDrafts == [
+        LearnedRuleDraft(
+            merchantPattern: "Coffee",
+            categoryID: categoryID,
+            merchantName: "Coffee",
+            matchKind: .contains
+        )
+    ])
+    #expect(model.learnedRuleDraftSheet == nil)
+    #expect(model.learnedRuleManagerActionErrorMessage == nil)
+    #expect(model.settingsDestination == .learnedRulesRoute(selectedLearnedRuleID: createdRuleID))
+    #expect(model.learnedRuleManagerSnapshot?.learned.rows.first?.matchKind == .contains)
+}
+
+@Test
+@MainActor
+func manualContainsDraftReusesPreviewInfrastructure() async throws {
+    let scheduler = ManualLearnedRuleDraftPreviewScheduler()
+    let loader = LearnedRuleDraftPreviewLoaderHarness()
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: WorkspaceService(store: LearnedRuleDraftWorkspaceStore()),
+        reviewRulePreviewScheduler: scheduler.scheduler,
+        reviewRulePreviewLoader: loader.load
+    )
+    model.beginNewLearnedRule()
+
+    model.updateLearnedRuleDraft(
+        LearnedRuleDraft(
+            merchantPattern: "Coffee",
+            categoryID: UUID(uuidString: "56565656-5656-5656-5656-565656565656")!,
+            merchantName: "Coffee",
+            matchKind: .contains
+        )
+    )
+
+    #expect(model.learnedRuleDraftPreviewState?.phase == .loading)
+    #expect(scheduler.pendingCount == 1)
+
+    scheduler.fireNext()
+    await Task.yield()
+
+    let key = try #require(loader.receivedKeys.only)
+    #expect(key.createRuleEnabled)
+    #expect(key.merchantPattern == "Coffee")
+    #expect(key.matchKind == .contains)
+
+    loader.resume(
+        key: key,
+        with: .success(.ready(LearnedRuleImpactPreview(
+            matchedAcceptedTransactionCount: 4,
+            matchedPendingReviewItemCount: 2
+        )))
+    )
+    await Task.yield()
+
+    #expect(model.learnedRuleDraftPreviewState?.phase == .ready(LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 4,
+        matchedPendingReviewItemCount: 2
+    )))
+}
+
+@Test
+func learnedRuleDraftViewKeepsContainsBehindAdvancedDisclosure() throws {
+    let source = try sourceText(in: "Sources/AlderwiseApp/LearnedRulesManagerView.swift")
+
+    #expect(source.contains("DisclosureGroup(\"Advanced\""))
+    #expect(source.contains("manualAuthoringWarningText"))
 }
 
 private final class LearnedRuleDraftWorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleManaging, TargetManaging, WorkspacePreferencesManaging {
@@ -335,4 +402,70 @@ private final class LearnedRuleDraftWorkspaceStore: @unchecked Sendable, Workspa
     }
 
     func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {}
+}
+
+@MainActor
+private final class ManualLearnedRuleDraftPreviewScheduler {
+    private struct Entry {
+        var id: UUID
+        var operation: @MainActor () async -> Void
+    }
+
+    private var entries: [Entry] = []
+
+    var pendingCount: Int {
+        entries.count
+    }
+
+    var scheduler: WorkspaceShellModel.ReviewRulePreviewScheduler {
+        .init { _, operation in
+            let id = UUID()
+            self.entries.append(Entry(id: id, operation: operation))
+            return WorkspaceShellModel.ReviewRulePreviewScheduleToken {
+                self.entries.removeAll { $0.id == id }
+            }
+        }
+    }
+
+    func fireNext() {
+        let operation = entries.removeFirst().operation
+        Task { @MainActor in
+            await operation()
+        }
+    }
+}
+
+@MainActor
+private final class LearnedRuleDraftPreviewLoaderHarness {
+    private var continuations: [WorkspaceShellModel.ReviewRulePreviewKey: CheckedContinuation<LearnedRuleImpactPreviewState, Error>] = [:]
+    private(set) var receivedKeys: [WorkspaceShellModel.ReviewRulePreviewKey] = []
+
+    func load(_ key: WorkspaceShellModel.ReviewRulePreviewKey) async throws -> LearnedRuleImpactPreviewState {
+        receivedKeys.append(key)
+        return try await withCheckedThrowingContinuation { continuation in
+            continuations[key] = continuation
+        }
+    }
+
+    func resume(
+        key: WorkspaceShellModel.ReviewRulePreviewKey,
+        with result: Result<LearnedRuleImpactPreviewState, Error>
+    ) {
+        continuations.removeValue(forKey: key)?.resume(with: result)
+    }
+}
+
+private extension Array {
+    var only: Element? {
+        count == 1 ? first : nil
+    }
+}
+
+private func sourceText(in relativePath: String) throws -> String {
+    let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let sourceURL = repoRoot.appendingPathComponent(relativePath)
+    return try String(contentsOf: sourceURL, encoding: .utf8)
 }
