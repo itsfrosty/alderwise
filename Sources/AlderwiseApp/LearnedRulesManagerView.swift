@@ -563,7 +563,6 @@ private struct LearnedRuleDetailView: View {
     var onDuplicate: () -> Void
     var onDisable: () -> Void
     var onEnable: () -> Void
-    @State private var testMatchInput = ""
 
     private var supportsDuplicateDraft: Bool {
         row.matchKind.isAdvancedManualAuthoringOption
@@ -600,14 +599,7 @@ private struct LearnedRuleDetailView: View {
                 Text(effectStatement)
                     .foregroundStyle(.secondary)
 
-                RuleTestMatchSection(
-                    title: "Test Match",
-                    prompt: "Enter merchant text",
-                    input: $testMatchInput,
-                    result: row.testMatch(userEnteredMerchantText: testMatchInput),
-                    precedenceExplanation: row.precedenceExplanation,
-                    subjectLabel: "rule"
-                )
+                RulePrecedenceSection(precedenceExplanation: row.precedenceExplanation)
 
                 HStack(spacing: 12) {
                     Button {
@@ -694,7 +686,6 @@ private struct LearnedRuleDetailView: View {
 private struct SeededRuleDetailPanel: View {
     let row: SeededRuleSourceRow
     let categoryName: String?
-    @State private var testMatchInput = ""
 
     var body: some View {
         ScrollView {
@@ -720,14 +711,7 @@ private struct SeededRuleDetailPanel: View {
                     detailRow(title: "Merchant Name", value: row.merchantName ?? "Not provided")
                 }
 
-                RuleTestMatchSection(
-                    title: "Test Match",
-                    prompt: "Enter merchant text",
-                    input: $testMatchInput,
-                    result: row.testMatch(userEnteredMerchantText: testMatchInput),
-                    precedenceExplanation: row.precedenceExplanation,
-                    subjectLabel: "source"
-                )
+                RulePrecedenceSection(precedenceExplanation: row.precedenceExplanation)
 
                 Spacer(minLength: 0)
             }
@@ -757,49 +741,20 @@ private struct SeededRuleDetailPanel: View {
     }
 }
 
-private struct RuleTestMatchSection: View {
-    let title: String
-    let prompt: String
-    @Binding var input: String
-    let result: RuleTestMatchResult
+private struct RulePrecedenceSection: View {
     let precedenceExplanation: String
-    let subjectLabel: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(title)
+            Text("Precedence")
                 .font(.headline)
 
             Text(precedenceExplanation)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-
-            TextField(prompt, text: $input)
-                .textFieldStyle(.roundedBorder)
-
-            if trimmedInput.isEmpty {
-                Text("Tests only this selected rule or source after Alderwise normalizes the merchant text.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(result.isMatch ? "Matches this \(subjectLabel)." : "Does not match this \(subjectLabel).")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(result.isMatch ? .green : .secondary)
-
-                    LabeledContent("Normalized text", value: result.normalizedMerchantText)
-                        .font(.caption)
-                }
-                .padding(10)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
         }
         .frame(maxWidth: 420, alignment: .leading)
-    }
-
-    private var trimmedInput: String {
-        input.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 

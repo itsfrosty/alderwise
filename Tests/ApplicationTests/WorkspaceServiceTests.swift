@@ -2062,7 +2062,7 @@ func seededHeuristicsDoNotAppearInTheManagerSnapshot() throws {
 }
 
 @Test
-func learnedManagerRowsExposePrecedenceHelpAndSelectedRuleTestMatch() throws {
+func learnedManagerRowsExposePrecedenceHelp() throws {
     let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000611")!
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000612")!
     let store = MutableWorkspaceStore()
@@ -2085,12 +2085,10 @@ func learnedManagerRowsExposePrecedenceHelpAndSelectedRuleTestMatch() throws {
         row.precedenceExplanation
             == "Precedence: Exact merchant beats Shared prefix and Contains for the same merchant text."
     )
-    #expect(row.testMatch(userEnteredMerchantText: " COFFEE SHOP ").isMatch)
-    #expect(row.testMatch(userEnteredMerchantText: "Coffee Shop Downtown").isMatch == false)
 }
 
 @Test
-func seededManagerRowsExposePrecedenceHelpAndSelectedSourceTestMatch() throws {
+func seededManagerRowsExposePrecedenceHelp() throws {
     let snapshot = try WorkspaceService(
         store: MutableWorkspaceStore(),
         classifier: SeededClassification.liveClassifier()
@@ -2103,7 +2101,6 @@ func seededManagerRowsExposePrecedenceHelpAndSelectedSourceTestMatch() throws {
         row.precedenceExplanation
             == "Precedence: Contains is checked after Exact merchant and Shared prefix."
     )
-    #expect(row.testMatch(userEnteredMerchantText: " \(row.merchantPattern.uppercased()) merchant ").isMatch)
 }
 
 @Test

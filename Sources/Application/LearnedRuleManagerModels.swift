@@ -11,16 +11,6 @@ public enum SeededRuleSourceKind: Equatable, Sendable {
     case curatedPrefill
 }
 
-public struct RuleTestMatchResult: Equatable, Sendable {
-    public var normalizedMerchantText: String
-    public var isMatch: Bool
-
-    public init(normalizedMerchantText: String, isMatch: Bool) {
-        self.normalizedMerchantText = normalizedMerchantText
-        self.isMatch = isMatch
-    }
-}
-
 public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
     public var id: UUID
     public var merchantPattern: String
@@ -93,17 +83,6 @@ public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
         matchKind.precedenceExplanation
     }
 
-    public func testMatch(userEnteredMerchantText: String) -> RuleTestMatchResult {
-        RuleTestMatchResult(
-            normalizedMerchantText: LearnedRuleMatcher.normalizedUserEnteredMerchantText(userEnteredMerchantText),
-            isMatch: LearnedRuleMatcher.testMatch(
-                merchantPattern: merchantPattern,
-                matchKind: matchKind,
-                userEnteredMerchantText: userEnteredMerchantText
-            )
-        )
-    }
-
     public var matchingTransactionsFilter: TransactionLedgerFilter {
         TransactionLedgerFilter(ruleFilterIntent: matchingTransactionsFilterIntent)
     }
@@ -144,17 +123,6 @@ public struct SeededRuleSourceRow: Identifiable, Equatable, Sendable {
 
     public var precedenceExplanation: String {
         matchKind.precedenceExplanation
-    }
-
-    public func testMatch(userEnteredMerchantText: String) -> RuleTestMatchResult {
-        RuleTestMatchResult(
-            normalizedMerchantText: LearnedRuleMatcher.normalizedUserEnteredMerchantText(userEnteredMerchantText),
-            isMatch: LearnedRuleMatcher.testMatch(
-                merchantPattern: merchantPattern,
-                matchKind: matchKind,
-                userEnteredMerchantText: userEnteredMerchantText
-            )
-        )
     }
 }
 
