@@ -6,14 +6,15 @@ import Testing
 func explicitRuleAutoAcceptsWhenThereIsNoDuplicateConcern() {
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let ruleID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let rule = ClassificationRule(
+        id: ruleID,
+        merchantPattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop"
+    )
     let engine = ClassificationEngine(
         explicitRules: [
-            ClassificationRule(
-                id: ruleID,
-                merchantPattern: "coffee shop",
-                categoryID: categoryID,
-                merchantName: "Coffee Shop"
-            ),
+            rule,
         ]
     )
 
@@ -25,7 +26,7 @@ func explicitRuleAutoAcceptsWhenThereIsNoDuplicateConcern() {
             merchantName: "Coffee Shop"
         ),
         source: .rule,
-        sourceReference: ruleID.uuidString,
+        sourceReference: rule.seededSourceID,
         confidence: 1.0,
         reason: "Matched explicit merchant rule."
     ))
@@ -241,14 +242,15 @@ func explicitRulesStillTakePrecedenceOverCuratedReviewPrefills() {
     let explicitCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let curatedCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
     let ruleID = UUID(uuidString: "00000000-0000-0000-0000-000000000333")!
+    let rule = ClassificationRule(
+        id: ruleID,
+        merchantPattern: "coffee",
+        categoryID: explicitCategoryID,
+        merchantName: "Explicit Coffee"
+    )
     let engine = ClassificationEngine(
         explicitRules: [
-            ClassificationRule(
-                id: ruleID,
-                merchantPattern: "coffee",
-                categoryID: explicitCategoryID,
-                merchantName: "Explicit Coffee"
-            ),
+            rule,
         ],
         curatedReviewPrefills: [
             CuratedReviewPrefill(
@@ -271,7 +273,7 @@ func explicitRulesStillTakePrecedenceOverCuratedReviewPrefills() {
             merchantName: "Explicit Coffee"
         ),
         source: .rule,
-        sourceReference: ruleID.uuidString,
+        sourceReference: rule.seededSourceID,
         confidence: 1.0,
         reason: "Matched explicit merchant rule."
     ))
