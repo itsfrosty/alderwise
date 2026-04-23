@@ -68,7 +68,7 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
         case .review:
             "When an import needs your attention, it will appear here with a clear next step."
         case .targets:
-            "Targets compare accepted spending this month against a simple monthly limit."
+            "Targets compare visible spending this month against a simple monthly limit."
         case .accounts:
             "Accounts define where imported CSV files should land in your workspace."
         case .settings:

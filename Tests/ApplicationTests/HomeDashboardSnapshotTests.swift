@@ -103,13 +103,14 @@ func homeDashboardUsesMonthlyReportPendingReviewCountAsReviewSourceOfTruth() thr
     let qualifier = try #require(dashboard.reviewQualifier)
 
     #expect(qualifier.pendingReviewCount == 7)
+    #expect(qualifier.message == "7 review item(s) can still recategorize some visible spend.")
     #expect(dashboard.actions.first?.kind == .reviewBacklog(count: 7))
     #expect(dashboard.actions.first?.destination == .review)
     #expect(dashboard.primaryAction?.title == "Finish 7 items in Review")
 }
 
 @Test
-func homeDashboardBuildsCreateFirstTargetActionOnlyWhenAcceptedExpenseHistoryExists() {
+func homeDashboardBuildsCreateFirstTargetActionOnlyWhenIncludedExpenseHistoryExists() {
     let report = homeDashboardReport(
         pendingReviewCount: 0,
         targets: [],
@@ -133,7 +134,7 @@ func homeDashboardBuildsCreateFirstTargetActionOnlyWhenAcceptedExpenseHistoryExi
 }
 
 @Test
-func homeDashboardSkipsCreateFirstTargetActionWithoutAcceptedExpenseHistory() {
+func homeDashboardSkipsCreateFirstTargetActionWithoutIncludedExpenseHistory() {
     let report = homeDashboardReport(
         pendingReviewCount: 0,
         targets: [],
@@ -153,6 +154,28 @@ func homeDashboardSkipsCreateFirstTargetActionWithoutAcceptedExpenseHistory() {
     )
 
     #expect(dashboard.actions.isEmpty)
+}
+
+@Test
+func homeDashboardTreatsHiddenOnlyWorkspaceAsEmptyEvenIfReviewCountsRemain() {
+    let report = homeDashboardReport(
+        pendingReviewCount: 2,
+        currentMonthAcceptedSpend: 40,
+        lastMonthAcceptedSpend: 25
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 0, reviewCount: 2, targetCount: 0),
+        monthlyReport: report
+    )
+
+    #expect(dashboard.isEmptyWorkspace)
+    #expect(dashboard.reviewQualifier == nil)
+    #expect(dashboard.hero == nil)
+    #expect(dashboard.actions.isEmpty)
+    #expect(dashboard.summaryCards.isEmpty)
+    #expect(dashboard.targetRows.isEmpty)
+    #expect(dashboard.driverRows.isEmpty)
 }
 
 @Test
@@ -253,8 +276,7 @@ func homeDashboardUsesLargestPositiveDriverWhenReviewAndTargetPressureAreEmpty()
             endDate: homeDashboardEndOfMonth(report.monthStart),
             categoryID: nil,
             categoryGroupID: foodGroupID,
-            direction: .expense,
-            reviewStatus: .accepted
+            direction: .expense
         )
     ))
     #expect(dashboard.primaryAction?.title == "Inspect Food")
@@ -321,8 +343,7 @@ func homeDashboardBuildsStructuralRowsAndChartFromMonthlyReport() throws {
             endDate: homeDashboardEndOfMonth(report.monthStart),
             categoryID: nil,
             categoryGroupID: foodGroupID,
-            direction: .expense,
-            reviewStatus: .accepted
+            direction: .expense
         )
     ))
 }
@@ -372,8 +393,7 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedCategoryGroupFil
         endDate: homeDashboardEndOfMonth(monthStart),
         categoryID: nil,
         categoryGroupID: foodGroupID,
-        direction: .expense,
-        reviewStatus: .accepted
+        direction: .expense
     ))
 }
 
@@ -392,8 +412,24 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedCategoryFilter()
         endDate: homeDashboardEndOfMonth(monthStart),
         categoryID: categoryID,
         categoryGroupID: nil,
-        direction: .expense,
-        reviewStatus: .accepted
+        direction: .expense
+    ))
+}
+
+@Test
+func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedUncategorizedFilter() {
+    let monthStart = homeDashboardUTCDate(year: 2026, month: 4, day: 1)
+
+    let filter = TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
+        monthStart: monthStart,
+        scope: SpendingDriverScope.uncategorized
+    )
+
+    #expect(filter == TransactionLedgerFilter(
+        startDate: monthStart,
+        endDate: homeDashboardEndOfMonth(monthStart),
+        uncategorizedOnly: true,
+        direction: .expense
     ))
 }
 

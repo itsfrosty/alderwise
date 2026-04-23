@@ -244,7 +244,7 @@ struct TransactionLedgerView: View {
             ContentUnavailableView(
                 "No transactions yet",
                 systemImage: "tray",
-                description: Text("Imported and accepted transactions appear here as the ledger grows.")
+                description: Text("Imported transactions appear here as the ledger grows.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {

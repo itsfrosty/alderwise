@@ -28,7 +28,7 @@ struct TargetsManagementView: View {
                         ContentUnavailableView {
                             Label("No Targets", systemImage: AppSection.targets.systemImage)
                         } description: {
-                            Text("Create a monthly limit to track accepted spending for a category or group.")
+                            Text("Create a monthly limit to track visible spending for a category or group.")
                         } actions: {
                             Button {
                                 onCreate()

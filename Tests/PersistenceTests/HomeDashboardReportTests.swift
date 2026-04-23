@@ -193,7 +193,7 @@ func monthlyReportExposesAcceptedSpendReviewCountTargetsPaceAndDriversForHome() 
 }
 
 @Test
-func monthlyReportKeepsPendingReviewCountAvailableForAcceptedOnlyQualifier() throws {
+func monthlyReportKeepsPendingReviewCountAvailableForVisibleSpendQualifier() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
@@ -201,6 +201,39 @@ func monthlyReportKeepsPendingReviewCountAvailableForAcceptedOnlyQualifier() thr
     try homeDashboardInsertPendingReviewItem(
         databaseURL: databaseURL,
         createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 6)
+    )
+
+    let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
+
+    #expect(report.pendingReviewCount == 1)
+}
+
+@Test
+func monthlyReportCountsOnlyVisibleReviewBacklogItems() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000813")!
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+    let hiddenPendingTransactionID = try homeDashboardInsertExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-18),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 6),
+        reviewStatus: "pending",
+        isHidden: true
+    )
+    try homeDashboardInsertPendingReviewItem(
+        databaseURL: databaseURL,
+        transactionID: hiddenPendingTransactionID,
+        createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 6)
+    )
+    try homeDashboardInsertPendingReviewItem(
+        databaseURL: databaseURL,
+        createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 7)
     )
 
     let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
@@ -273,7 +306,7 @@ func monthlyReportCountsIncludedPendingExpensesAndExcludesHiddenExpenses() throw
     try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
     try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
 
-    try homeDashboardInsertExpense(
+    _ = try homeDashboardInsertExpense(
         databaseURL: databaseURL,
         accountID: account.id,
         categoryID: groceries,
@@ -281,7 +314,7 @@ func monthlyReportCountsIncludedPendingExpensesAndExcludesHiddenExpenses() throw
         transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 4),
         reviewStatus: "pending"
     )
-    try homeDashboardInsertExpense(
+    _ = try homeDashboardInsertExpense(
         databaseURL: databaseURL,
         accountID: account.id,
         categoryID: groceries,
@@ -314,7 +347,7 @@ func monthlyReportSurfacesIncludedUncategorizedExpensesAsDriverRows() throws {
 
     let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
 
-    try homeDashboardInsertExpense(
+    _ = try homeDashboardInsertExpense(
         databaseURL: databaseURL,
         accountID: account.id,
         categoryID: nil,
@@ -392,7 +425,7 @@ private func homeDashboardInsertAcceptedExpense(
     amount: Decimal,
     transactionDate: Date
 ) throws {
-    try homeDashboardInsertExpense(
+    _ = try homeDashboardInsertExpense(
         databaseURL: databaseURL,
         accountID: accountID,
         categoryID: categoryID,
@@ -410,7 +443,8 @@ private func homeDashboardInsertExpense(
     transactionDate: Date,
     reviewStatus: String,
     isHidden: Bool = false
-) throws {
+) throws -> UUID {
+    let transactionID = UUID()
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
         try db.execute(
@@ -433,7 +467,7 @@ private func homeDashboardInsertExpense(
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             arguments: [
-                UUID().uuidString,
+                transactionID.uuidString,
                 accountID.uuidString,
                 categoryID?.uuidString,
                 isHidden,
@@ -449,23 +483,30 @@ private func homeDashboardInsertExpense(
             ]
         )
     }
+    return transactionID
 }
 
-private func homeDashboardInsertPendingReviewItem(databaseURL: URL, createdAt: Date) throws {
+private func homeDashboardInsertPendingReviewItem(
+    databaseURL: URL,
+    transactionID: UUID? = nil,
+    createdAt: Date
+) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
         try db.execute(
             sql: """
             INSERT INTO review_items (
                 id,
+                transaction_id,
                 type,
                 status,
                 created_at
             )
-            VALUES (?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?)
             """,
             arguments: [
                 UUID().uuidString,
+                transactionID?.uuidString,
                 ReviewItemType.lowConfidenceCategory.rawValue,
                 ReviewItemStatus.pending.rawValue,
                 createdAt,

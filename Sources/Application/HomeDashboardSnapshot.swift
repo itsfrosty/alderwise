@@ -290,7 +290,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
 
         return HomeDashboardReviewQualifier(
             pendingReviewCount: monthlyReport.pendingReviewCount,
-            message: "\(monthlyReport.pendingReviewCount) pending review item(s) can still change this month's accepted-only status."
+            message: "\(monthlyReport.pendingReviewCount) review item(s) can still recategorize some visible spend."
         )
     }
 
@@ -370,7 +370,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                 id: "current-month",
                 title: "This Month",
                 value: currency(monthlyReport.currentMonthAcceptedSpend),
-                detail: "Accepted expenses",
+                detail: "Visible expenses",
                 destination: nil
             ),
             HomeDashboardSummaryCard(
@@ -440,7 +440,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         return HomeDashboardChart(
             title: "Pace",
             points: monthlyReport.paceSeries,
-            emptyStateMessage: monthlyReport.paceSeries.isEmpty ? "Accepted expenses will populate pace after this month starts." : nil
+            emptyStateMessage: monthlyReport.paceSeries.isEmpty ? "Visible expenses will populate pace after this month starts." : nil
         )
     }
 

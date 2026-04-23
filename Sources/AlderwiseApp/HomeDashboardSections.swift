@@ -116,7 +116,7 @@ struct HomeDashboardSections: View {
                 .font(.headline)
 
             if targetRows.isEmpty {
-                Text("Create a monthly limit to track accepted spending.")
+                Text("Create a monthly limit to track visible spending.")
                     .foregroundStyle(.secondary)
             } else {
                 VStack(alignment: .leading, spacing: 0) {
@@ -239,13 +239,13 @@ struct HomeDashboardSections: View {
     private func actionSubtitle(for action: HomeDashboardAction) -> String {
         switch action.kind {
         case .reviewBacklog(let count):
-            return "\(count) item(s) still need review before month status is final."
+            return "\(count) item(s) can still recategorize visible spend."
         case .pressuredTarget:
             return "Open the most pressured limit and review its progress."
         case .spendDriver:
             return "Inspect the category or group driving month-over-month change."
         case .createFirstTarget:
-            return "Set up your first monthly limit from existing accepted spend."
+            return "Set up your first monthly limit from existing visible spend."
         }
     }
 
