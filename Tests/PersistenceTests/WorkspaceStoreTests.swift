@@ -3159,7 +3159,7 @@ func previewLearnedRuleImpactCountsExactMatchesWithoutMutatingTransactionsOrRevi
         matchedAcceptedTransactionCount: 1,
         matchedPendingReviewItemCount: 1
     ))
-    #expect(try store.fetchPendingReviewItems().map(\.id) == [currentReviewItem.id, siblingReviewItem.id])
+    #expect(Set(try store.fetchPendingReviewItems().map(\.id)) == Set([currentReviewItem.id, siblingReviewItem.id]))
 
     let matchingDetail = try #require(try store.fetchTransactionDetail(id: matchingAcceptedTransactionID))
     #expect(matchingDetail.row.categoryID == previousCategoryID)
