@@ -239,7 +239,7 @@ struct LearnedRulesManagerView: View {
                 } header: {
                     RulesSectionHeader(
                         title: ManagedLearnedRuleRow.sectionTitle,
-                        subtitle: "From review decisions"
+                        subtitle: ManagedLearnedRuleRow.sectionSubtitle
                     )
                 }
             }
@@ -256,7 +256,7 @@ struct LearnedRulesManagerView: View {
                 } header: {
                     RulesSectionHeader(
                         title: SeededRuleSourceKind.deterministicRule.sectionTitle,
-                        subtitle: "Included with App"
+                        subtitle: SeededRuleSourceKind.deterministicRule.sectionSubtitle
                     )
                 }
             }
@@ -273,7 +273,7 @@ struct LearnedRulesManagerView: View {
                 } header: {
                     RulesSectionHeader(
                         title: SeededRuleSourceKind.curatedPrefill.sectionTitle,
-                        subtitle: "Included with App"
+                        subtitle: SeededRuleSourceKind.curatedPrefill.sectionSubtitle
                     )
                 }
             }
@@ -1007,9 +1007,9 @@ private struct LearnedRuleDraftContainsPreviewView: View {
     private func readyTitle(for preview: LearnedRuleImpactPreview) -> String {
         if preview.matchedAcceptedTransactionCount == 0,
            preview.matchedPendingReviewItemCount == 0 {
-            return "Saving this rule would not affect any other items."
+            return "This rule would not match any existing items right now."
         }
 
-        return "Saving this rule would affect \(preview.matchedAcceptedTransactionCount) accepted transaction\(preview.matchedAcceptedTransactionCount == 1 ? "" : "s") and \(preview.matchedPendingReviewItemCount) pending review item\(preview.matchedPendingReviewItemCount == 1 ? "" : "s")."
+        return "This rule currently matches \(preview.matchedAcceptedTransactionCount) accepted transaction\(preview.matchedAcceptedTransactionCount == 1 ? "" : "s") and \(preview.matchedPendingReviewItemCount) pending review item\(preview.matchedPendingReviewItemCount == 1 ? "" : "s")."
     }
 }

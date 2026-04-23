@@ -1,3 +1,4 @@
+import Application
 import Domain
 import Foundation
 
@@ -15,6 +16,7 @@ struct TransactionDetailDraftCoordinator {
     enum PendingSelectionChange: Equatable {
         case none
         case selection(UUID?)
+        case rules(LearnedRulesDestination.Selection)
     }
 
     private(set) var currentSelectionID: UUID?
@@ -64,6 +66,22 @@ struct TransactionDetailDraftCoordinator {
         }
 
         pendingSelection = .selection(proposedSelectionID)
+        isSelectionChangePromptPresented = true
+        shouldPreservePendingSelectionOnDismissal = false
+        return .promptToSaveDiscardOrCancel
+    }
+
+    mutating func ruleNavigationDecision(
+        for selection: LearnedRulesDestination.Selection
+    ) -> SelectionChangeDecision {
+        guard isDirty else {
+            pendingSelection = .none
+            isSelectionChangePromptPresented = false
+            shouldPreservePendingSelectionOnDismissal = false
+            return .proceed
+        }
+
+        pendingSelection = .rules(selection)
         isSelectionChangePromptPresented = true
         shouldPreservePendingSelectionOnDismissal = false
         return .promptToSaveDiscardOrCancel

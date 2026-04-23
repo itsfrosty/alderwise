@@ -142,6 +142,56 @@ func sourceLabelsUseHumanReadableStrings() {
 }
 
 @Test
+func ruleProvenanceUsesSpecificSourceLabelsInTransactionDetail() {
+    let learnedProvenance = TransactionRuleProvenance.learnedRule(
+        TransactionLearnedRuleProvenance(
+            id: UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!,
+            merchantPattern: "coffee shop",
+            categoryID: nil,
+            categoryName: nil,
+            merchantName: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant,
+            lifecycle: .active
+        )
+    )
+    let deterministicProvenance = TransactionRuleProvenance.seededSource(
+        TransactionSeededRuleSourceProvenance(
+            id: "deterministic-source",
+            kind: .deterministicRule,
+            merchantPattern: "costco",
+            categoryID: UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!,
+            categoryName: "Groceries",
+            merchantName: "Costco",
+            matchKind: .contains
+        )
+    )
+    let curatedProvenance = TransactionRuleProvenance.seededSource(
+        TransactionSeededRuleSourceProvenance(
+            id: "curated-source",
+            kind: .curatedPrefill,
+            merchantPattern: "coffee shop",
+            categoryID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!,
+            categoryName: "Coffee Shops",
+            merchantName: "Coffee Shop",
+            matchKind: .contains
+        )
+    )
+
+    #expect(
+        ReviewPresentation.sourceLabel(for: .rule, ruleProvenance: learnedProvenance)
+            == RuleDisplayText.yourRules
+    )
+    #expect(
+        ReviewPresentation.sourceLabel(for: .rule, ruleProvenance: deterministicProvenance)
+            == RuleDisplayText.builtInAutoApplied
+    )
+    #expect(
+        ReviewPresentation.sourceLabel(for: .rule, ruleProvenance: curatedProvenance)
+            == RuleDisplayText.builtInReviewFirst
+    )
+}
+
+@Test
 func curatedPrefillFallsBackToGenericHintWhenCategoryNameIsWhitespace() {
     let groceriesID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let item = makeReviewItem(

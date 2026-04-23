@@ -23,8 +23,13 @@ func learnedRulesRouteForcesLearnedModeAndPreservesSelectedLearnedRuleSelection(
 }
 
 @Test
-func learnedRulesRouteForcesSeededModeAndPreservesSelectedSeededSourceSelection() {
-    let seededSourceID = "deterministic:contains:costco"
+func learnedRulesRouteForcesSeededModeAndPreservesSelectedSeededSourceSelection() throws {
+    let seededSourceID = ClassificationRule(
+        merchantPattern: "costco",
+        categoryID: DefaultBudgetTaxonomy.CategoryID.groceries,
+        merchantName: "Costco",
+        sourceReferenceKind: .seededSourceID
+    ).seededSourceID
 
     let destination = SettingsDestination.learnedRulesRoute(
         selection: .seededSource(seededSourceID)

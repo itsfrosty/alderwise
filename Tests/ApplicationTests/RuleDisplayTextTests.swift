@@ -38,13 +38,16 @@ func sharedVocabularyUsesAgreedMatchScopeLabels() {
 @Test
 func learnedRuleManagerModelsReuseSharedSectionTitles() {
     #expect(ManagedLearnedRuleRow.sectionTitle == RuleDisplayText.yourRules)
+    #expect(ManagedLearnedRuleRow.sectionSubtitle == "Created from review or manually")
     #expect(SeededRuleSourceKind.deterministicRule.sectionTitle == RuleDisplayText.builtInAutoApplied)
+    #expect(SeededRuleSourceKind.deterministicRule.sectionSubtitle == "Included with App")
     #expect(SeededRuleSourceKind.curatedPrefill.sectionTitle == RuleDisplayText.builtInReviewFirst)
+    #expect(SeededRuleSourceKind.curatedPrefill.sectionSubtitle == "Included with App")
 }
 
 @Test
 func detailSourceCopyStaysMoreSpecificThanSectionTitles() {
-    #expect(ManagedLearnedRuleRow.detailSourceText == "Learned from Review")
+    #expect(ManagedLearnedRuleRow.detailSourceText == "User-created rule")
     #expect(ManagedLearnedRuleRow.detailSourceText != ManagedLearnedRuleRow.sectionTitle)
     #expect(SeededRuleSourceKind.deterministicRule.detailSourceTypeText == "Built-In Auto-Applied rule")
     #expect(SeededRuleSourceKind.curatedPrefill.detailSourceTypeText == "Built-In Review-First hint")

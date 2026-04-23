@@ -268,6 +268,56 @@ func dirtyFilterDrivenSelectionLossIsDeferredUntilUserResolvesPrompt() {
     #expect(coordinator.isDirty == true)
 }
 
+@Test
+func dirtyViewRuleNavigationIsDeferredUntilUserResolvesPrompt() {
+    let currentID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    let ruleID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+    var coordinator = TransactionDetailDraftCoordinator(
+        selectionID: currentID,
+        detail: makeDetail(id: currentID)
+    )
+    let editedDraft = TransactionLedgerEditDraft(
+        merchantName: "Updated Merchant",
+        categoryID: nil,
+        notes: "Edited notes"
+    )
+
+    coordinator.updateDraft(editedDraft)
+
+    let decision = coordinator.ruleNavigationDecision(for: .learnedRule(ruleID))
+
+    #expect(decision == .promptToSaveDiscardOrCancel)
+    #expect(coordinator.pendingSelection == .rules(.learnedRule(ruleID)))
+    #expect(coordinator.isSelectionChangePromptPresented == true)
+    #expect(coordinator.isDirty == true)
+}
+
+@Test
+func successfulSaveAppliesPendingRuleNavigation() {
+    let currentID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
+    let ruleID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
+    var coordinator = TransactionDetailDraftCoordinator(
+        selectionID: currentID,
+        detail: makeDetail(id: currentID)
+    )
+    let editedDraft = TransactionLedgerEditDraft(
+        merchantName: "Updated Merchant",
+        categoryID: nil,
+        notes: "Edited notes"
+    )
+
+    coordinator.updateDraft(editedDraft)
+    _ = coordinator.ruleNavigationDecision(for: .learnedRule(ruleID))
+
+    let appliedSelection = coordinator.completeSave(didSucceed: true)
+
+    #expect(appliedSelection == .rules(.learnedRule(ruleID)))
+    #expect(coordinator.pendingSelection == .none)
+    #expect(coordinator.isSelectionChangePromptPresented == false)
+    #expect(coordinator.currentDraft == editedDraft)
+    #expect(coordinator.isDirty == false)
+}
+
 private func makeDetail(id: UUID) -> TransactionDetail {
     TransactionDetail(
         row: TransactionLedgerRow(

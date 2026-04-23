@@ -242,9 +242,6 @@ private struct ReviewQueueDetail: View {
                     load(newItem)
                     refreshPreview(for: newItem)
                 }
-                .onChange(of: merchantName) { _, _ in
-                    refreshPreview(for: item)
-                }
                 .onChange(of: createRule) { _, _ in
                     refreshPreview(for: item)
                 }
@@ -376,7 +373,6 @@ private struct ReviewQueueDetail: View {
         model.scheduleReviewRulePreview(
             reviewItemID: previewKey.reviewItemID,
             createRuleEnabled: previewKey.createRuleEnabled,
-            merchantName: previewKey.merchantName,
             merchantPattern: previewKey.merchantPattern,
             matchKind: previewKey.matchKind
         )
@@ -393,7 +389,6 @@ private struct ReviewQueueDetail: View {
         return WorkspaceShellModel.ReviewRulePreviewKey(
             reviewItemID: item.id,
             createRuleEnabled: createRule,
-            merchantName: merchantName,
             merchantPattern: resolvedRuleLearning?.pattern
                 ?? item.classification?.normalizedMerchantName
                 ?? "",

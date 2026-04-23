@@ -26,7 +26,6 @@ func reviewRulePreviewWaitsForDebounceBeforeLoadingImpact() async throws {
     model.scheduleReviewRulePreview(
         reviewItemID: item.id,
         createRuleEnabled: true,
-        merchantName: "Coffee Shop",
         merchantPattern: "coffee shop 123",
         matchKind: .exactNormalizedMerchant
     )
@@ -37,7 +36,6 @@ func reviewRulePreviewWaitsForDebounceBeforeLoadingImpact() async throws {
         key: .init(
             reviewItemID: item.id,
             createRuleEnabled: true,
-            merchantName: "Coffee Shop",
             merchantPattern: "coffee shop 123",
             matchKind: .exactNormalizedMerchant
         ),
@@ -51,7 +49,6 @@ func reviewRulePreviewWaitsForDebounceBeforeLoadingImpact() async throws {
         .init(
             reviewItemID: item.id,
             createRuleEnabled: true,
-            merchantName: "Coffee Shop",
             merchantPattern: "coffee shop 123",
             matchKind: .exactNormalizedMerchant
         ),
@@ -83,14 +80,12 @@ func reviewRulePreviewIgnoresStaleResponseAfterSelectedItemChanges() async throw
     let firstKey = WorkspaceShellModel.ReviewRulePreviewKey(
         reviewItemID: firstItem.id,
         createRuleEnabled: true,
-        merchantName: "Coffee Shop",
         merchantPattern: "coffee shop 123",
         matchKind: .exactNormalizedMerchant
     )
     let secondKey = WorkspaceShellModel.ReviewRulePreviewKey(
         reviewItemID: secondItem.id,
         createRuleEnabled: true,
-        merchantName: "Grocery World",
         merchantPattern: "grocery world",
         matchKind: .exactNormalizedMerchant
     )
@@ -98,7 +93,6 @@ func reviewRulePreviewIgnoresStaleResponseAfterSelectedItemChanges() async throw
     model.scheduleReviewRulePreview(
         reviewItemID: firstItem.id,
         createRuleEnabled: true,
-        merchantName: "Coffee Shop",
         merchantPattern: "coffee shop 123",
         matchKind: .exactNormalizedMerchant
     )
@@ -108,7 +102,6 @@ func reviewRulePreviewIgnoresStaleResponseAfterSelectedItemChanges() async throw
     model.scheduleReviewRulePreview(
         reviewItemID: secondItem.id,
         createRuleEnabled: true,
-        merchantName: "Grocery World",
         merchantPattern: "grocery world",
         matchKind: .exactNormalizedMerchant
     )
@@ -166,14 +159,12 @@ func reviewRulePreviewRecomputesWhenRuleInputsChangeAndIgnoresOlderResponse() as
     let firstKey = WorkspaceShellModel.ReviewRulePreviewKey(
         reviewItemID: item.id,
         createRuleEnabled: true,
-        merchantName: "Coffee Shop 123",
         merchantPattern: "coffee shop 123",
         matchKind: .exactNormalizedMerchant
     )
     let secondKey = WorkspaceShellModel.ReviewRulePreviewKey(
         reviewItemID: item.id,
         createRuleEnabled: true,
-        merchantName: "Coffee",
         merchantPattern: "coffee",
         matchKind: .prefixNormalizedMerchant
     )
@@ -181,7 +172,6 @@ func reviewRulePreviewRecomputesWhenRuleInputsChangeAndIgnoresOlderResponse() as
     model.scheduleReviewRulePreview(
         reviewItemID: item.id,
         createRuleEnabled: true,
-        merchantName: "Coffee Shop 123",
         merchantPattern: "coffee shop 123",
         matchKind: .exactNormalizedMerchant
     )
@@ -191,7 +181,6 @@ func reviewRulePreviewRecomputesWhenRuleInputsChangeAndIgnoresOlderResponse() as
     model.scheduleReviewRulePreview(
         reviewItemID: item.id,
         createRuleEnabled: true,
-        merchantName: "Coffee",
         merchantPattern: "coffee",
         matchKind: .prefixNormalizedMerchant
     )
@@ -230,7 +219,7 @@ func reviewRulePreviewRecomputesWhenRuleInputsChangeAndIgnoresOlderResponse() as
 
 @Test
 @MainActor
-func reviewRulePreviewIgnoresStaleResponseAfterMerchantNameChanges() async throws {
+func reviewRulePreviewDoesNotRestartWhenSameInputsAreRescheduled() async throws {
     let item = makeReviewItem(
         id: UUID(uuidString: "33333333-3333-3333-3333-333333333333")!,
         normalizedMerchantName: "coffee shop 123"
@@ -246,17 +235,9 @@ func reviewRulePreviewIgnoresStaleResponseAfterMerchantNameChanges() async throw
         reviewRulePreviewLoader: loader.load
     )
 
-    let firstKey = WorkspaceShellModel.ReviewRulePreviewKey(
+    let key = WorkspaceShellModel.ReviewRulePreviewKey(
         reviewItemID: item.id,
         createRuleEnabled: true,
-        merchantName: "Coffee Shop",
-        merchantPattern: "coffee shop 123",
-        matchKind: .exactNormalizedMerchant
-    )
-    let secondKey = WorkspaceShellModel.ReviewRulePreviewKey(
-        reviewItemID: item.id,
-        createRuleEnabled: true,
-        merchantName: "Coffee Shop Renamed",
         merchantPattern: "coffee shop 123",
         matchKind: .exactNormalizedMerchant
     )
@@ -264,51 +245,30 @@ func reviewRulePreviewIgnoresStaleResponseAfterMerchantNameChanges() async throw
     model.scheduleReviewRulePreview(
         reviewItemID: item.id,
         createRuleEnabled: true,
-        merchantName: "Coffee Shop",
         merchantPattern: "coffee shop 123",
         matchKind: .exactNormalizedMerchant
     )
-    scheduler.fireNext()
-    await Task.yield()
 
     model.scheduleReviewRulePreview(
         reviewItemID: item.id,
         createRuleEnabled: true,
-        merchantName: "Coffee Shop Renamed",
         merchantPattern: "coffee shop 123",
         matchKind: .exactNormalizedMerchant
     )
-    #expect(model.reviewRulePreviewState == .init(key: secondKey, phase: .loading))
+    #expect(model.reviewRulePreviewState == .init(key: key, phase: .loading))
+    #expect(scheduler.pendingCount == 1)
+
     scheduler.fireNext()
     await Task.yield()
 
-    loader.resume(
-        key: firstKey,
-        with: .success(.ready(LearnedRuleImpactPreview(
-            matchedAcceptedTransactionCount: 6,
-            matchedPendingReviewItemCount: 2
-        )))
-    )
-    await Task.yield()
+    #expect(loader.receivedKeys == [key])
+}
 
-    #expect(model.reviewRulePreviewState == .init(key: secondKey, phase: .loading))
+@Test
+func reviewQueueDoesNotRefreshPreviewForMerchantNameOnlyEdits() throws {
+    let source = try sourceText(in: "Sources/AlderwiseApp/ReviewQueueView.swift")
 
-    loader.resume(
-        key: secondKey,
-        with: .success(.ready(LearnedRuleImpactPreview(
-            matchedAcceptedTransactionCount: 3,
-            matchedPendingReviewItemCount: 1
-        )))
-    )
-    await Task.yield()
-
-    #expect(model.reviewRulePreviewState == .init(
-        key: secondKey,
-        phase: .ready(LearnedRuleImpactPreview(
-            matchedAcceptedTransactionCount: 3,
-            matchedPendingReviewItemCount: 1
-        ))
-    ))
+    #expect(source.contains(".onChange(of: merchantName)") == false)
 }
 
 @Test
@@ -332,7 +292,6 @@ func reviewRulePreviewShowsNoEligiblePreviewWhenRuleCreationIsDisabled() async t
     model.scheduleReviewRulePreview(
         reviewItemID: item.id,
         createRuleEnabled: false,
-        merchantName: "Coffee Shop",
         merchantPattern: "coffee shop 123",
         matchKind: .exactNormalizedMerchant
     )
@@ -343,7 +302,6 @@ func reviewRulePreviewShowsNoEligiblePreviewWhenRuleCreationIsDisabled() async t
         key: .init(
             reviewItemID: item.id,
             createRuleEnabled: false,
-            merchantName: "Coffee Shop",
             merchantPattern: "coffee shop 123",
             matchKind: .exactNormalizedMerchant
         ),
@@ -377,6 +335,15 @@ private func makeReviewItem(id: UUID, normalizedMerchantName: String) -> Pending
             confidence: 0.4
         )
     )
+}
+
+private func sourceText(in relativePath: String) throws -> String {
+    let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let sourceURL = repoRoot.appendingPathComponent(relativePath)
+    return try String(contentsOf: sourceURL, encoding: .utf8)
 }
 
 @MainActor

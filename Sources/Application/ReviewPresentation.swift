@@ -117,6 +117,27 @@ public struct ReviewPresentation: Sendable {
         }
     }
 
+    public static func sourceLabel(
+        for source: ClassificationDecisionSource?,
+        ruleProvenance: TransactionRuleProvenance?
+    ) -> String {
+        guard let ruleProvenance else {
+            return sourceLabel(for: source)
+        }
+
+        switch ruleProvenance {
+        case .learnedRule:
+            return RuleDisplayText.yourRules
+        case .seededSource(let seededSource):
+            switch seededSource.kind {
+            case .deterministicRule:
+                return RuleDisplayText.builtInAutoApplied
+            case .curatedPrefill:
+                return RuleDisplayText.builtInReviewFirst
+            }
+        }
+    }
+
     private func starterHintLabel(for item: PendingReviewItem) -> String? {
         guard isCuratedPrefill(item) else {
             return nil

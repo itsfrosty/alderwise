@@ -99,12 +99,12 @@ struct TransactionLedgerView: View {
                 isDirty: draftCoordinator.isDirty,
                 onDraftChange: { draftCoordinator.updateDraft($0) },
                 onSave: handleSave,
-                onViewRule: { model.showLearnedRules(selection: $0) }
+                onViewRule: handleViewRule
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         )
         .alert(
-            "Save changes before switching transactions?",
+            "Save changes before leaving this transaction?",
             isPresented: isPresentingSelectionChangeConfirmation
         ) {
             Button("Save Changes") {
@@ -117,7 +117,7 @@ struct TransactionLedgerView: View {
                 draftCoordinator.cancelPendingSelectionChange()
             }
         } message: {
-            Text("You have unsaved edits in the inspector. Save them before switching transactions.")
+            Text("You have unsaved edits in the inspector. Save them before switching transactions or opening Rules.")
         }
         .navigationTitle("Transactions")
         .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Search transactions")
@@ -428,6 +428,15 @@ struct TransactionLedgerView: View {
         applyPendingSelectionChange(draftCoordinator.completeSave(didSucceed: didSave))
     }
 
+    private func handleViewRule(_ selection: LearnedRulesDestination.Selection) {
+        switch draftCoordinator.ruleNavigationDecision(for: selection) {
+        case .proceed:
+            model.showLearnedRules(selection: selection)
+        case .promptToSaveDiscardOrCancel:
+            break
+        }
+    }
+
     private func saveAndApplyPendingSelection() {
         guard let draft = draftCoordinator.currentDraft else {
             return
@@ -448,6 +457,8 @@ struct TransactionLedgerView: View {
             if selectionID != model.selectedTransactionID {
                 model.selectTransaction(id: selectionID)
             }
+        case let .rules(selection):
+            model.showLearnedRules(selection: selection)
         }
     }
 

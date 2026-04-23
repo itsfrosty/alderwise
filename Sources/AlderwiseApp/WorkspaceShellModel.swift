@@ -24,7 +24,6 @@ final class WorkspaceShellModel: ObservableObject {
     struct ReviewRulePreviewKey: Hashable, Sendable {
         var reviewItemID: UUID
         var createRuleEnabled: Bool
-        var merchantName: String
         var merchantPattern: String
         var matchKind: ClassificationRuleMatchKind
     }
@@ -190,17 +189,20 @@ final class WorkspaceShellModel: ObservableObject {
     func scheduleReviewRulePreview(
         reviewItemID: UUID,
         createRuleEnabled: Bool,
-        merchantName: String,
         merchantPattern: String,
         matchKind: ClassificationRuleMatchKind
     ) {
         let key = ReviewRulePreviewKey(
             reviewItemID: reviewItemID,
             createRuleEnabled: createRuleEnabled,
-            merchantName: merchantName,
             merchantPattern: merchantPattern,
             matchKind: matchKind
         )
+
+        if reviewRulePreviewState?.key == key,
+           reviewRulePreviewState?.phase == .loading {
+            return
+        }
 
         scheduledReviewRulePreview?.cancel()
         scheduledReviewRulePreview = nil
@@ -910,7 +912,6 @@ final class WorkspaceShellModel: ObservableObject {
         let key = ReviewRulePreviewKey(
             reviewItemID: Self.learnedRuleDraftPreviewItemID,
             createRuleEnabled: true,
-            merchantName: "",
             merchantPattern: draft.merchantPattern,
             matchKind: draft.matchKind
         )

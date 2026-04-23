@@ -81,8 +81,12 @@ public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
         RuleDisplayText.yourRules
     }
 
+    public static var sectionSubtitle: String {
+        "Created from review or manually"
+    }
+
     public static var detailSourceText: String {
-        "Learned from Review"
+        "User-created rule"
     }
 
     public var precedenceExplanation: String {
@@ -326,5 +330,9 @@ public extension SeededRuleSourceKind {
         case .curatedPrefill:
             "Built-In Review-First hint"
         }
+    }
+
+    var sectionSubtitle: String {
+        "Included with App"
     }
 }

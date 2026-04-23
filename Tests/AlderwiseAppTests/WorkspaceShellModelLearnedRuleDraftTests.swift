@@ -20,12 +20,17 @@ func beginNewLearnedRulePresentsBlankDraftSheet() {
 
 @Test
 @MainActor
-func showLearnedRulesPreservesSeededSelectionDeepLink() {
+func showLearnedRulesPreservesSeededSelectionDeepLink() throws {
     let model = WorkspaceShellModel(
         store: nil,
         service: WorkspaceService(store: LearnedRuleDraftWorkspaceStore())
     )
-    let seededSourceID = "deterministic:fixture"
+    let seededSourceID = ClassificationRule(
+        merchantPattern: "costco",
+        categoryID: DefaultBudgetTaxonomy.CategoryID.groceries,
+        merchantName: "Costco",
+        sourceReferenceKind: .seededSourceID
+    ).seededSourceID
 
     model.showLearnedRules(selection: .seededSource(seededSourceID))
 
@@ -327,7 +332,6 @@ func manualContainsPreviewDoesNotRestartForMerchantNameOnlyEdits() async throws 
     await Task.yield()
 
     let key = try #require(loader.receivedKeys.only)
-    #expect(key.merchantName == "")
     #expect(key.merchantPattern == "Coffee")
 }
 

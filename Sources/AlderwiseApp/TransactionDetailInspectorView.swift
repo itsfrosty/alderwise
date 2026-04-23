@@ -96,7 +96,13 @@ extension TransactionLedgerView {
                         }
 
                         Section("Trust Evidence") {
-                            LabeledContent("Source", value: ReviewPresentation.sourceLabel(for: detail.decisionSource))
+                            LabeledContent(
+                                "Source",
+                                value: ReviewPresentation.sourceLabel(
+                                    for: detail.decisionSource,
+                                    ruleProvenance: detail.ruleProvenance
+                                )
+                            )
                             if let provenance = detail.ruleProvenance {
                                 LabeledContent("Merchant Pattern", value: merchantPattern(for: provenance))
                                 LabeledContent(RuleDisplayText.matchedBy, value: matchKind(for: provenance).ruleDisplayLabel)
