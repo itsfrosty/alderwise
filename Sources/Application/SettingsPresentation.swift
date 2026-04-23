@@ -8,6 +8,7 @@ public struct SettingsPresentation: Equatable, Sendable {
         let healthStatus = HealthStatus(workspaceStatus: workspaceStatus)
         overview = Overview(
             title: "Overview",
+            healthSectionTitle: "Workspace health",
             healthStatus: healthStatus,
             primaryActions: ActionSection(
                 title: "Protect and recover your workspace",
@@ -60,6 +61,7 @@ public struct SettingsPresentation: Equatable, Sendable {
 
     public struct Overview: Equatable, Sendable {
         public let title: String
+        public let healthSectionTitle: String
         public let healthStatus: HealthStatus
         public let primaryActions: ActionSection
         public let rules: Section
@@ -67,12 +69,14 @@ public struct SettingsPresentation: Equatable, Sendable {
 
         public init(
             title: String,
+            healthSectionTitle: String,
             healthStatus: HealthStatus,
             primaryActions: ActionSection,
             rules: Section,
             secondarySections: [Section]
         ) {
             self.title = title
+            self.healthSectionTitle = healthSectionTitle
             self.healthStatus = healthStatus
             self.primaryActions = primaryActions
             self.rules = rules

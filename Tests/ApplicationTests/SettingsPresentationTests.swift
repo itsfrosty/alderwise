@@ -13,6 +13,7 @@ func overviewHealthStatusUsesHealthyAndRecoveryNeededCopy() {
     )
 
     #expect(healthyPresentation.overview.healthStatus.state == .healthy)
+    #expect(healthyPresentation.overview.healthSectionTitle == "Workspace health")
     #expect(healthyPresentation.overview.healthStatus.title == "Workspace looks healthy")
     #expect(recoveryPresentation.overview.healthStatus.state == .recoveryNeeded)
     #expect(recoveryPresentation.overview.healthStatus.title == "Workspace needs recovery")

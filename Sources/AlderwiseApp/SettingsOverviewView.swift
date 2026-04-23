@@ -29,7 +29,7 @@ struct SettingsOverviewView: View {
         let healthStatus = presentation.overview.healthStatus
 
         return SettingsSurface(
-            title: "Workspace health",
+            title: presentation.overview.healthSectionTitle,
             helperText: healthStatus.detail,
             emphasis: colorEmphasis(for: healthStatus.state)
         ) {
