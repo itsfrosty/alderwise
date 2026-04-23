@@ -34,6 +34,61 @@ func failedTransactionSaveDoesNotClearSelectionOrState() {
 
 @Test
 @MainActor
+func hidingSelectedTransactionFallsBackToNextVisibleSelection() {
+    let store = WorkspaceShellModelVisibilityStore()
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(store: nil, service: service)
+    let hiddenID = model.selectedTransactionID
+
+    let didHide = model.setSelectedTransactionHidden(true)
+
+    #expect(didHide == true)
+    #expect(hiddenID != nil)
+    #expect(model.selectedTransactionID == WorkspaceShellModelVisibilityStore.fourthTransactionID)
+    #expect(model.selectedTransactionDetail?.row.id == WorkspaceShellModelVisibilityStore.fourthTransactionID)
+    #expect(model.transactionDetailErrorMessage == nil)
+}
+
+@Test
+@MainActor
+func unhidingSelectedHiddenTransactionFallsBackToRemainingHiddenSelection() {
+    let store = WorkspaceShellModelVisibilityStore()
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(store: nil, service: service)
+    model.updateTransactionFilter(TransactionLedgerFilter(visibility: .hidden))
+
+    let didUnhide = model.setSelectedTransactionHidden(false)
+
+    #expect(didUnhide == true)
+    #expect(model.selectedTransactionID == WorkspaceShellModelVisibilityStore.thirdTransactionID)
+    #expect(model.selectedTransactionDetail?.row.id == WorkspaceShellModelVisibilityStore.thirdTransactionID)
+    #expect(model.transactionFilter.visibility == .hidden)
+}
+
+@Test
+@MainActor
+func failedHideTransactionDoesNotClearSelectionOrState() {
+    let store = WorkspaceShellModelFailureStore(behavior: .writeFails)
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(store: nil, service: service)
+
+    let currentID = model.selectedTransactionID!
+
+    let didHide = model.setSelectedTransactionHidden(true)
+
+    #expect(didHide == false)
+    #expect(model.selectedTransactionID == currentID)
+    #expect(model.transactionDetailErrorMessage == WorkspaceShellModelFailureStore.updateError.localizedDescription)
+    #expect({
+        if case .loaded = model.state {
+            return true
+        }
+        return false
+    }())
+}
+
+@Test
+@MainActor
 func successfulTransactionSaveFallsBackToWorkspaceFailureWhenReloadFails() {
     let store = WorkspaceShellModelFailureStore(behavior: .reloadFailsAfterWrite)
     let service = WorkspaceService(store: store)
@@ -203,6 +258,15 @@ private final class WorkspaceShellModelFailureStore: @unchecked Sendable, Worksp
         }
     }
 
+    func setTransactionHidden(id: UUID, isHidden: Bool) throws {
+        switch behavior {
+        case .writeFails:
+            throw Self.updateError
+        case .reloadFailsAfterWrite:
+            didWriteTransaction = true
+        }
+    }
+
     func fetchTransactionLedger(filter: TransactionLedgerFilter) throws -> [TransactionLedgerRow] {
         [makeRow()]
     }
@@ -249,6 +313,103 @@ private final class WorkspaceShellModelFailureStore: @unchecked Sendable, Worksp
     }
 }
 
+private final class WorkspaceShellModelVisibilityStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging, TransactionLedgerReading, TransactionLedgerWriting {
+    static let firstTransactionID = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
+    static let secondTransactionID = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!
+    static let thirdTransactionID = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
+    static let fourthTransactionID = UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+
+    private var hiddenTransactionIDs: Set<UUID> = [firstTransactionID, thirdTransactionID]
+
+    func fetchSummary() throws -> WorkspaceSummary {
+        WorkspaceSummary(accountCount: 1, transactionCount: 2, reviewCount: 0, targetCount: 0)
+    }
+
+    func fetchAccounts() throws -> [Account] { [] }
+    func fetchManagementAccounts() throws -> [Account] { [] }
+    func fetchImportEligibleAccounts() throws -> [Account] { [] }
+    func fetchLedgerFilterAccounts() throws -> [Account] { [] }
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> { [] }
+    func fetchCategories() throws -> [BudgetCategory] { [] }
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] { [] }
+    func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account { fatalError("Not used in this test") }
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account { fatalError("Not used in this test") }
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account { fatalError("Not used in this test") }
+    func restoreAccount(id: UUID) throws -> Account { fatalError("Not used in this test") }
+    func deleteAccountPermanently(id: UUID) throws {}
+    func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession { fatalError("Not used in this test") }
+    func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> { [] }
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] { [:] }
+    func fetchLikelyDuplicateTransactions(accountID: UUID, candidates: [NormalizedImportCandidate]) throws -> [LikelyDuplicateCandidate] { [] }
+    func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget] { [] }
+    func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget { fatalError("Not used in this test") }
+    func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget { fatalError("Not used in this test") }
+    func deleteMonthlyTarget(id: UUID) throws {}
+    func fetchWorkspaceMetadata() throws -> WorkspaceMetadata {
+        WorkspaceMetadata(
+            databaseURL: URL(fileURLWithPath: "/tmp/alderwise-visibility-test.sqlite"),
+            databaseExists: true,
+            databaseSizeBytes: 0,
+            modifiedAt: nil
+        )
+    }
+    func createWorkspaceBackup(in directory: URL?, now: Date) throws -> WorkspaceBackup { fatalError("Not used in this test") }
+    func restoreWorkspaceBackup(from backupURL: URL, safetyBackupDirectory: URL?, now: Date) throws -> WorkspaceRestoreResult { fatalError("Not used in this test") }
+    func resetWorkspace() throws -> WorkspaceResetResult { fatalError("Not used in this test") }
+    func fetchWorkspacePreferences() throws -> WorkspacePreferences { .default }
+    func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {}
+
+    func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws {
+        fatalError("Not used in this test")
+    }
+
+    func setTransactionHidden(id: UUID, isHidden: Bool) throws {
+        if isHidden {
+            hiddenTransactionIDs.insert(id)
+        } else {
+            hiddenTransactionIDs.remove(id)
+        }
+    }
+
+    func fetchTransactionLedger(filter: TransactionLedgerFilter) throws -> [TransactionLedgerRow] {
+        rows.filter { row in
+            switch filter.visibility ?? .active {
+            case .active:
+                return row.isHidden == false
+            case .hidden:
+                return row.isHidden
+            case .all:
+                return true
+            }
+        }
+    }
+
+    func fetchTransactionDetail(id: UUID) throws -> TransactionDetail? {
+        guard let row = rows.first(where: { $0.id == id }) else {
+            return nil
+        }
+        return TransactionDetail(
+            row: row,
+            notes: nil,
+            decisionSource: nil,
+            decisionSourceReference: nil,
+            confidence: nil,
+            duplicateStatus: "unique"
+        )
+    }
+
+    func fetchTransactionImportOrigins() throws -> [TransactionImportOrigin] { [] }
+
+    private var rows: [TransactionLedgerRow] {
+        [
+            makeRow(id: Self.firstTransactionID, merchantName: "First Hidden", isHidden: hiddenTransactionIDs.contains(Self.firstTransactionID)),
+            makeRow(id: Self.secondTransactionID, merchantName: "Second Active", isHidden: hiddenTransactionIDs.contains(Self.secondTransactionID)),
+            makeRow(id: Self.thirdTransactionID, merchantName: "Third Hidden", isHidden: hiddenTransactionIDs.contains(Self.thirdTransactionID)),
+            makeRow(id: Self.fourthTransactionID, merchantName: "Fourth Active", isHidden: hiddenTransactionIDs.contains(Self.fourthTransactionID)),
+        ]
+    }
+}
+
 private struct SaveFailureError: LocalizedError {
     var errorDescription: String? {
         "Transaction save failed."
@@ -259,4 +420,23 @@ private struct ReloadFailureError: LocalizedError {
     var errorDescription: String? {
         "Transaction reload failed."
     }
+}
+
+private func makeRow(id: UUID, merchantName: String = "Merchant", isHidden: Bool = false) -> TransactionLedgerRow {
+    TransactionLedgerRow(
+        id: id,
+        accountID: UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!,
+        accountName: "Checking",
+        isHidden: isHidden,
+        categoryID: UUID(uuidString: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee")!,
+        categoryName: "Dining",
+        rawDescription: "Memo",
+        merchantName: merchantName,
+        amount: Decimal(-10),
+        transactionDate: Date(timeIntervalSince1970: 0),
+        postedDate: nil,
+        direction: .expense,
+        reviewStatus: .accepted,
+        importOrigin: nil
+    )
 }

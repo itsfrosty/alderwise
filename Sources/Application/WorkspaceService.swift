@@ -197,6 +197,13 @@ public struct WorkspaceService: Sendable {
         try writer.updateTransactionLedgerFields(id: id, draft: draft)
     }
 
+    public func setTransactionHidden(id: UUID, isHidden: Bool) throws {
+        guard let writer = store as? any TransactionLedgerWriting else {
+            throw WorkspaceServiceError.transactionLedgerUnavailable
+        }
+        try writer.setTransactionHidden(id: id, isHidden: isHidden)
+    }
+
     public func keepBothLikelyDuplicateReviewItem(id: UUID, resolvedAt: Date = Date()) throws {
         guard let writer = store as? any ReviewQueueWriting else {
             throw WorkspaceServiceError.reviewQueueUnavailable

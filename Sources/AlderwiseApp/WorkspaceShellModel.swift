@@ -251,6 +251,38 @@ final class WorkspaceShellModel: ObservableObject {
         }
     }
 
+    @discardableResult
+    func setSelectedTransactionHidden(_ isHidden: Bool) -> Bool {
+        guard let selectedTransactionID else {
+            return false
+        }
+
+        return setTransactionHidden(id: selectedTransactionID, isHidden: isHidden)
+    }
+
+    @discardableResult
+    func setTransactionHidden(id: UUID, isHidden: Bool) -> Bool {
+        guard let service else {
+            return false
+        }
+
+        do {
+            try service.setTransactionHidden(id: id, isHidden: isHidden)
+        } catch {
+            transactionDetailErrorMessage = error.localizedDescription
+            return false
+        }
+
+        do {
+            try loadWorkspaceState()
+            transactionDetailErrorMessage = nil
+            return true
+        } catch {
+            applyFailedWorkspaceState(message: error.localizedDescription)
+            return false
+        }
+    }
+
     func beginTargetCreation() {
         isPresentingTargetSheet = true
     }

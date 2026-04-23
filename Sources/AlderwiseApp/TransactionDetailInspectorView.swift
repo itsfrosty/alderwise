@@ -11,6 +11,7 @@ extension TransactionLedgerView {
         let isDirty: Bool
         var onDraftChange: (TransactionLedgerEditDraft) -> Void
         var onSave: (TransactionLedgerEditDraft) -> Void
+        var onSetHidden: (Bool) -> Void
         var onViewLearnedRule: (UUID) -> Void
 
         var body: some View {
@@ -133,6 +134,14 @@ extension TransactionLedgerView {
                                         .textSelection(.enabled)
                                 }
                             }
+                        }
+
+                        Section("Visibility") {
+                            LabeledContent("State", value: detail.row.isHidden ? "Hidden" : "Active")
+                            Button(detail.row.isHidden ? "Unhide Transaction" : "Hide Transaction") {
+                                onSetHidden(!detail.row.isHidden)
+                            }
+                            .disabled(isDirty)
                         }
                     }
                     .formStyle(.grouped)

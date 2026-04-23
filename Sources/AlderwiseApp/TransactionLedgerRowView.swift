@@ -28,8 +28,12 @@ extension TransactionLedgerView {
 
                     Spacer(minLength: 8)
 
-                    if let reviewBadgeDescriptor {
-                        badge(text: reviewBadgeDescriptor.text, color: reviewBadgeDescriptor.color)
+                    if !badgeDescriptors.isEmpty {
+                        HStack(spacing: 6) {
+                            ForEach(badgeDescriptors, id: \.text) { descriptor in
+                                badge(text: descriptor.text, color: descriptor.color)
+                            }
+                        }
                     }
                 }
 
@@ -74,15 +78,23 @@ extension TransactionLedgerView {
             return description == merchantText ? nil : description
         }
 
-        private var reviewBadgeDescriptor: (text: String, color: Color)? {
+        private var badgeDescriptors: [(text: String, color: Color)] {
+            var badges: [(text: String, color: Color)] = []
+
+            if transaction.isHidden {
+                badges.append(("Hidden", .secondary))
+            }
+
             switch transaction.reviewStatus {
             case .pending:
-                ("Needs Review", .orange)
+                badges.append(("Needs Review", .orange))
             case .rejected:
-                ("Rejected", .red)
+                badges.append(("Rejected", .red))
             case .accepted:
-                nil
+                break
             }
+
+            return badges
         }
 
         private func badge(text: String, color: Color) -> some View {

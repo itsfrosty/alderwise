@@ -56,9 +56,11 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
 
     enum Chip: Equatable, Hashable, Sendable {
         case search(String)
+        case visibility(TransactionVisibilityFilter)
         case account(UUID, String)
         case category(UUID, String)
         case categoryGroup(UUID, String)
+        case uncategorized
         case direction(TransactionDirection)
         case review(TransactionReviewStatus)
         case importSession(Int64, String)
@@ -68,11 +70,15 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
             switch self {
             case .search(let text):
                 return text
+            case .visibility(let visibility):
+                return visibility.rawValue.capitalized
             case .account(_, let name),
                     .category(_, let name),
                     .categoryGroup(_, let name),
                     .importSession(_, let name):
                 return name
+            case .uncategorized:
+                return "Uncategorized"
             case .direction(let direction):
                 return direction.rawValue.capitalized
             case .review(let status):
@@ -126,12 +132,16 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         switch chip {
         case .search:
             nextFilter.searchText = ""
+        case .visibility:
+            nextFilter.visibility = nil
         case .account:
             nextFilter.accountID = nil
         case .category:
             nextFilter.categoryID = nil
         case .categoryGroup:
             nextFilter.categoryGroupID = nil
+        case .uncategorized:
+            nextFilter.uncategorizedOnly = false
         case .direction:
             nextFilter.direction = nil
         case .review:
@@ -164,12 +174,16 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         switch chip {
         case .search(let text):
             return "Search: \"\(text)\""
+        case .visibility:
+            return "Visibility: \(chip.text(using: formatting))"
         case .account(_, let name):
             return "Account: \(name)"
         case .category(_, let name):
             return "Category: \(name)"
         case .categoryGroup(_, let name):
             return "Category group: \(name)"
+        case .uncategorized:
+            return "Category: Uncategorized"
         case .direction(let direction):
             return "Direction: \(direction.rawValue.capitalized)"
         case .review(let status):
@@ -224,6 +238,9 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         if filter.hasSearchText {
             chips.append(.search(filter.trimmedSearchText))
         }
+        if let visibility = filter.visibility, visibility != .active {
+            chips.append(.visibility(visibility))
+        }
         if let accountID = filter.accountID {
             chips.append(.account(accountID, accountName ?? "Selected account"))
         }
@@ -232,6 +249,9 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         }
         if let categoryGroupID = filter.categoryGroupID {
             chips.append(.categoryGroup(categoryGroupID, categoryGroupName ?? "Selected group"))
+        }
+        if filter.uncategorizedOnly {
+            chips.append(.uncategorized)
         }
         if let direction = filter.direction {
             chips.append(.direction(direction))
@@ -265,6 +285,7 @@ private extension TransactionLedgerFilter {
         accountID != nil ||
         categoryID != nil ||
         categoryGroupID != nil ||
+        uncategorizedOnly ||
         direction != nil ||
         reviewStatus != nil ||
         importSessionID != nil

@@ -82,6 +82,7 @@ public typealias TargetManaging = TargetManagementReading & TargetWriting
 
 public protocol TransactionLedgerWriting: Sendable {
     func updateTransactionLedgerFields(id: UUID, draft: TransactionLedgerEditDraft) throws
+    func setTransactionHidden(id: UUID, isHidden: Bool) throws
 }
 
 public typealias WorkspaceStoring = WorkspaceReading & AccountWriting

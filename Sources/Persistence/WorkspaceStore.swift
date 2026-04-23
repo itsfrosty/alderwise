@@ -1592,6 +1592,23 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
     }
 
+    public func setTransactionHidden(id: UUID, isHidden: Bool) throws {
+        try databaseQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE transactions
+                SET is_hidden = ?
+                WHERE id = ?
+                """,
+                arguments: [isHidden, id.uuidString]
+            )
+
+            if db.changesCount == 0 {
+                throw WorkspaceStoreError.transactionNotFound(id)
+            }
+        }
+    }
+
     public func fetchWorkspaceMetadata() throws -> WorkspaceMetadata {
         guard let databaseURL else {
             throw WorkspaceMaintenanceError.onDiskWorkspaceRequired

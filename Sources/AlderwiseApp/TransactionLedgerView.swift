@@ -95,6 +95,7 @@ struct TransactionLedgerView: View {
                 isDirty: draftCoordinator.isDirty,
                 onDraftChange: { draftCoordinator.updateDraft($0) },
                 onSave: handleSave,
+                onSetHidden: { model.setSelectedTransactionHidden($0) },
                 onViewLearnedRule: { model.showLearnedRules(selectedLearnedRuleID: $0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -213,6 +214,14 @@ struct TransactionLedgerView: View {
 
     private var primaryFilterControls: some View {
         HStack(alignment: .center, spacing: 12) {
+            Picker("Visibility", selection: visibilitySelection) {
+                Text("Active").tag(TransactionVisibilityFilter.active)
+                Text("Hidden").tag(TransactionVisibilityFilter.hidden)
+                Text("All").tag(TransactionVisibilityFilter.all)
+            }
+            .frame(minWidth: 140)
+            .layoutPriority(1)
+
             Picker("Account", selection: accountSelection) {
                 Text("All Accounts").tag(Optional<UUID>.none)
                 ForEach(snapshot.ledgerFilterAccounts) { account in
@@ -241,12 +250,7 @@ struct TransactionLedgerView: View {
         if let zeroResultsState = headerState.zeroResultsState {
             zeroResultsView(state: zeroResultsState)
         } else if snapshot.transactions.isEmpty {
-            ContentUnavailableView(
-                "No transactions yet",
-                systemImage: "tray",
-                description: Text("Imported transactions appear here as the ledger grows.")
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            emptyLedgerView
         } else {
             transactionList
         }
@@ -257,9 +261,28 @@ struct TransactionLedgerView: View {
             ForEach(snapshot.transactions) { transaction in
                 TransactionLedgerView.Row(transaction: transaction)
                     .tag(transaction.id)
+                    .contextMenu {
+                        Button(transaction.isHidden ? "Unhide Transaction" : "Hide Transaction") {
+                            _ = model.setTransactionHidden(id: transaction.id, isHidden: !transaction.isHidden)
+                        }
+                        .disabled(
+                            transaction.id == model.selectedTransactionID && draftCoordinator.isDirty
+                        )
+                    }
             }
         }
         .listStyle(.inset)
+    }
+
+    private var visibilitySelection: Binding<TransactionVisibilityFilter> {
+        Binding(
+            get: { model.transactionFilter.visibility ?? .active },
+            set: { newValue in
+                var filter = model.transactionFilter
+                filter.visibility = newValue == .active ? nil : newValue
+                updateTransactionFilter(filter)
+            }
+        )
     }
 
     private var accountSelection: Binding<UUID?> {
@@ -362,6 +385,10 @@ struct TransactionLedgerView: View {
         return snapshot.categoryGroups.first(where: { $0.id == categoryGroupID })?.name ?? "Filtered group"
     }
 
+    private var currentVisibility: TransactionVisibilityFilter {
+        model.transactionFilter.visibility ?? .active
+    }
+
     private var secondaryFiltersLabel: String {
         let count = headerState.activeChips.filter(\.matchesSecondaryControls).count
         return count == 0 ? "More Filters" : "More Filters (\(count))"
@@ -394,6 +421,41 @@ struct TransactionLedgerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var emptyLedgerView: some View {
+        switch currentVisibility {
+        case .active:
+            ContentUnavailableView {
+                Label("No active transactions", systemImage: "tray")
+            } description: {
+                Text("Imported transactions appear here as the ledger grows. Hidden transactions only appear in Hidden or All.")
+            } actions: {
+                Button("Show Hidden") {
+                    visibilitySelection.wrappedValue = .hidden
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .hidden:
+            ContentUnavailableView {
+                Label("No hidden transactions", systemImage: "eye.slash")
+            } description: {
+                Text("Hidden transactions stay out of reporting until you unhide them.")
+            } actions: {
+                Button("Show Active") {
+                    visibilitySelection.wrappedValue = .active
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        case .all:
+            ContentUnavailableView(
+                "No transactions yet",
+                systemImage: "tray",
+                description: Text("Imported transactions appear here as the ledger grows.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     private func syncDraftCoordinator() {
@@ -524,7 +586,7 @@ private extension TransactionLedgerHeaderState.Chip {
         switch self {
         case .direction, .review, .importSession, .dateRange:
             return true
-        case .search, .account, .category, .categoryGroup:
+        case .search, .visibility, .account, .category, .categoryGroup, .uncategorized:
             return false
         }
     }

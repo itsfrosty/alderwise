@@ -133,6 +133,28 @@ func categoryGroupFilterProducesExpectedScopeAndChip() {
 }
 
 @Test
+func visibilityFilterProducesExpectedScopeAndChip() {
+    let state = TransactionLedgerHeaderState(
+        rows: [makeRow()],
+        filter: TransactionLedgerFilter(visibility: .hidden)
+    )
+
+    #expect(state.scopeSummaryText == "Visibility: Hidden")
+    #expect(state.activeChips == [.visibility(.hidden)])
+}
+
+@Test
+func uncategorizedFilterProducesExpectedScopeAndChip() {
+    let state = TransactionLedgerHeaderState(
+        rows: [makeRow()],
+        filter: TransactionLedgerFilter(uncategorizedOnly: true)
+    )
+
+    #expect(state.scopeSummaryText == "Category: Uncategorized")
+    #expect(state.activeChips == [.uncategorized])
+}
+
+@Test
 func removingCategoryGroupChipClearsOnlyCategoryGroupFilter() {
     let accountID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
     let categoryGroupID = UUID(uuidString: "33333333-3333-3333-3333-333333333333")!
@@ -152,6 +174,37 @@ func removingCategoryGroupChipClearsOnlyCategoryGroupFilter() {
     #expect(nextFilter.accountID == accountID)
     #expect(nextFilter.categoryGroupID == nil)
     #expect(nextFilter.direction == .expense)
+}
+
+@Test
+func removingVisibilityChipClearsOnlyVisibilityFilter() {
+    let categoryID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
+    let filter = TransactionLedgerFilter(
+        categoryID: categoryID,
+        reviewStatus: .pending,
+        visibility: .hidden
+    )
+
+    let nextFilter = TransactionLedgerHeaderState.removing(.visibility(.hidden), from: filter)
+
+    #expect(nextFilter.categoryID == categoryID)
+    #expect(nextFilter.reviewStatus == .pending)
+    #expect(nextFilter.visibility == nil)
+}
+
+@Test
+func removingUncategorizedChipClearsOnlyUncategorizedFilter() {
+    let filter = TransactionLedgerFilter(
+        uncategorizedOnly: true,
+        direction: .expense,
+        visibility: .all
+    )
+
+    let nextFilter = TransactionLedgerHeaderState.removing(.uncategorized, from: filter)
+
+    #expect(nextFilter.uncategorizedOnly == false)
+    #expect(nextFilter.direction == .expense)
+    #expect(nextFilter.visibility == .all)
 }
 
 @Test
