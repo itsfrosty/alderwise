@@ -37,22 +37,11 @@ struct SeededRuleRowView: View {
     }
 
     private var subtitle: String {
-        var parts: [String] = [scopeText, categoryName ?? "No category"]
+        var parts: [String] = [row.matchKind.ruleDisplayLabel, categoryName ?? "No category"]
         if let merchantName = row.merchantName, merchantName.isEmpty == false {
             parts.append(merchantName)
         }
         return parts.joined(separator: " · ")
-    }
-
-    private var scopeText: String {
-        switch row.matchKind {
-        case .contains:
-            "Contains"
-        case .exactNormalizedMerchant:
-            "Exact merchant"
-        case .prefixNormalizedMerchant:
-            "Shared prefix"
-        }
     }
 
     @ViewBuilder
@@ -77,7 +66,7 @@ struct SeededRuleDetailView: View {
                     Text(row.merchantPattern)
                         .font(.title2.bold())
                     HStack(spacing: 8) {
-                        detailBadge(title: "Included with App", tint: .accentColor)
+                        detailBadge(title: row.sourceKind.sectionTitle, tint: .accentColor)
                         detailBadge(title: "Read-only", tint: .secondary)
                     }
                     Text("This seeded source is read-only and cannot be edited, enabled, or disabled from this view.")
@@ -87,9 +76,9 @@ struct SeededRuleDetailView: View {
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                     detailRow(title: "Read-only", value: "Yes")
-                    detailRow(title: "Source type", value: sourceTypeLabel)
+                    detailRow(title: "Source type", value: row.sourceKind.sectionTitle)
                     detailRow(title: "Merchant pattern", value: row.merchantPattern)
-                    detailRow(title: "Match scope", value: scopeText)
+                    detailRow(title: RuleDisplayText.matchedBy, value: row.matchKind.ruleDisplayLabel)
                     detailRow(title: "Category", value: categoryName ?? "No category")
                     detailRow(title: "Merchant Name", value: row.merchantName ?? "Not provided")
                 }
@@ -98,26 +87,6 @@ struct SeededRuleDetailView: View {
             }
             .padding(24)
             .frame(maxWidth: .infinity, alignment: .topLeading)
-        }
-    }
-
-    private var scopeText: String {
-        switch row.matchKind {
-        case .contains:
-            "Contains"
-        case .exactNormalizedMerchant:
-            "Exact merchant"
-        case .prefixNormalizedMerchant:
-            "Shared prefix"
-        }
-    }
-
-    private var sourceTypeLabel: String {
-        switch row.sourceKind {
-        case .deterministicRule:
-            "Deterministic rule"
-        case .curatedPrefill:
-            "Curated starter prefill"
         }
     }
 

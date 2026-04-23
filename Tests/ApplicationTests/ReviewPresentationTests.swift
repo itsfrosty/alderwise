@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 @Test
-func curatedPrefillUsesStarterHintCopyAndDisablesRuleLearningByDefault() {
+func curatedPrefillUsesBuiltInReviewFirstCopyAndDisablesRuleLearningByDefault() {
     let groceriesID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let item = makeReviewItem(
         source: .curatedPrefill,
@@ -17,10 +17,10 @@ func curatedPrefillUsesStarterHintCopyAndDisablesRuleLearningByDefault() {
         ]
     )
 
-    #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Starter hint: Groceries")
+    #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Built-In Review-First: Groceries")
     #expect(
         presentation.starterHintCaption(for: item)
-            == "Starter hint: Suggested category is Groceries. Review before accepting."
+            == "Built-In Review-First suggested category: Groceries. Review before accepting."
     )
     #expect(presentation.initialCreateRuleValue(for: item) == false)
     #expect(
@@ -48,7 +48,7 @@ func nonCuratedItemsKeepExistingSubtitleBehaviorAndLeaveRuleLearningEnabled() {
 
 @Test
 func sourceLabelsUseHumanReadableStrings() {
-    #expect(ReviewPresentation.sourceLabel(for: .curatedPrefill) == "Curated starter match")
+    #expect(ReviewPresentation.sourceLabel(for: .curatedPrefill) == "Built-In Review-First")
     #expect(ReviewPresentation.sourceLabel(for: .rule) == "Rule")
     #expect(ReviewPresentation.sourceLabel(for: nil) == "Unclassified")
 }
@@ -67,8 +67,8 @@ func curatedPrefillFallsBackToGenericHintWhenCategoryNameIsWhitespace() {
         ]
     )
 
-    #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Starter hint")
-    #expect(presentation.starterHintCaption(for: item) == "Starter hint: Review before accepting.")
+    #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Built-In Review-First")
+    #expect(presentation.starterHintCaption(for: item) == "Built-In Review-First suggestion. Review before accepting.")
 }
 
 @Test

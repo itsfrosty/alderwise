@@ -182,14 +182,14 @@ struct SettingsView: View {
             Text("Rules")
                 .font(.headline)
 
-            Text("Browse learned rules alongside Alderwise's included deterministic rules and starter prefills.")
+            Text("Browse \(RuleDisplayText.yourRules) alongside \(RuleDisplayText.builtInAutoApplied) and \(RuleDisplayText.builtInReviewFirst).")
                 .foregroundStyle(.secondary)
 
             HStack(spacing: 12) {
                 Button {
                     model.showLearnedRules()
                 } label: {
-                    Label("Open Rules", systemImage: "slider.horizontal.3")
+                    Label("Open \(RuleDisplayText.yourRules)", systemImage: "slider.horizontal.3")
                 }
                 .buttonStyle(.borderedProminent)
             }

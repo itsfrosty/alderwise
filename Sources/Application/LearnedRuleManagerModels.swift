@@ -53,6 +53,10 @@ public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
             disabledAt: summary.disabledAt
         )
     }
+
+    public static var sectionTitle: String {
+        RuleDisplayText.yourRules
+    }
 }
 
 public struct SeededRuleSourceRow: Identifiable, Equatable, Sendable {
@@ -124,5 +128,16 @@ public enum SettingsDestination: Equatable, Sendable {
                 selectedLearnedRuleID: selectedLearnedRuleID
             )
         )
+    }
+}
+
+public extension SeededRuleSourceKind {
+    var sectionTitle: String {
+        switch self {
+        case .deterministicRule:
+            RuleDisplayText.builtInAutoApplied
+        case .curatedPrefill:
+            RuleDisplayText.builtInReviewFirst
+        }
     }
 }

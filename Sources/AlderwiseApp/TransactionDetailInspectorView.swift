@@ -99,7 +99,7 @@ extension TransactionLedgerView {
                             LabeledContent("Source", value: ReviewPresentation.sourceLabel(for: detail.decisionSource))
                             if let provenance = detail.learnedRuleProvenance {
                                 LabeledContent("Merchant Pattern", value: provenance.merchantPattern)
-                                LabeledContent("Match Scope", value: matchScopeLabel(for: provenance.matchKind))
+                                LabeledContent(RuleDisplayText.matchedBy, value: provenance.matchKind.ruleDisplayLabel)
                                 LabeledContent("Assigned Category", value: provenance.categoryName ?? "Unknown Category")
                                 if let merchantName = normalized(provenance.merchantName) {
                                     LabeledContent("Merchant Name", value: merchantName)
@@ -110,7 +110,7 @@ extension TransactionLedgerView {
                                         value: "Disabled \(disabledAt.formatted(date: .abbreviated, time: .shortened))"
                                     )
                                 }
-                                Button("View in Learned Rules") {
+                                Button("View in \(RuleDisplayText.yourRules)") {
                                     onViewLearnedRule(provenance.id)
                                 }
                             }
@@ -255,17 +255,6 @@ extension TransactionLedgerView {
                 return nil
             }
             return text
-        }
-
-        private func matchScopeLabel(for matchKind: ClassificationRuleMatchKind) -> String {
-            switch matchKind {
-            case .contains:
-                "Contains"
-            case .exactNormalizedMerchant:
-                "Exact merchant"
-            case .prefixNormalizedMerchant:
-                "Shared prefix"
-            }
         }
     }
 }

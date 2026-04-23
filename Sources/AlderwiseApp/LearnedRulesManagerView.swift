@@ -179,7 +179,7 @@ struct LearnedRulesManagerView: View {
                 Text("Rules")
                     .font(.largeTitle.bold())
 
-                Text("Learned rules plus Alderwise's included deterministic rules and starter prefills.")
+                Text("\(RuleDisplayText.yourRules), \(RuleDisplayText.builtInAutoApplied), and \(RuleDisplayText.builtInReviewFirst) in one place.")
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: 720, alignment: .leading)
             }
@@ -211,7 +211,7 @@ struct LearnedRulesManagerView: View {
                     }
                 } header: {
                     RulesSectionHeader(
-                        title: "Learned",
+                        title: ManagedLearnedRuleRow.sectionTitle,
                         subtitle: "From review decisions"
                     )
                 }
@@ -228,7 +228,7 @@ struct LearnedRulesManagerView: View {
                     }
                 } header: {
                     RulesSectionHeader(
-                        title: "Deterministic Rules",
+                        title: SeededRuleSourceKind.deterministicRule.sectionTitle,
                         subtitle: "Included with App"
                     )
                 }
@@ -245,7 +245,7 @@ struct LearnedRulesManagerView: View {
                     }
                 } header: {
                     RulesSectionHeader(
-                        title: "Starter Prefills",
+                        title: SeededRuleSourceKind.curatedPrefill.sectionTitle,
                         subtitle: "Included with App"
                     )
                 }
@@ -392,7 +392,7 @@ struct LearnedRulesManagerView: View {
 
         return row.merchantPattern.lowercased().contains(query)
             || row.merchantName?.lowercased().contains(query) == true
-            || scopeLabel(for: row.matchKind).lowercased().contains(query)
+            || row.matchKind.ruleDisplayLabel.lowercased().contains(query)
             || statusLabel(for: row).lowercased().contains(query)
             || categoryName(for: row.categoryID)?.lowercased().contains(query) == true
     }
@@ -405,20 +405,9 @@ struct LearnedRulesManagerView: View {
 
         return row.merchantPattern.lowercased().contains(query)
             || row.merchantName?.lowercased().contains(query) == true
-            || scopeLabel(for: row.matchKind).lowercased().contains(query)
+            || row.matchKind.ruleDisplayLabel.lowercased().contains(query)
             || sourceTypeLabel(for: row).lowercased().contains(query)
             || categoryName(for: row.categoryID)?.lowercased().contains(query) == true
-    }
-
-    private func scopeLabel(for matchKind: ClassificationRuleMatchKind) -> String {
-        switch matchKind {
-        case .contains:
-            "Contains"
-        case .exactNormalizedMerchant:
-            "Exact merchant"
-        case .prefixNormalizedMerchant:
-            "Shared prefix"
-        }
     }
 
     private func statusLabel(for row: ManagedLearnedRuleRow) -> String {
@@ -426,12 +415,7 @@ struct LearnedRulesManagerView: View {
     }
 
     private func sourceTypeLabel(for row: SeededRuleSourceRow) -> String {
-        switch row.sourceKind {
-        case .deterministicRule:
-            "Deterministic rule"
-        case .curatedPrefill:
-            "Curated starter prefill"
-        }
+        row.sourceKind.sectionTitle
     }
 }
 
@@ -494,7 +478,7 @@ private struct LearnedRuleRowView: View {
     }
 
     private var subtitle: String {
-        var parts: [String] = [scopeText]
+        var parts: [String] = [row.matchKind.ruleDisplayLabel]
         if let categoryName {
             parts.append(categoryName)
         } else {
@@ -504,17 +488,6 @@ private struct LearnedRuleRowView: View {
             parts.append(merchantName)
         }
         return parts.joined(separator: " · ")
-    }
-
-    private var scopeText: String {
-        switch row.matchKind {
-        case .contains:
-            "Contains"
-        case .exactNormalizedMerchant:
-            "Exact merchant"
-        case .prefixNormalizedMerchant:
-            "Shared prefix"
-        }
     }
 
     private var statusText: String {
@@ -535,7 +508,7 @@ private struct LearnedRuleDetailView: View {
                     Text(row.merchantPattern)
                         .font(.title2.bold())
                     HStack(spacing: 8) {
-                        detailBadge(title: "Learned", tint: .accentColor)
+                        detailBadge(title: ManagedLearnedRuleRow.sectionTitle, tint: .accentColor)
                         detailBadge(title: statusText, tint: row.isDisabled ? .secondary : .green)
                     }
                     Text(detailSummary)
@@ -545,14 +518,14 @@ private struct LearnedRuleDetailView: View {
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                     detailRow(title: "Status", value: statusText)
-                    detailRow(title: "Match Scope", value: scopeText)
+                    detailRow(title: RuleDisplayText.matchedBy, value: row.matchKind.ruleDisplayLabel)
                     detailRow(title: "Category", value: categoryName ?? "No category")
                     detailRow(title: "Merchant Name", value: row.merchantName ?? "Not provided")
                     detailRow(title: "Created", value: row.createdAt.formatted(date: .abbreviated, time: .shortened))
                     if let disabledAt = row.disabledAt {
                         detailRow(title: "Disabled", value: disabledAt.formatted(date: .abbreviated, time: .shortened))
                     }
-                    detailRow(title: "Source", value: "Learned from Review")
+                    detailRow(title: "Source", value: ManagedLearnedRuleRow.sectionTitle)
                 }
 
                 Text(effectStatement)
@@ -602,17 +575,6 @@ private struct LearnedRuleDetailView: View {
 
     private var statusText: String {
         row.isDisabled ? "Disabled" : "Active"
-    }
-
-    private var scopeText: String {
-        switch row.matchKind {
-        case .contains:
-            "Contains"
-        case .exactNormalizedMerchant:
-            "Exact merchant"
-        case .prefixNormalizedMerchant:
-            "Shared prefix"
-        }
     }
 
     @ViewBuilder

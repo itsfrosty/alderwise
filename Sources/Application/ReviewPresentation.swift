@@ -24,9 +24,9 @@ public struct ReviewPresentation: Sendable {
             return nil
         }
         if let categoryName = starterHintCategoryName(for: item) {
-            return "Starter hint: Suggested category is \(categoryName). Review before accepting."
+            return "\(RuleDisplayText.builtInReviewFirst) suggested category: \(categoryName). Review before accepting."
         }
-        return "Starter hint: Review before accepting."
+        return "\(RuleDisplayText.builtInReviewFirst) suggestion. Review before accepting."
     }
 
     public func initialCreateRuleValue(for item: PendingReviewItem) -> Bool {
@@ -56,7 +56,7 @@ public struct ReviewPresentation: Sendable {
         case .rule:
             "Rule"
         case .curatedPrefill:
-            "Curated starter match"
+            RuleDisplayText.builtInReviewFirst
         case .heuristic:
             "Heuristic"
         case .suggestion:
@@ -73,9 +73,9 @@ public struct ReviewPresentation: Sendable {
             return nil
         }
         if let categoryName = starterHintCategoryName(for: item) {
-            return "Starter hint: \(categoryName)"
+            return "\(RuleDisplayText.builtInReviewFirst): \(categoryName)"
         }
-        return "Starter hint"
+        return RuleDisplayText.builtInReviewFirst
     }
 
     private func starterHintCategoryName(for item: PendingReviewItem) -> String? {
