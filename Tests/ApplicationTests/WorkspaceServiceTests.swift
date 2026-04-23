@@ -1193,6 +1193,7 @@ func loadSnapshotProjectsRecurringInsightIntoHomeDashboardWhenStoreImplementsIns
                             UUID(uuidString: "00000000-0000-0000-0000-000000000312")!,
                             UUID(uuidString: "00000000-0000-0000-0000-000000000313")!,
                         ],
+                        firstObservedDate: Date(timeIntervalSince1970: 1_771_718_400),
                         lastObservedDate: Date(timeIntervalSince1970: 1_776_902_400),
                         nextExpectedDateWindow: nil
                     )
@@ -1211,6 +1212,9 @@ func loadSnapshotProjectsRecurringInsightIntoHomeDashboardWhenStoreImplementsIns
     #expect(recurringSection.merchantName == "netflix")
     #expect(recurringSection.destination == HomeDashboardDestination.transactions(
         TransactionLedgerFilter(
+            startDate: Date(timeIntervalSince1970: 1_771_718_400),
+            endDate: Date(timeIntervalSince1970: 1_776_988_799),
+            normalizedMerchantName: "netflix",
             direction: .expense,
             visibility: .active
         )
