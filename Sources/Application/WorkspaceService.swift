@@ -161,7 +161,11 @@ public struct WorkspaceService: Sendable {
             transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
             monthlyReport: monthlyReport,
             insights: insights,
-            homeDashboard: HomeDashboardSnapshot.make(summary: summary, monthlyReport: monthlyReport)
+            homeDashboard: HomeDashboardSnapshot.make(
+                summary: summary,
+                monthlyReport: monthlyReport,
+                insights: insights
+            )
         )
     }
 

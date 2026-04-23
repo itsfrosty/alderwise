@@ -1163,6 +1163,61 @@ func loadSnapshotThreadsWorkspaceInsightsWhenStoreImplementsInsightsReader() thr
 }
 
 @Test
+func loadSnapshotProjectsRecurringInsightIntoHomeDashboardWhenStoreImplementsInsightsReader() throws {
+    let baseStore = StubWorkspaceStore(
+        summary: WorkspaceSummary(
+            accountCount: 1,
+            transactionCount: 24,
+            reviewCount: 0,
+            targetCount: 0
+        ),
+        accounts: [
+            Account(name: "Checking", kind: .checking, institutionName: "Local Bank"),
+        ]
+    )
+    let insights = WorkspaceInsightSummary(
+        insights: [
+            WorkspaceInsight(
+                kind: .recurringCharge(
+                    RecurringChargeInsightDetail(
+                        accountID: baseStore.accounts[0].id,
+                        normalizedMerchantName: "netflix",
+                        cadence: .monthly,
+                        observationCount: 3,
+                        amountRange: RecurringChargeAmountRange(
+                            minimum: Decimal(15.49),
+                            maximum: Decimal(15.49)
+                        ),
+                        supportingTransactionIDs: [
+                            UUID(uuidString: "00000000-0000-0000-0000-000000000311")!,
+                            UUID(uuidString: "00000000-0000-0000-0000-000000000312")!,
+                            UUID(uuidString: "00000000-0000-0000-0000-000000000313")!,
+                        ],
+                        lastObservedDate: Date(timeIntervalSince1970: 1_776_902_400),
+                        nextExpectedDateWindow: nil
+                    )
+                ),
+                confidence: 0.92,
+                rank: 1,
+                score: 92
+            ),
+        ]
+    )
+    let store = StubWorkspaceStoreWithInsights(base: baseStore, insights: insights)
+
+    let snapshot = try WorkspaceService(store: store).loadSnapshot()
+    let recurringSection = try #require(snapshot.homeDashboard?.recurringSection)
+
+    #expect(recurringSection.merchantName == "netflix")
+    #expect(recurringSection.destination == HomeDashboardDestination.transactions(
+        TransactionLedgerFilter(
+            direction: .expense,
+            visibility: .active
+        )
+    ))
+}
+
+@Test
 func createAccountReturnsCreatedAccountAndUpdatedSnapshot() throws {
     let store = MutableWorkspaceStore()
     let service = WorkspaceService(store: store)

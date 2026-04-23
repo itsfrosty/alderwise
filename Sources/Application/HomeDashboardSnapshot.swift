@@ -122,6 +122,25 @@ public struct HomeDashboardHero: Equatable, Sendable {
     }
 }
 
+public struct HomeDashboardRecurringSection: Equatable, Sendable {
+    public var merchantName: String
+    public var title: String
+    public var message: String
+    public var destination: HomeDashboardDestination
+
+    public init(
+        merchantName: String,
+        title: String,
+        message: String,
+        destination: HomeDashboardDestination
+    ) {
+        self.merchantName = merchantName
+        self.title = title
+        self.message = message
+        self.destination = destination
+    }
+}
+
 public struct HomeDashboardSummaryCard: Equatable, Identifiable, Sendable {
     public var id: String
     public var title: String
@@ -213,6 +232,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
     public var isEmptyWorkspace: Bool
     public var reviewQualifier: HomeDashboardReviewQualifier?
     public var hero: HomeDashboardHero?
+    public var recurringSection: HomeDashboardRecurringSection?
     public var actions: [HomeDashboardAction]
     public var summaryCards: [HomeDashboardSummaryCard]
     public var chart: HomeDashboardChart?
@@ -223,6 +243,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         isEmptyWorkspace: Bool,
         reviewQualifier: HomeDashboardReviewQualifier?,
         hero: HomeDashboardHero?,
+        recurringSection: HomeDashboardRecurringSection?,
         actions: [HomeDashboardAction],
         summaryCards: [HomeDashboardSummaryCard],
         chart: HomeDashboardChart?,
@@ -232,6 +253,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         self.isEmptyWorkspace = isEmptyWorkspace
         self.reviewQualifier = reviewQualifier
         self.hero = hero
+        self.recurringSection = recurringSection
         self.actions = actions
         self.summaryCards = summaryCards
         self.chart = chart
@@ -246,10 +268,12 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
 
     public static func make(
         summary: WorkspaceSummary,
-        monthlyReport: MonthlyReport
+        monthlyReport: MonthlyReport,
+        insights: WorkspaceInsightSummary = .empty
     ) -> HomeDashboardSnapshot {
         let isEmptyWorkspace = summary.transactionCount == 0
         let reviewQualifier = makeReviewQualifier(monthlyReport: monthlyReport, isEmptyWorkspace: isEmptyWorkspace)
+        let recurringSection = makeRecurringSection(insights: insights, isEmptyWorkspace: isEmptyWorkspace)
         let targetRows = makeTargetRows(monthlyReport: monthlyReport, isEmptyWorkspace: isEmptyWorkspace)
         let driverRows = makeDriverRows(monthlyReport: monthlyReport, isEmptyWorkspace: isEmptyWorkspace)
         let actions = makeActions(monthlyReport: monthlyReport, isEmptyWorkspace: isEmptyWorkspace)
@@ -261,6 +285,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                 amount: monthlyReport.currentMonthAcceptedSpend,
                 status: heroStatus(for: monthlyReport)
             ),
+            recurringSection: recurringSection,
             actions: actions,
             summaryCards: makeSummaryCards(
                 monthlyReport: monthlyReport,
@@ -270,6 +295,28 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             chart: makeChart(monthlyReport: monthlyReport, isEmptyWorkspace: isEmptyWorkspace),
             targetRows: targetRows,
             driverRows: driverRows
+        )
+    }
+
+    private static func makeRecurringSection(
+        insights: WorkspaceInsightSummary,
+        isEmptyWorkspace: Bool
+    ) -> HomeDashboardRecurringSection? {
+        guard !isEmptyWorkspace,
+              let detail = insights.insights.compactMap(recurringChargeDetail(from:)).first else {
+            return nil
+        }
+
+        return HomeDashboardRecurringSection(
+            merchantName: detail.normalizedMerchantName,
+            title: "\(merchantDisplayName(detail.normalizedMerchantName)) may be recurring",
+            message: "\(recurringCadenceTitle(detail.cadence)) at \(recurringAmountSummary(detail.amountRange)) across \(detail.observationCount) \(chargeLabel(count: detail.observationCount)).",
+            destination: .transactions(
+                TransactionLedgerFilter(
+                    direction: .expense,
+                    visibility: .active
+                )
+            )
         )
     }
 
@@ -547,6 +594,39 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         case .uncategorized:
             "uncategorized"
         }
+    }
+
+    private static func recurringChargeDetail(from insight: WorkspaceInsight) -> RecurringChargeInsightDetail? {
+        switch insight.kind {
+        case .recurringCharge(let detail):
+            detail
+        }
+    }
+
+    private static func merchantDisplayName(_ merchantName: String) -> String {
+        merchantName.localizedCapitalized
+    }
+
+    private static func recurringCadenceTitle(_ cadence: RecurringChargeCadence) -> String {
+        switch cadence {
+        case .monthly:
+            "Monthly"
+        case .quarterly:
+            "Quarterly"
+        case .annual:
+            "Annual"
+        }
+    }
+
+    private static func recurringAmountSummary(_ amountRange: RecurringChargeAmountRange) -> String {
+        if amountRange.minimum == amountRange.maximum {
+            return "about \(currency(amountRange.minimum))"
+        }
+        return "about \(currency(amountRange.minimum)) to \(currency(amountRange.maximum))"
+    }
+
+    private static func chargeLabel(count: Int) -> String {
+        count == 1 ? "charge" : "charges"
     }
 
     private static func currency(_ amount: Decimal) -> String {
