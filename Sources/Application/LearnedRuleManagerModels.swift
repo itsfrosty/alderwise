@@ -124,6 +124,74 @@ public struct LearnedRuleManagerSnapshot: Equatable, Sendable {
     }
 }
 
+public enum LearnedRuleDraftSheetMode: Equatable, Sendable {
+    case newRule
+    case duplicateRule(sourceRuleID: UUID)
+}
+
+public struct LearnedRuleDraftSheet: Identifiable, Equatable, Sendable {
+    public var id: UUID
+    public var mode: LearnedRuleDraftSheetMode
+    public var draft: LearnedRuleDraft
+
+    public init(
+        id: UUID = UUID(),
+        mode: LearnedRuleDraftSheetMode,
+        draft: LearnedRuleDraft
+    ) {
+        self.id = id
+        self.mode = mode
+        self.draft = draft
+    }
+
+    public static func newRule(
+        id: UUID = UUID(),
+        draft: LearnedRuleDraft = LearnedRuleDraft()
+    ) -> LearnedRuleDraftSheet {
+        LearnedRuleDraftSheet(id: id, mode: .newRule, draft: draft)
+    }
+
+    public static func duplicateRule(
+        sourceRuleID: UUID,
+        draft: LearnedRuleDraft,
+        id: UUID = UUID()
+    ) -> LearnedRuleDraftSheet {
+        LearnedRuleDraftSheet(
+            id: id,
+            mode: .duplicateRule(sourceRuleID: sourceRuleID),
+            draft: draft
+        )
+    }
+
+    public var title: String {
+        switch mode {
+        case .newRule:
+            "New Rule"
+        case .duplicateRule:
+            "Duplicate Rule"
+        }
+    }
+
+    public var confirmationTitle: String {
+        switch mode {
+        case .newRule:
+            "Save Rule"
+        case .duplicateRule:
+            "Save Duplicate"
+        }
+    }
+
+    public var allowedMatchKinds: [ClassificationRuleMatchKind] {
+        [.exactNormalizedMerchant, .prefixNormalizedMerchant]
+    }
+
+    public var canSave: Bool {
+        draft.categoryID != nil
+            && draft.normalizedMerchantPattern != nil
+            && allowedMatchKinds.contains(draft.matchKind)
+    }
+}
+
 public struct LearnedRulesDestination: Equatable, Sendable {
     public var mode: LearnedRuleManagerMode
     public var selectedLearnedRuleID: UUID?

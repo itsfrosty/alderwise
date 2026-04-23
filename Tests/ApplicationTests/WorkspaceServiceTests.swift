@@ -2220,6 +2220,81 @@ func learnedRuleDraftDefaultsToManualAuthoringValues() {
 }
 
 @Test
+func learnedRuleDraftSheetForNewRuleStartsBlankAndAllowsOnlyBasicMatchKinds() {
+    let sheet = LearnedRuleDraftSheet.newRule()
+
+    #expect(sheet.mode == .newRule)
+    #expect(sheet.title == "New Rule")
+    #expect(sheet.confirmationTitle == "Save Rule")
+    #expect(sheet.allowedMatchKinds == [
+        .exactNormalizedMerchant,
+        .prefixNormalizedMerchant,
+    ])
+    #expect(sheet.draft == LearnedRuleDraft())
+    #expect(sheet.canSave == false)
+}
+
+@Test
+func learnedRuleDraftSheetForDuplicateRuleCopiesEditableFieldsIntoANewDraft() {
+    let sourceRuleID = UUID(uuidString: "00000000-0000-0000-0000-0000000005A1")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-0000000005A2")!
+    let sheet = LearnedRuleDraftSheet.duplicateRule(
+        sourceRuleID: sourceRuleID,
+        draft: LearnedRuleDraft(
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .prefixNormalizedMerchant
+        )
+    )
+
+    #expect(sheet.mode == .duplicateRule(sourceRuleID: sourceRuleID))
+    #expect(sheet.title == "Duplicate Rule")
+    #expect(sheet.confirmationTitle == "Save Duplicate")
+    #expect(
+        sheet.draft == LearnedRuleDraft(
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .prefixNormalizedMerchant
+        )
+    )
+}
+
+@Test
+func learnedRuleDraftSheetSaveValidationAllowsExactAndSharedPrefixButNotContains() {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-0000000005A3")!
+    let exactSheet = LearnedRuleDraftSheet.newRule(
+        draft: LearnedRuleDraft(
+            merchantPattern: "  Coffee Shop  ",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant
+        )
+    )
+    let prefixSheet = LearnedRuleDraftSheet.newRule(
+        draft: LearnedRuleDraft(
+            merchantPattern: "Coffee",
+            categoryID: categoryID,
+            merchantName: "Coffee",
+            matchKind: .prefixNormalizedMerchant
+        )
+    )
+    let containsSheet = LearnedRuleDraftSheet.newRule(
+        draft: LearnedRuleDraft(
+            merchantPattern: "Coffee",
+            categoryID: categoryID,
+            merchantName: "Coffee",
+            matchKind: .contains
+        )
+    )
+
+    #expect(exactSheet.canSave)
+    #expect(prefixSheet.canSave)
+    #expect(containsSheet.canSave == false)
+}
+
+@Test
 func createLearnedRulePersistsManualDraftAndReturnsManagedRule() throws {
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000551")!
     let createdAt = Date(timeIntervalSince1970: 1_776_355_340)

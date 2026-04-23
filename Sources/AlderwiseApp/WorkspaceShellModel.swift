@@ -108,6 +108,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var latestMaintenanceFailure: WorkspaceMaintenanceFailure?
     @Published private(set) var workspaceStatus: WorkspaceStatus = .loading
     @Published private(set) var reviewRulePreviewState: ReviewRulePreviewState?
+    @Published private(set) var learnedRuleDraftSheet: LearnedRuleDraftSheet?
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
@@ -401,6 +402,71 @@ final class WorkspaceShellModel: ObservableObject {
 
     func consumePendingAppSectionNavigation() {
         pendingAppSectionNavigation = nil
+    }
+
+    func beginNewLearnedRule() {
+        learnedRuleDraftSheet = .newRule()
+        learnedRuleManagerActionErrorMessage = nil
+    }
+
+    @discardableResult
+    func beginDuplicateLearnedRule(id: UUID) -> Bool {
+        guard let service else {
+            learnedRuleManagerActionErrorMessage = WorkspaceServiceError.learnedRuleManagementUnavailable.localizedDescription
+            return false
+        }
+
+        do {
+            guard let draft = try service.duplicateLearnedRuleAsDraft(id: id) else {
+                learnedRuleManagerActionErrorMessage = "The selected learned rule is no longer available."
+                return false
+            }
+            learnedRuleDraftSheet = .duplicateRule(sourceRuleID: id, draft: draft)
+            learnedRuleManagerActionErrorMessage = nil
+            return true
+        } catch {
+            learnedRuleManagerActionErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func updateLearnedRuleDraft(_ draft: LearnedRuleDraft) {
+        guard var learnedRuleDraftSheet else {
+            return
+        }
+        learnedRuleDraftSheet.draft = draft
+        self.learnedRuleDraftSheet = learnedRuleDraftSheet
+    }
+
+    func dismissLearnedRuleDraftSheet() {
+        learnedRuleDraftSheet = nil
+    }
+
+    @discardableResult
+    func saveLearnedRuleDraft() -> Bool {
+        guard let service else {
+            learnedRuleManagerActionErrorMessage = WorkspaceServiceError.learnedRuleManagementUnavailable.localizedDescription
+            return false
+        }
+        guard let learnedRuleDraftSheet else {
+            return false
+        }
+        guard learnedRuleDraftSheet.allowedMatchKinds.contains(learnedRuleDraftSheet.draft.matchKind) else {
+            learnedRuleManagerActionErrorMessage = "Contains rules are not available in manual authoring yet."
+            return false
+        }
+
+        do {
+            let createdRule = try service.createLearnedRule(learnedRuleDraftSheet.draft)
+            reload()
+            settingsDestination = .learnedRulesRoute(selectedLearnedRuleID: createdRule.id)
+            self.learnedRuleDraftSheet = nil
+            learnedRuleManagerActionErrorMessage = nil
+            return true
+        } catch {
+            learnedRuleManagerActionErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
     @discardableResult

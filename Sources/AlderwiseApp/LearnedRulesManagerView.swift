@@ -164,24 +164,50 @@ struct LearnedRulesManagerView: View {
         } message: { _ in
             Text("Disabling this rule only changes future classifications. Accepted transactions stay unchanged.")
         }
+        .sheet(item: learnedRuleDraftSheetBinding) { sheet in
+            LearnedRuleDraftSheetView(
+                sheet: sheet,
+                categories: categories,
+                draft: learnedRuleDraftBinding,
+                onCancel: {
+                    model.dismissLearnedRuleDraftSheet()
+                },
+                onSave: {
+                    _ = model.saveLearnedRuleDraft()
+                }
+            )
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Button {
-                model.selectSettingsDestination(.overview)
-            } label: {
-                Label("Back to Settings", systemImage: "chevron.left")
-            }
-            .buttonStyle(.plain)
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Button {
+                        model.selectSettingsDestination(.overview)
+                    } label: {
+                        Label("Back to Settings", systemImage: "chevron.left")
+                    }
+                    .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Rules")
-                    .font(.largeTitle.bold())
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Rules")
+                            .font(.largeTitle.bold())
 
-                Text("\(RuleDisplayText.yourRules), \(RuleDisplayText.builtInAutoApplied), and \(RuleDisplayText.builtInReviewFirst) in one place.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: 720, alignment: .leading)
+                        Text("\(RuleDisplayText.yourRules), \(RuleDisplayText.builtInAutoApplied), and \(RuleDisplayText.builtInReviewFirst) in one place.")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: 720, alignment: .leading)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    model.beginNewLearnedRule()
+                } label: {
+                    Label("New Rule", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
     }
@@ -260,6 +286,9 @@ struct LearnedRulesManagerView: View {
             LearnedRuleDetailView(
                 row: selectedLearnedRule,
                 categoryName: categoryName(for: selectedLearnedRule.categoryID),
+                onDuplicate: {
+                    _ = model.beginDuplicateLearnedRule(id: selectedLearnedRule.id)
+                },
                 onDisable: {
                     pendingDisableRule = selectedLearnedRule
                 },
@@ -297,6 +326,26 @@ struct LearnedRulesManagerView: View {
         Binding(
             get: { selectedRowID },
             set: { selectedRowID = $0 }
+        )
+    }
+
+    private var learnedRuleDraftSheetBinding: Binding<LearnedRuleDraftSheet?> {
+        Binding(
+            get: { model.learnedRuleDraftSheet },
+            set: { sheet in
+                if sheet == nil {
+                    model.dismissLearnedRuleDraftSheet()
+                }
+            }
+        )
+    }
+
+    private var learnedRuleDraftBinding: Binding<LearnedRuleDraft> {
+        Binding(
+            get: { model.learnedRuleDraftSheet?.draft ?? LearnedRuleDraft() },
+            set: { draft in
+                model.updateLearnedRuleDraft(draft)
+            }
         )
     }
 
@@ -498,6 +547,7 @@ private struct LearnedRuleRowView: View {
 private struct LearnedRuleDetailView: View {
     let row: ManagedLearnedRuleRow
     let categoryName: String?
+    var onDuplicate: () -> Void
     var onDisable: () -> Void
     var onEnable: () -> Void
 
@@ -532,6 +582,13 @@ private struct LearnedRuleDetailView: View {
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 12) {
+                    Button {
+                        onDuplicate()
+                    } label: {
+                        Label("Duplicate Rule", systemImage: "plus.square.on.square")
+                    }
+                    .buttonStyle(.bordered)
+
                     if row.isDisabled {
                         Button {
                             onEnable()
@@ -595,5 +652,94 @@ private struct LearnedRuleDetailView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(.thinMaterial, in: Capsule())
+    }
+}
+
+private struct LearnedRuleDraftSheetView: View {
+    let sheet: LearnedRuleDraftSheet
+    let categories: [BudgetCategory]
+    @Binding var draft: LearnedRuleDraft
+    var onCancel: () -> Void
+    var onSave: () -> Void
+
+    private var currentSheet: LearnedRuleDraftSheet {
+        var current = sheet
+        current.draft = draft
+        return current
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Rule") {
+                    TextField("Merchant Pattern", text: $draft.merchantPattern, axis: .vertical)
+                        .lineLimit(2, reservesSpace: true)
+
+                    Picker("Match Scope", selection: $draft.matchKind) {
+                        ForEach(currentSheet.allowedMatchKinds, id: \.self) { matchKind in
+                            Text(matchKind.ruleDisplayLabel).tag(matchKind)
+                        }
+                    }
+
+                    Text(matchScopeHelpText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Section("Assignment") {
+                    Picker("Category", selection: $draft.categoryID) {
+                        Text("Choose Category").tag(UUID?.none)
+                        ForEach(categories) { category in
+                            Text(category.name).tag(Optional(category.id))
+                        }
+                    }
+
+                    TextField("Merchant Name", text: merchantNameBinding, axis: .vertical)
+                        .lineLimit(2, reservesSpace: true)
+
+                    Text("Saving creates a new learned rule. Existing learned rules and built-in sources stay read-only here.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle(currentSheet.title)
+            .frame(minWidth: 520, minHeight: 340)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onCancel()
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(currentSheet.confirmationTitle) {
+                        onSave()
+                    }
+                    .disabled(currentSheet.canSave == false)
+                }
+            }
+        }
+    }
+
+    private var merchantNameBinding: Binding<String> {
+        Binding(
+            get: { draft.merchantName ?? "" },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                draft.merchantName = trimmed.isEmpty ? nil : newValue
+            }
+        )
+    }
+
+    private var matchScopeHelpText: String {
+        switch draft.matchKind {
+        case .exactNormalizedMerchant:
+            "Exact merchant matches one normalized merchant name."
+        case .prefixNormalizedMerchant:
+            "Shared prefix matches merchants that start with the same normalized prefix."
+        case .contains:
+            "Contains authoring is not available in this sheet yet."
+        }
     }
 }
