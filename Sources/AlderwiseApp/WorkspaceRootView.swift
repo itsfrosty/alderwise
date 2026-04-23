@@ -300,9 +300,9 @@ struct WorkspaceRootView: View {
         case .failed(let message):
             VStack(spacing: 16) {
                 ContentUnavailableView(
-                    "Workspace Unavailable",
+                    "Workspace Needs Recovery",
                     systemImage: "externaldrive.badge.exclamationmark",
-                    description: Text("Alderwise could not open the local workspace. You can restore a backup or try again after checking file access.")
+                    description: Text("Alderwise could not open this Mac's workspace. Restore a backup to recover safely, or try again after checking file access.")
                 )
                 Text(message)
                     .font(.caption)
@@ -312,16 +312,16 @@ struct WorkspaceRootView: View {
                     .frame(maxWidth: 560)
                 HStack(spacing: 12) {
                     Button {
-                        model.retryFailedWorkspaceRecovery()
-                    } label: {
-                        Label("Try Again", systemImage: "arrow.clockwise")
-                    }
-                    Button {
                         model.beginWorkspaceRestore()
                     } label: {
                         Label("Restore Backup", systemImage: "externaldrive.badge.arrowtriangle.2.circlepath")
                     }
                     .buttonStyle(.borderedProminent)
+                    Button {
+                        model.retryFailedWorkspaceRecovery()
+                    } label: {
+                        Label("Try Again", systemImage: "arrow.clockwise")
+                    }
                 }
             }
             .modifier(WorkspaceMaintenanceFeedbackModifier(model: model))
