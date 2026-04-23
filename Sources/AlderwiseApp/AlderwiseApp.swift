@@ -19,22 +19,61 @@ struct AlderwiseApp: App {
     }
 }
 
-private enum NavigationSplitViewStateRepair {
-    static func clearInvalidSidebarFrames(defaults: UserDefaults = .standard) {
-        for key in defaults.dictionaryRepresentation().keys where key.contains("SidebarNavigationSplitView") {
-            guard
-                let frames = defaults.array(forKey: key) as? [String],
-                frames.count >= 2,
-                let sidebarFrame = splitViewFrame(from: frames[0]),
-                let detailFrame = splitViewFrame(from: frames[1])
-            else {
-                continue
-            }
+enum NavigationSplitViewStateRepair {
+    private static let legacyDomainNames = ["AlderwiseApp"]
 
-            if detailFrame.minX < sidebarFrame.maxX {
-                defaults.removeObject(forKey: key)
-            }
+    static func clearInvalidSidebarFrames(defaults: UserDefaults = .standard) {
+        for key in invalidSidebarFrameKeys(in: defaults.dictionaryRepresentation()) {
+            defaults.removeObject(forKey: key)
         }
+
+        for domainName in legacyDomainNames {
+            sanitizePersistentDomain(named: domainName, defaults: defaults)
+        }
+    }
+
+    static func invalidSidebarFrameKeys(in domain: [String: Any]) -> [String] {
+        domain.compactMap { key, value in
+            guard key.contains("SidebarNavigationSplitView"), hasInvalidSidebarFrames(value) else {
+                return nil
+            }
+            return key
+        }
+        .sorted()
+    }
+
+    static func sanitizedDomain(_ domain: [String: Any]) -> [String: Any] {
+        var sanitized = domain
+        for key in invalidSidebarFrameKeys(in: domain) {
+            sanitized.removeValue(forKey: key)
+        }
+        return sanitized
+    }
+
+    private static func sanitizePersistentDomain(named domainName: String, defaults: UserDefaults) {
+        guard let domain = defaults.persistentDomain(forName: domainName) else {
+            return
+        }
+
+        let sanitized = sanitizedDomain(domain)
+        guard sanitized.count != domain.count else {
+            return
+        }
+
+        defaults.setPersistentDomain(sanitized, forName: domainName)
+    }
+
+    private static func hasInvalidSidebarFrames(_ value: Any) -> Bool {
+        guard
+            let frames = value as? [String],
+            frames.count >= 2,
+            let sidebarFrame = splitViewFrame(from: frames[0]),
+            let detailFrame = splitViewFrame(from: frames[1])
+        else {
+            return false
+        }
+
+        return detailFrame.minX < sidebarFrame.maxX
     }
 
     private static func splitViewFrame(from value: String) -> CGRect? {
