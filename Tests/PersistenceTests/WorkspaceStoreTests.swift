@@ -4312,6 +4312,42 @@ func fetchWorkspaceInsightSummarySurfacesSupportedCadencesAndFiltersInvalidSerie
 }
 
 @Test
+func fetchWorkspaceInsightSummaryKeepsOnlyCadenceSupportingEvidenceForNoisySeries() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let supportingIDs = [
+        UUID(uuidString: "00000000-0000-0000-0000-000000008901")!,
+        UUID(uuidString: "00000000-0000-0000-0000-000000008902")!,
+        UUID(uuidString: "00000000-0000-0000-0000-000000008903")!,
+    ]
+    let outlierID = UUID(uuidString: "00000000-0000-0000-0000-000000008904")!
+
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        normalizedMerchantName: "cell service",
+        observations: [
+            (supportingIDs[0], Decimal(-55), recurringUTCDate(year: 2026, month: 1, day: 15), "accepted", false),
+            (supportingIDs[1], Decimal(-55), recurringUTCDate(year: 2026, month: 2, day: 15), "accepted", false),
+            (supportingIDs[2], Decimal(-55), recurringUTCDate(year: 2026, month: 3, day: 15), "accepted", false),
+            (outlierID, Decimal(-55), recurringUTCDate(year: 2026, month: 5, day: 15), "accepted", false),
+        ]
+    )
+
+    let summary = try store.fetchWorkspaceInsightSummary(referenceDate: recurringUTCDate(year: 2026, month: 5, day: 17))
+    let detail = try #require(summary.insights.compactMap(recurringDetail(from:)).first)
+
+    #expect(detail.normalizedMerchantName == "cell service")
+    #expect(detail.observationCount == 3)
+    #expect(detail.supportingTransactionIDs == supportingIDs)
+    #expect(detail.supportingTransactionIDs.contains(outlierID) == false)
+    #expect(detail.lastObservedDate == recurringUTCDate(year: 2026, month: 3, day: 15))
+}
+
+@Test
 func fetchWorkspaceInsightSummaryRanksRecurringCandidatesDeterministically() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -4366,16 +4402,26 @@ func fetchWorkspaceInsightSummaryRanksRecurringCandidatesDeterministically() thr
     _ = try insertRecurringTransactions(
         databaseURL: databaseURL,
         accountID: accountA.id,
+        normalizedMerchantName: "alpha lite",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009601")!, Decimal(-25), recurringUTCDate(year: 2026, month: 2, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009602")!, Decimal(-25), recurringUTCDate(year: 2026, month: 3, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009603")!, Decimal(-25), recurringUTCDate(year: 2026, month: 4, day: 21), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: accountA.id,
         normalizedMerchantName: "noisy cable 1234",
         observations: [
             (UUID(uuidString: "00000000-0000-0000-0000-000000009501")!, Decimal(-60), recurringUTCDate(year: 2026, month: 1, day: 24), "accepted", false),
             (UUID(uuidString: "00000000-0000-0000-0000-000000009502")!, Decimal(-60), recurringUTCDate(year: 2026, month: 2, day: 24), "accepted", false),
-            (UUID(uuidString: "00000000-0000-0000-0000-000000009503")!, Decimal(-60), recurringUTCDate(year: 2026, month: 4, day: 24), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009503")!, Decimal(-60), recurringUTCDate(year: 2026, month: 3, day: 24), "accepted", false),
             (UUID(uuidString: "00000000-0000-0000-0000-000000009504")!, Decimal(-60), recurringUTCDate(year: 2026, month: 5, day: 24), "accepted", false),
         ]
     )
 
-    let summary = try store.fetchWorkspaceInsightSummary(referenceDate: recurringUTCDate(year: 2026, month: 6, day: 23))
+    let summary = try store.fetchWorkspaceInsightSummary(referenceDate: recurringUTCDate(year: 2026, month: 5, day: 26))
     let recurringDetails: [RecurringChargeInsightDetail] = summary.insights.compactMap(recurringDetail(from:))
     let expectedAardvarkAccountOrder = [accountA.id, accountB.id].sorted { $0.uuidString < $1.uuidString }
 
@@ -4384,6 +4430,7 @@ func fetchWorkspaceInsightSummaryRanksRecurringCandidatesDeterministically() thr
         "aardvark care",
         "aardvark care",
         "zeta care",
+        "alpha lite",
         "noisy cable 1234",
     ])
     #expect(recurringDetails[0].accountID == accountA.id)
@@ -4391,15 +4438,18 @@ func fetchWorkspaceInsightSummaryRanksRecurringCandidatesDeterministically() thr
     #expect(recurringDetails[2].accountID == expectedAardvarkAccountOrder[1])
     #expect(recurringDetails[3].accountID == accountA.id)
     #expect(recurringDetails[4].accountID == accountA.id)
-    #expect(summary.insights.map(\.rank) == [1, 2, 3, 4, 5])
+    #expect(recurringDetails[5].accountID == accountA.id)
+    #expect(summary.insights.map(\.rank) == [1, 2, 3, 4, 5, 6])
     #expect(summary.insights[0].score == summary.insights[1].score)
     #expect(summary.insights[1].score == summary.insights[2].score)
     #expect(summary.insights[2].score == summary.insights[3].score)
-    #expect(summary.insights[3].score > summary.insights[4].score)
+    #expect(summary.insights[3].score == summary.insights[4].score)
+    #expect(summary.insights[4].score > summary.insights[5].score)
     #expect(summary.insights[0].confidence == summary.insights[1].confidence)
     #expect(summary.insights[1].confidence == summary.insights[2].confidence)
     #expect(summary.insights[2].confidence == summary.insights[3].confidence)
-    #expect(summary.insights[3].confidence > summary.insights[4].confidence)
+    #expect(summary.insights[3].confidence == summary.insights[4].confidence)
+    #expect(summary.insights[4].confidence > summary.insights[5].confidence)
 }
 
 private func temporaryDatabaseURL() throws -> URL {

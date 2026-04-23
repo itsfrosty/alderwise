@@ -2976,7 +2976,15 @@ private func recurringInsightCandidate(
         return nil
     }
 
-    let lastObservedDate = sortedObservations.last?.transactionDate ?? referenceDate
+    let supportingObservations = recurringSupportingObservations(
+        from: sortedObservations,
+        cadence: dominantCadence.key
+    )
+    guard supportingObservations.count >= 3 else {
+        return nil
+    }
+
+    let lastObservedDate = supportingObservations.last?.transactionDate ?? referenceDate
     let nextExpectedDateWindow = recurringNextExpectedDateWindow(
         after: lastObservedDate,
         cadence: dominantCadence.key
@@ -2989,17 +2997,17 @@ private func recurringInsightCandidate(
         return nil
     }
 
-    let amounts = sortedObservations.map(\.amount)
+    let amounts = supportingObservations.map(\.amount)
     let detail = RecurringChargeInsightDetail(
-        accountID: sortedObservations[0].accountID,
+        accountID: supportingObservations[0].accountID,
         normalizedMerchantName: merchantName,
         cadence: dominantCadence.key,
-        observationCount: sortedObservations.count,
+        observationCount: supportingObservations.count,
         amountRange: RecurringChargeAmountRange(
             minimum: amounts.min() ?? .zero,
             maximum: amounts.max() ?? .zero
         ),
-        supportingTransactionIDs: sortedObservations.map(\.transactionID),
+        supportingTransactionIDs: supportingObservations.map(\.transactionID),
         lastObservedDate: lastObservedDate,
         nextExpectedDateWindow: nextExpectedDateWindow
     )
@@ -3009,11 +3017,11 @@ private func recurringInsightCandidate(
         maximum: detail.amountRange.maximum
     )
     let merchantNoisePenalty = recurringMerchantNoisePenalty(merchantName)
-    let score = max(0, confidence - amountVariancePenalty - merchantNoisePenalty)
+    let score = max(0, (confidence - amountVariancePenalty - merchantNoisePenalty) * 100)
 
     return RecurringInsightCandidate(
         detail: detail,
-        confidence: score,
+        confidence: confidence,
         score: score
     )
 }
@@ -3070,6 +3078,66 @@ private func recurringDayDelta(from start: Date, to end: Date) -> Int {
         from: Calendar.alderwiseUTC.startOfDay(for: start),
         to: Calendar.alderwiseUTC.startOfDay(for: end)
     ).day ?? 0
+}
+
+private func recurringSupportingObservations(
+    from observations: [RecurringInsightObservation],
+    cadence: RecurringChargeCadence
+) -> [RecurringInsightObservation] {
+    guard observations.count >= 3 else {
+        return observations
+    }
+
+    let intervalMatches = zip(observations, observations.dropFirst()).map {
+        recurringChargeCadence(forIntervalDays: recurringDayDelta(from: $0.transactionDate, to: $1.transactionDate)) == cadence
+    }
+
+    var bestRange: ClosedRange<Int>?
+    var currentStart: Int?
+
+    for (index, isMatch) in intervalMatches.enumerated() {
+        if isMatch {
+            if currentStart == nil {
+                currentStart = index
+            }
+            continue
+        }
+
+        if let runStart = currentStart {
+            let candidateRange = runStart ... index
+            if recurringObservationRangeIsBetter(candidateRange, than: bestRange) {
+                bestRange = candidateRange
+            }
+            currentStart = nil
+        }
+    }
+
+    if let runStart = currentStart {
+        let candidateRange = runStart ... intervalMatches.count
+        if recurringObservationRangeIsBetter(candidateRange, than: bestRange) {
+            bestRange = candidateRange
+        }
+    }
+
+    guard let bestRange else {
+        return observations
+    }
+    return Array(observations[bestRange])
+}
+
+private func recurringObservationRangeIsBetter(
+    _ candidate: ClosedRange<Int>,
+    than currentBest: ClosedRange<Int>?
+) -> Bool {
+    guard let currentBest else {
+        return true
+    }
+    let candidateCount = candidate.count
+    let currentBestCount = currentBest.count
+    if candidateCount != currentBestCount {
+        return candidateCount > currentBestCount
+    }
+    return candidate.upperBound > currentBest.upperBound
 }
 
 private func recurringNextExpectedDateWindow(
