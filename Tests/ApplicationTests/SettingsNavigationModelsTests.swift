@@ -60,13 +60,5 @@ func reviewCreatedLearnedRuleActionRulesDestinationMapsToRulesSidebarSelection()
     )
 
     #expect(action.destination.sidebarDestination == .rules)
-    #expect(
-        action.destination
-            == .rules(
-                LearnedRulesDestination(
-                    mode: .learned,
-                    selectedLearnedRuleID: learnedRuleID
-                )
-            )
-    )
+    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: learnedRuleID))
 }

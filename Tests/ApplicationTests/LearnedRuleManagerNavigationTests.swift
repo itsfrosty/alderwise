@@ -45,13 +45,5 @@ func reviewCreatedLearnedRuleActionRulesDeepLinkTargetsSettingsRules() {
 
     #expect(action.ruleID == learnedRuleID)
     #expect(action.merchantLabel == "Coffee Shop")
-    #expect(
-        action.destination
-            == .rules(
-                LearnedRulesDestination(
-                    mode: .learned,
-                    selectedLearnedRuleID: learnedRuleID
-                )
-            )
-    )
+    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: learnedRuleID))
 }

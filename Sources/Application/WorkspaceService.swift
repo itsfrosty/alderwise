@@ -95,12 +95,7 @@ public struct ReviewCreatedLearnedRuleAction: Equatable, Sendable {
         ReviewCreatedLearnedRuleAction(
             ruleID: ruleID,
             merchantLabel: merchantLabel,
-            destination: .rules(
-                LearnedRulesDestination(
-                    mode: .learned,
-                    selectedLearnedRuleID: ruleID
-                )
-            )
+            destination: .learnedRulesRoute(selectedLearnedRuleID: ruleID)
         )
     }
 }
