@@ -1000,6 +1000,25 @@ func loadSnapshotSeparatesArchivedAccountVisibility() throws {
 }
 
 @Test
+func loadSnapshotFallsBackToEmptyInsightsWhenStoreDoesNotImplementInsightsReader() throws {
+    let store = StubWorkspaceStore(
+        summary: WorkspaceSummary(
+            accountCount: 1,
+            transactionCount: 24,
+            reviewCount: 0,
+            targetCount: 0
+        ),
+        accounts: [
+            Account(name: "Checking", kind: .checking, institutionName: "Local Bank"),
+        ]
+    )
+
+    let snapshot = try WorkspaceService(store: store).loadSnapshot()
+
+    #expect(snapshot.insights == .empty)
+}
+
+@Test
 func createAccountReturnsCreatedAccountAndUpdatedSnapshot() throws {
     let store = MutableWorkspaceStore()
     let service = WorkspaceService(store: store)

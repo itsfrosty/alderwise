@@ -138,9 +138,11 @@ public struct WorkspaceService: Sendable {
     public func loadSnapshot(filter: TransactionLedgerFilter = .empty) throws -> WorkspaceSnapshot {
         let ledgerReader = store as? any TransactionLedgerReading
         let reportingReader = store as? any ReportingReading
+        let insightReader = store as? any WorkspaceInsightReading
         let reviewReader = store as? any ReviewQueueReading
         let summary = try store.fetchSummary()
         let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: .now) ?? .empty
+        let insights = try insightReader?.fetchWorkspaceInsightSummary() ?? .empty
         let managementAccounts = try store.fetchManagementAccounts()
         let importEligibleAccounts = try store.fetchImportEligibleAccounts()
         let ledgerFilterAccounts = try store.fetchLedgerFilterAccounts()
@@ -157,6 +159,7 @@ public struct WorkspaceService: Sendable {
             transactions: try ledgerReader?.fetchTransactionLedger(filter: filter) ?? [],
             transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
             monthlyReport: monthlyReport,
+            insights: insights,
             homeDashboard: HomeDashboardSnapshot.make(summary: summary, monthlyReport: monthlyReport)
         )
     }
