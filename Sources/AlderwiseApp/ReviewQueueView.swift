@@ -258,6 +258,11 @@ private struct ReviewQueueDetail: View {
 
     private func classificationControls(for item: PendingReviewItem) -> some View {
         let learningOptions = ruleLearningOptions(for: item)
+        let consequenceLines = presentation.staticConsequences(
+            for: item,
+            createRule: createRule,
+            selectedRuleLearning: selectedRuleLearning
+        )
 
         return VStack(alignment: .leading, spacing: 12) {
             TextField("Merchant", text: $merchantName)
@@ -268,11 +273,6 @@ private struct ReviewQueueDetail: View {
                 categoryGroups: categoryGroups,
                 selection: $selectedCategoryID
             )
-            if let starterHint = presentation.starterHintCaption(for: item) {
-                Text(starterHint)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
             Toggle("Learn this merchant rule", isOn: $createRule)
             if createRule, learningOptions.count > 1 {
                 Picker("Learn As", selection: $selectedRuleLearning) {
@@ -285,6 +285,9 @@ private struct ReviewQueueDetail: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+            }
+            if !consequenceLines.isEmpty {
+                ReviewConsequenceSummary(lines: consequenceLines)
             }
             Button("Approve Category") {
                 guard let selectedCategoryID else {
@@ -333,6 +336,56 @@ private struct ReviewQueueDetail: View {
             "Exact: \(pattern)"
         case .prefixNormalizedMerchant(let pattern):
             "Shared prefix: \(pattern)"
+        }
+    }
+}
+
+private struct ReviewConsequenceSummary: View {
+    let lines: [ReviewPresentation.ConsequenceLine]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: iconName(for: line))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(iconColor(for: line))
+                    Text(line.text)
+                        .font(.caption)
+                        .foregroundStyle(textColor(for: line))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func iconName(for line: ReviewPresentation.ConsequenceLine) -> String {
+        switch line.emphasis {
+        case .neutral:
+            "checklist"
+        case .warning:
+            "exclamationmark.triangle.fill"
+        }
+    }
+
+    private func iconColor(for line: ReviewPresentation.ConsequenceLine) -> Color {
+        switch line.emphasis {
+        case .neutral:
+            .secondary
+        case .warning:
+            .orange
+        }
+    }
+
+    private func textColor(for line: ReviewPresentation.ConsequenceLine) -> Color {
+        switch line.emphasis {
+        case .neutral:
+            .secondary
+        case .warning:
+            .primary
         }
     }
 }

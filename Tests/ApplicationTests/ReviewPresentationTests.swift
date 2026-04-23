@@ -47,6 +47,99 @@ func nonCuratedItemsKeepExistingSubtitleBehaviorAndLeaveRuleLearningEnabled() {
 }
 
 @Test
+func staticConsequencesDescribeWhetherApprovalCreatesALearnedRule() {
+    let item = makeReviewItem(
+        source: .heuristic,
+        reason: "Low confidence category suggestion."
+    )
+    let presentation = ReviewPresentation(categories: [])
+
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: true,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving saves an Exact merchant rule in Your Rules for coffee shop.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: false,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving updates this transaction only. No learned rule will be created.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+}
+
+@Test
+func curatedPrefillConsequencesExplainBuiltInReviewFirstBehavior() {
+    let groceriesID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let item = makeReviewItem(
+        source: .curatedPrefill,
+        reason: "Curated starter match requires review before acceptance.",
+        categoryID: groceriesID
+    )
+    let presentation = ReviewPresentation(
+        categories: [
+            BudgetCategory(id: groceriesID, name: "Groceries", kind: .expense),
+        ]
+    )
+
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: false,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Built-In Review-First suggestions stay review-only until you approve them.",
+                emphasis: .neutral
+            ),
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving updates this transaction only. No learned rule will be created.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+}
+
+@Test
+func prefixLearningConsequencesIncludeBroadScopeWarning() {
+    let item = makeReviewItem(
+        source: .heuristic,
+        reason: "Low confidence category suggestion.",
+        normalizedMerchantName: "99pledg onir baweja"
+    )
+    let presentation = ReviewPresentation(categories: [])
+
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: true,
+            selectedRuleLearning: .prefixNormalizedMerchant(pattern: "99pledg")
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving saves a Shared prefix rule in Your Rules for 99pledg.",
+                emphasis: .neutral
+            ),
+            ReviewPresentation.ConsequenceLine(
+                text: "Shared prefix can match multiple future merchants that start with 99pledg.",
+                emphasis: .warning
+            ),
+        ]
+    )
+}
+
+@Test
 func sourceLabelsUseHumanReadableStrings() {
     #expect(ReviewPresentation.sourceLabel(for: .curatedPrefill) == "Built-In Review-First")
     #expect(ReviewPresentation.sourceLabel(for: .rule) == "Rule")
