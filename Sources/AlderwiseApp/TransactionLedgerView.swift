@@ -3,10 +3,16 @@ import Domain
 import SwiftUI
 
 struct TransactionLedgerView: View {
-    private enum Layout {
-        static let minimumPrimaryWidth: CGFloat = 420
-        static let idealPrimaryWidth: CGFloat = 560
-        static let minimumSecondaryWidth: CGFloat = 320
+    struct EmptyLedgerState: Equatable {
+        enum Action: Equatable {
+            case showHidden
+            case showActive
+        }
+
+        let title: String
+        let systemImage: String
+        let description: String
+        let action: Action?
     }
 
     let snapshot: WorkspaceSnapshot
@@ -20,7 +26,6 @@ struct TransactionLedgerView: View {
     @State private var isSyncingControls = false
     @State private var userExpandedSecondaryFilters = false
     @State private var draftCoordinator = TransactionDetailDraftCoordinator()
-    @SceneStorage("transactionsLedgerPrimaryWidth") private var primaryPaneWidth = Double(Layout.idealPrimaryWidth)
 
     private var selectedIDBinding: Binding<UUID?> {
         Binding(
@@ -53,13 +58,6 @@ struct TransactionLedgerView: View {
         )
     }
 
-    private var primaryPaneWidthBinding: Binding<CGFloat> {
-        Binding(
-            get: { CGFloat(primaryPaneWidth) },
-            set: { primaryPaneWidth = Double($0) }
-        )
-    }
-
     private var hasActiveSecondaryFilters: Bool {
         hasActiveSecondaryFilters(in: model.transactionFilter)
     }
@@ -74,11 +72,8 @@ struct TransactionLedgerView: View {
     }
 
     var body: some View {
-        StableTwoPaneSplitView(
-            primaryWidth: primaryPaneWidthBinding,
-            minPrimaryWidth: Layout.minimumPrimaryWidth,
-            minSecondaryWidth: Layout.minimumSecondaryWidth,
-            primary: VStack(spacing: 0) {
+        HSplitView {
+            VStack(spacing: 0) {
                 ledgerHeader
                     .padding(12)
 
@@ -86,8 +81,9 @@ struct TransactionLedgerView: View {
 
                 ledgerContent
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity),
-            secondary: TransactionLedgerView.DetailInspector(
+            .frame(idealWidth: 560, maxWidth: .infinity, maxHeight: .infinity)
+
+            TransactionLedgerView.DetailInspector(
                 detail: model.selectedTransactionDetail,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
@@ -95,10 +91,11 @@ struct TransactionLedgerView: View {
                 isDirty: draftCoordinator.isDirty,
                 onDraftChange: { draftCoordinator.updateDraft($0) },
                 onSave: handleSave,
+                onSetHidden: { model.setSelectedTransactionHidden($0) },
                 onViewLearnedRule: { model.showLearnedRules(selectedLearnedRuleID: $0) }
             )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        )
+            .frame(idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+        }
         .alert(
             "Save changes before switching transactions?",
             isPresented: isPresentingSelectionChangeConfirmation
@@ -158,6 +155,14 @@ struct TransactionLedgerView: View {
             DisclosureGroup(isExpanded: secondaryFiltersExpansion) {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack(alignment: .center, spacing: 12) {
+                        Picker("Visibility", selection: visibilitySelection) {
+                            Text("Active").tag(TransactionVisibilityFilter.active)
+                            Text("Hidden").tag(TransactionVisibilityFilter.hidden)
+                            Text("All").tag(TransactionVisibilityFilter.all)
+                        }
+                        .frame(minWidth: 140)
+                        .layoutPriority(1)
+
                         Picker("Direction", selection: directionSelection) {
                             Text("All Directions").tag(Optional<TransactionDirection>.none)
                             ForEach(TransactionDirection.allCases, id: \.self) { direction in
@@ -181,26 +186,6 @@ struct TransactionLedgerView: View {
 
                         Spacer(minLength: 0)
                     }
-
-                    HStack(alignment: .center, spacing: 12) {
-                        Toggle("From", isOn: $hasStartDate)
-                            .onChange(of: hasStartDate) { _, _ in applyFilters() }
-
-                        DatePicker("", selection: $startDate, displayedComponents: .date)
-                            .labelsHidden()
-                            .disabled(!hasStartDate)
-                            .onChange(of: startDate) { _, _ in applyFilters() }
-
-                        Toggle("To", isOn: $hasEndDate)
-                            .onChange(of: hasEndDate) { _, _ in applyFilters() }
-
-                        DatePicker("", selection: $endDate, displayedComponents: .date)
-                            .labelsHidden()
-                            .disabled(!hasEndDate)
-                            .onChange(of: endDate) { _, _ in applyFilters() }
-
-                        Spacer(minLength: 0)
-                    }
                 }
                 .padding(.top, 10)
             } label: {
@@ -212,27 +197,49 @@ struct TransactionLedgerView: View {
     }
 
     private var primaryFilterControls: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Picker("Account", selection: accountSelection) {
-                Text("All Accounts").tag(Optional<UUID>.none)
-                ForEach(snapshot.ledgerFilterAccounts) { account in
-                    Text(accountFilterLabel(for: account)).tag(Optional(account.id))
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .center, spacing: 12) {
+                Picker("Account", selection: accountSelection) {
+                    Text("All Accounts").tag(Optional<UUID>.none)
+                    ForEach(snapshot.ledgerFilterAccounts) { account in
+                        Text(accountFilterLabel(for: account)).tag(Optional(account.id))
+                    }
                 }
+                .frame(minWidth: 180)
+                .layoutPriority(1)
+
+                GroupedCategoryPicker(
+                    title: "Category",
+                    prompt: "All Categories",
+                    categories: snapshot.categories,
+                    categoryGroups: snapshot.categoryGroups,
+                    selection: categorySelection
+                )
+                .frame(minWidth: 220)
+                .layoutPriority(1)
+
+                Spacer(minLength: 0)
             }
-            .frame(minWidth: 180)
-            .layoutPriority(1)
 
-            GroupedCategoryPicker(
-                title: "Category",
-                prompt: "All Categories",
-                categories: snapshot.categories,
-                categoryGroups: snapshot.categoryGroups,
-                selection: categorySelection
-            )
-            .frame(minWidth: 220)
-            .layoutPriority(1)
+            HStack(alignment: .center, spacing: 12) {
+                Toggle("From", isOn: $hasStartDate)
+                    .onChange(of: hasStartDate) { _, _ in applyFilters() }
 
-            Spacer(minLength: 0)
+                DatePicker("", selection: $startDate, displayedComponents: .date)
+                    .labelsHidden()
+                    .disabled(!hasStartDate)
+                    .onChange(of: startDate) { _, _ in applyFilters() }
+
+                Toggle("To", isOn: $hasEndDate)
+                    .onChange(of: hasEndDate) { _, _ in applyFilters() }
+
+                DatePicker("", selection: $endDate, displayedComponents: .date)
+                    .labelsHidden()
+                    .disabled(!hasEndDate)
+                    .onChange(of: endDate) { _, _ in applyFilters() }
+
+                Spacer(minLength: 0)
+            }
         }
     }
 
@@ -241,12 +248,7 @@ struct TransactionLedgerView: View {
         if let zeroResultsState = headerState.zeroResultsState {
             zeroResultsView(state: zeroResultsState)
         } else if snapshot.transactions.isEmpty {
-            ContentUnavailableView(
-                "No transactions yet",
-                systemImage: "tray",
-                description: Text("Imported and accepted transactions appear here as the ledger grows.")
-            )
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            emptyLedgerView
         } else {
             transactionList
         }
@@ -257,9 +259,28 @@ struct TransactionLedgerView: View {
             ForEach(snapshot.transactions) { transaction in
                 TransactionLedgerView.Row(transaction: transaction)
                     .tag(transaction.id)
+                    .contextMenu {
+                        Button(transaction.isHidden ? "Unhide Transaction" : "Hide Transaction") {
+                            _ = model.setTransactionHidden(id: transaction.id, isHidden: !transaction.isHidden)
+                        }
+                        .disabled(
+                            transaction.id == model.selectedTransactionID && draftCoordinator.isDirty
+                        )
+                    }
             }
         }
         .listStyle(.inset)
+    }
+
+    private var visibilitySelection: Binding<TransactionVisibilityFilter> {
+        Binding(
+            get: { model.transactionFilter.visibility ?? .active },
+            set: { newValue in
+                var filter = model.transactionFilter
+                filter.visibility = newValue == .active ? nil : newValue
+                updateTransactionFilter(filter)
+            }
+        )
     }
 
     private var accountSelection: Binding<UUID?> {
@@ -277,10 +298,9 @@ struct TransactionLedgerView: View {
         Binding(
             get: { model.transactionFilter.categoryID },
             set: { newValue in
-                var filter = model.transactionFilter
-                filter.categoryID = newValue
-                filter.categoryGroupID = nil
-                updateTransactionFilter(filter)
+                updateTransactionFilter(
+                    Self.applyingCategorySelection(newValue, to: model.transactionFilter)
+                )
             }
         )
     }
@@ -362,17 +382,21 @@ struct TransactionLedgerView: View {
         return snapshot.categoryGroups.first(where: { $0.id == categoryGroupID })?.name ?? "Filtered group"
     }
 
+    private var currentVisibility: TransactionVisibilityFilter {
+        model.transactionFilter.visibility ?? .active
+    }
+
     private var secondaryFiltersLabel: String {
         let count = headerState.activeChips.filter(\.matchesSecondaryControls).count
         return count == 0 ? "More Filters" : "More Filters (\(count))"
     }
 
     private func hasActiveSecondaryFilters(in filter: TransactionLedgerFilter) -> Bool {
-        filter.direction != nil ||
+        filter.visibility == .hidden ||
+            filter.visibility == .all ||
+            filter.direction != nil ||
             filter.reviewStatus != nil ||
-            filter.importSessionID != nil ||
-            filter.startDate != nil ||
-            filter.endDate != nil
+            filter.importSessionID != nil
     }
 
     private func zeroResultsView(state: TransactionLedgerHeaderState.ZeroResultsState) -> some View {
@@ -394,6 +418,69 @@ struct TransactionLedgerView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var emptyLedgerView: some View {
+        let state = Self.emptyLedgerState(for: currentVisibility, summary: snapshot.summary)
+        ContentUnavailableView {
+            Label(state.title, systemImage: state.systemImage)
+        } description: {
+            Text(state.description)
+        } actions: {
+            switch state.action {
+            case .showHidden:
+                Button("Show Hidden") {
+                    visibilitySelection.wrappedValue = .hidden
+                }
+            case .showActive:
+                Button("Show Active") {
+                    visibilitySelection.wrappedValue = .active
+                }
+            case nil:
+                EmptyView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    static func applyingCategorySelection(_ categoryID: UUID?, to filter: TransactionLedgerFilter) -> TransactionLedgerFilter {
+        var nextFilter = filter
+        nextFilter.categoryID = categoryID
+        nextFilter.categoryGroupID = nil
+        nextFilter.uncategorizedOnly = false
+        return nextFilter
+    }
+
+    static func emptyLedgerState(
+        for visibility: TransactionVisibilityFilter,
+        summary: WorkspaceSummary
+    ) -> EmptyLedgerState {
+        switch visibility {
+        case .active:
+            return EmptyLedgerState(
+                title: "No active transactions",
+                systemImage: "tray",
+                description: summary.hiddenTransactionCount > 0
+                    ? "Imported transactions appear here as the ledger grows. Hidden transactions only appear in Hidden or All."
+                    : "Imported transactions appear here as the ledger grows.",
+                action: summary.hiddenTransactionCount > 0 ? .showHidden : nil
+            )
+        case .hidden:
+            return EmptyLedgerState(
+                title: "No hidden transactions",
+                systemImage: "eye.slash",
+                description: "Hidden transactions stay out of reporting until you unhide them.",
+                action: .showActive
+            )
+        case .all:
+            return EmptyLedgerState(
+                title: "No transactions yet",
+                systemImage: "tray",
+                description: "Imported transactions appear here as the ledger grows.",
+                action: nil
+            )
+        }
     }
 
     private func syncDraftCoordinator() {
@@ -522,9 +609,9 @@ private extension TransactionLedgerHeaderState.Chip {
     }
     var matchesSecondaryControls: Bool {
         switch self {
-        case .direction, .review, .importSession, .dateRange:
+        case .visibility, .direction, .review, .importSession:
             return true
-        case .search, .account, .category, .categoryGroup:
+        case .search, .account, .category, .categoryGroup, .uncategorized, .dateRange:
             return false
         }
     }

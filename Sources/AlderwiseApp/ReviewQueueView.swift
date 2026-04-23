@@ -101,7 +101,7 @@ struct ReviewQueueView: View {
         if snapshot.transactions.contains(where: { $0.reviewStatus == .pending }) {
             "Some transactions are still pending, but none have review details attached. Use Transactions to inspect and edit them."
         } else {
-            "Accepted transactions are ready for reporting and targets."
+            "Visible transactions are already reflected in reporting and targets."
         }
     }
 

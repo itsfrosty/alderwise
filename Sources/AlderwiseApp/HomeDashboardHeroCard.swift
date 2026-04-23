@@ -32,7 +32,7 @@ struct HomeDashboardHeroCard: View {
                     Image(systemName: "checklist.unchecked")
                         .foregroundStyle(.orange)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Accepted-only status")
+                        Text("Review can still recategorize spend")
                             .font(.subheadline.weight(.semibold))
                         Text(qualifier.message)
                             .font(.caption)
@@ -78,14 +78,14 @@ struct HomeDashboardHeroCard: View {
         }
 
         let expected = currency(expectedPaceSpend)
-        return "Accepted spending is \(statusDescription) against an expected pace of \(expected)."
+        return "Visible spending is \(statusDescription) against an expected pace of \(expected)."
     }
 
     private var confidenceNote: String? {
         if hasActiveTargets == false {
             return "Create a monthly limit to compare current spending against pace."
         }
-        return "Pace and targets reflect accepted expense activity."
+        return "Pace and targets reflect visible expense activity."
     }
 
     private var statusTitle: String {

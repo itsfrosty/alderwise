@@ -12,6 +12,12 @@ public enum TransactionDirection: String, Codable, CaseIterable, Equatable, Send
     case transfer
 }
 
+public enum TransactionVisibilityFilter: String, Codable, CaseIterable, Equatable, Sendable {
+    case active
+    case hidden
+    case all
+}
+
 public struct TransactionImportOrigin: Equatable, Sendable {
     public var id: Int64
     public var originalFilename: String
@@ -31,8 +37,10 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
     public var accountID: UUID?
     public var categoryID: UUID?
     public var categoryGroupID: UUID?
+    public var uncategorizedOnly: Bool
     public var direction: TransactionDirection?
     public var reviewStatus: TransactionReviewStatus?
+    public var visibility: TransactionVisibilityFilter?
     public var importSessionID: Int64?
 
     public init(
@@ -42,8 +50,10 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         accountID: UUID? = nil,
         categoryID: UUID? = nil,
         categoryGroupID: UUID? = nil,
+        uncategorizedOnly: Bool = false,
         direction: TransactionDirection? = nil,
         reviewStatus: TransactionReviewStatus? = nil,
+        visibility: TransactionVisibilityFilter? = nil,
         importSessionID: Int64? = nil
     ) {
         self.searchText = searchText
@@ -52,8 +62,10 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         self.accountID = accountID
         self.categoryID = categoryID
         self.categoryGroupID = categoryGroupID
+        self.uncategorizedOnly = uncategorizedOnly
         self.direction = direction
         self.reviewStatus = reviewStatus
+        self.visibility = visibility
         self.importSessionID = importSessionID
     }
 
@@ -64,6 +76,7 @@ public struct TransactionLedgerRow: Identifiable, Equatable, Sendable {
     public var id: UUID
     public var accountID: UUID
     public var accountName: String
+    public var isHidden: Bool
     public var categoryID: UUID?
     public var categoryName: String?
     public var rawDescription: String
@@ -79,6 +92,7 @@ public struct TransactionLedgerRow: Identifiable, Equatable, Sendable {
         id: UUID,
         accountID: UUID,
         accountName: String,
+        isHidden: Bool = false,
         categoryID: UUID?,
         categoryName: String?,
         rawDescription: String,
@@ -93,6 +107,7 @@ public struct TransactionLedgerRow: Identifiable, Equatable, Sendable {
         self.id = id
         self.accountID = accountID
         self.accountName = accountName
+        self.isHidden = isHidden
         self.categoryID = categoryID
         self.categoryName = categoryName
         self.rawDescription = rawDescription

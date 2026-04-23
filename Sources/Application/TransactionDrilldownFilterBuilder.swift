@@ -3,33 +3,36 @@ import Foundation
 
 public enum TransactionDrilldownFilterBuilder {
     public static func currentMonthAcceptedExpenses(monthStart: Date, scope: TargetScope) -> TransactionLedgerFilter {
-        currentMonthAcceptedExpenses(
+        currentMonthIncludedExpenses(
             monthStart: monthStart,
             categoryID: categoryID(for: scope),
-            categoryGroupID: categoryGroupID(for: scope)
+            categoryGroupID: categoryGroupID(for: scope),
+            uncategorizedOnly: false
         )
     }
 
     public static func currentMonthAcceptedExpenses(monthStart: Date, scope: SpendingDriverScope) -> TransactionLedgerFilter {
-        currentMonthAcceptedExpenses(
+        currentMonthIncludedExpenses(
             monthStart: monthStart,
             categoryID: categoryID(for: scope),
-            categoryGroupID: categoryGroupID(for: scope)
+            categoryGroupID: categoryGroupID(for: scope),
+            uncategorizedOnly: uncategorizedOnly(for: scope)
         )
     }
 
-    private static func currentMonthAcceptedExpenses(
+    private static func currentMonthIncludedExpenses(
         monthStart: Date,
         categoryID: UUID?,
-        categoryGroupID: UUID?
+        categoryGroupID: UUID?,
+        uncategorizedOnly: Bool
     ) -> TransactionLedgerFilter {
         TransactionLedgerFilter(
             startDate: monthStart,
             endDate: endOfMonth(monthStart),
             categoryID: categoryID,
             categoryGroupID: categoryGroupID,
-            direction: .expense,
-            reviewStatus: .accepted
+            uncategorizedOnly: uncategorizedOnly,
+            direction: .expense
         )
     }
 
@@ -57,6 +60,8 @@ public enum TransactionDrilldownFilterBuilder {
             return id
         case .categoryGroup:
             return nil
+        case .uncategorized:
+            return nil
         }
     }
 
@@ -66,7 +71,16 @@ public enum TransactionDrilldownFilterBuilder {
             return nil
         case .categoryGroup(let id):
             return id
+        case .uncategorized:
+            return nil
         }
+    }
+
+    private static func uncategorizedOnly(for scope: SpendingDriverScope) -> Bool {
+        if case .uncategorized = scope {
+            return true
+        }
+        return false
     }
 
     private static func endOfMonth(_ monthStart: Date) -> Date? {

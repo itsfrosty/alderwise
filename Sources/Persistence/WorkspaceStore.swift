@@ -96,6 +96,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 table.column("import_session_id", .integer).references("import_sessions", onDelete: .setNull)
                 table.column("merchant_id", .text).references("merchants", onDelete: .setNull)
                 table.column("category_id", .text).references("categories", onDelete: .setNull)
+                table.column("is_hidden", .boolean).notNull().defaults(to: false)
                 table.column("raw_description", .text).notNull()
                 table.column("normalized_merchant_name", .text)
                 table.column("amount", .double).notNull()
@@ -417,6 +418,32 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 try db.execute(sql: "ALTER TABLE accounts ADD COLUMN archived_at DATETIME")
             }
         }
+        migrator.registerMigration("add-transaction-hidden-state") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            guard try db.tableExists("transactions") else {
+                return
+            }
+
+            let transactionColumns = try columnNames(in: "transactions", db: db)
+            if !transactionColumns.contains("is_hidden") {
+                try db.execute(sql: "ALTER TABLE transactions ADD COLUMN is_hidden BOOLEAN NOT NULL DEFAULT 0")
+            }
+
+            if transactionColumns.contains("review_status") {
+                try db.execute(
+                    sql: """
+                    UPDATE transactions
+                    SET review_status = ?
+                    WHERE review_status = ?
+                    """,
+                    arguments: [
+                        TransactionReviewStatus.pending.rawValue,
+                        TransactionReviewStatus.rejected.rawValue,
+                    ]
+                )
+            }
+        }
 
         try migrator.migrate(databaseQueue)
         try seedDefaultBudgetTaxonomy()
@@ -428,15 +455,36 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 db,
                 sql: "SELECT COUNT(*) FROM accounts WHERE archived_at IS NULL"
             ) ?? 0
-            let transactionCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM transactions") ?? 0
-            let reviewCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_items WHERE status = 'pending'") ?? 0
+            let transactionCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM transactions WHERE is_hidden = 0"
+            ) ?? 0
+            let hiddenTransactionCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM transactions WHERE is_hidden = 1"
+            ) ?? 0
+            let reviewCount = try Int.fetchOne(
+                db,
+                sql: """
+                SELECT COUNT(*)
+                FROM review_items
+                LEFT JOIN transactions ON transactions.id = review_items.transaction_id
+                WHERE review_items.status = ?
+                  AND (
+                    transactions.id IS NULL
+                    OR transactions.is_hidden = 0
+                  )
+                """,
+                arguments: [ReviewItemStatus.pending.rawValue]
+            ) ?? 0
             let targetCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM targets") ?? 0
 
             return WorkspaceSummary(
                 accountCount: accountCount,
                 transactionCount: transactionCount,
                 reviewCount: reviewCount,
-                targetCount: targetCount
+                targetCount: targetCount,
+                hiddenTransactionCount: hiddenTransactionCount
             )
         }
     }
@@ -646,7 +694,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                   AND (
                     review_items.type != ?
                     OR transactions.review_status IS NULL
-                    OR transactions.review_status = ?
+                    OR (
+                        transactions.review_status = ?
+                        AND transactions.is_hidden = 0
+                    )
                   )
                 ORDER BY review_items.created_at ASC, review_items.id ASC
                 """,
@@ -1421,7 +1472,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
 
     public func fetchTransactionDetail(id: UUID) throws -> TransactionDetail? {
         try databaseQueue.read { db in
-            var query = transactionLedgerQuery(filter: .empty, includeIDPredicate: true)
+            var query = transactionLedgerQuery(
+                filter: TransactionLedgerFilter(visibility: .all),
+                includeIDPredicate: true
+            )
             appendArgument(id.uuidString, to: &query.arguments)
             guard let row = try Row.fetchOne(db, sql: query.sql, arguments: query.arguments) else {
                 return nil
@@ -1542,6 +1596,23 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                         id.uuidString,
                     ]
                 )
+            }
+        }
+    }
+
+    public func setTransactionHidden(id: UUID, isHidden: Bool) throws {
+        try databaseQueue.write { db in
+            try db.execute(
+                sql: """
+                UPDATE transactions
+                SET is_hidden = ?
+                WHERE id = ?
+                """,
+                arguments: [isHidden, id.uuidString]
+            )
+
+            if db.changesCount == 0 {
+                throw WorkspaceStoreError.transactionNotFound(id)
             }
         }
     }
@@ -1692,7 +1763,16 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
             let lastMonthSpend = try acceptedExpenseSpend(db: db, interval: lastMonthInterval)
             let pendingReviewCount = try Int.fetchOne(
                 db,
-                sql: "SELECT COUNT(*) FROM review_items WHERE status = ?",
+                sql: """
+                SELECT COUNT(*)
+                FROM review_items
+                LEFT JOIN transactions ON transactions.id = review_items.transaction_id
+                WHERE review_items.status = ?
+                  AND (
+                    transactions.id IS NULL
+                    OR transactions.is_hidden = 0
+                  )
+                """,
                 arguments: [ReviewItemStatus.pending.rawValue]
             ) ?? 0
             let targetRows = try Row.fetchAll(
@@ -2543,6 +2623,9 @@ private func transactionLedgerQuery(
         predicates.append("categories.category_group_id = ?")
         appendArgument(categoryGroupID.uuidString, to: &arguments)
     }
+    if filter.uncategorizedOnly {
+        predicates.append("transactions.category_id IS NULL")
+    }
     if let direction = filter.direction {
         predicates.append("transactions.direction = ?")
         appendArgument(direction.rawValue, to: &arguments)
@@ -2550,6 +2633,14 @@ private func transactionLedgerQuery(
     if let reviewStatus = filter.reviewStatus {
         predicates.append("transactions.review_status = ?")
         appendArgument(reviewStatus.rawValue, to: &arguments)
+    }
+    switch filter.visibility ?? .active {
+    case .active:
+        predicates.append("transactions.is_hidden = 0")
+    case .hidden:
+        predicates.append("transactions.is_hidden = 1")
+    case .all:
+        break
     }
     if let importSessionID = filter.importSessionID {
         predicates.append("transactions.import_session_id = ?")
@@ -2566,6 +2657,7 @@ private func transactionLedgerQuery(
             transactions.id,
             transactions.account_id,
             accounts.name AS account_name,
+            transactions.is_hidden,
             transactions.category_id,
             categories.name AS category_name,
             transactions.raw_description,
@@ -2650,6 +2742,7 @@ private func transactionLedgerRow(from row: Row) throws -> TransactionLedgerRow 
         id: id,
         accountID: accountID,
         accountName: row["account_name"],
+        isHidden: row["is_hidden"],
         categoryID: categoryID,
         categoryName: row["category_name"],
         rawDescription: rawDescription,
@@ -2707,14 +2800,13 @@ private func acceptedExpenseSpend(
     categoryGroupID: UUID? = nil
 ) throws -> Decimal {
     var predicates = [
-        "transactions.review_status = ?",
+        "transactions.is_hidden = 0",
         "transactions.direction = ?",
         "transactions.amount < 0",
         "transactions.transaction_date >= ?",
         "transactions.transaction_date < ?",
     ]
     var arguments = StatementArguments()
-    appendArgument(TransactionReviewStatus.accepted.rawValue, to: &arguments)
     appendArgument(TransactionDirection.expense.rawValue, to: &arguments)
     appendArgument(interval.start, to: &arguments)
     appendArgument(interval.end, to: &arguments)
@@ -2760,7 +2852,7 @@ private func monthlySpendSeries(
             CAST(STRFTIME('%d', transactions.transaction_date) AS INTEGER) AS day,
             COALESCE(SUM(-transactions.amount), 0) AS spend
         FROM transactions
-        WHERE transactions.review_status = ?
+        WHERE transactions.is_hidden = 0
             AND transactions.direction = ?
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
@@ -2769,7 +2861,6 @@ private func monthlySpendSeries(
         ORDER BY day ASC
         """,
         arguments: [
-            TransactionReviewStatus.accepted.rawValue,
             TransactionDirection.expense.rawValue,
             interval.start,
             interval.end,
@@ -2807,9 +2898,9 @@ private func spendingDrivers(
             category_groups.name AS category_group_name,
             COALESCE(SUM(-transactions.amount), 0) AS spend
         FROM transactions
-        JOIN categories ON categories.id = transactions.category_id
+        LEFT JOIN categories ON categories.id = transactions.category_id
         LEFT JOIN category_groups ON category_groups.id = categories.category_group_id
-        WHERE transactions.review_status = ?
+        WHERE transactions.is_hidden = 0
             AND transactions.direction = ?
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
@@ -2821,7 +2912,6 @@ private func spendingDrivers(
             category_groups.name
         """,
         arguments: [
-            TransactionReviewStatus.accepted.rawValue,
             TransactionDirection.expense.rawValue,
             currentInterval.start,
             currentInterval.end,
@@ -2837,9 +2927,9 @@ private func spendingDrivers(
             category_groups.name AS category_group_name,
             COALESCE(SUM(-transactions.amount), 0) AS spend
         FROM transactions
-        JOIN categories ON categories.id = transactions.category_id
+        LEFT JOIN categories ON categories.id = transactions.category_id
         LEFT JOIN category_groups ON category_groups.id = categories.category_group_id
-        WHERE transactions.review_status = ?
+        WHERE transactions.is_hidden = 0
             AND transactions.direction = ?
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
@@ -2851,7 +2941,6 @@ private func spendingDrivers(
             category_groups.name
         """,
         arguments: [
-            TransactionReviewStatus.accepted.rawValue,
             TransactionDirection.expense.rawValue,
             comparisonInterval.start,
             comparisonInterval.end,
@@ -2899,7 +2988,12 @@ private func spendingDriverRollup(from row: Row) throws -> SpendingDriverRollup 
         )
     }
 
-    let categoryIDText: String = row["category_id"]
+    guard let categoryIDText = row["category_id"] as String? else {
+        return SpendingDriverRollup(
+            title: "Uncategorized",
+            scope: .uncategorized
+        )
+    }
     guard let categoryID = UUID(uuidString: categoryIDText) else {
         throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: categoryIDText)
     }
@@ -2932,10 +3026,12 @@ private func compareMonthlySpendingDrivers(_ lhs: MonthlySpendingDriver, _ rhs: 
 
 private func spendingDriverScopeSortKey(_ scope: SpendingDriverScope) -> String {
     switch scope {
-    case .category(let id):
-        return "category:\(id.uuidString)"
-    case .categoryGroup(let id):
-        return "categoryGroup:\(id.uuidString)"
+        case .category(let id):
+            return "category:\(id.uuidString)"
+        case .categoryGroup(let id):
+            return "categoryGroup:\(id.uuidString)"
+        case .uncategorized:
+            return "uncategorized"
     }
 }
 

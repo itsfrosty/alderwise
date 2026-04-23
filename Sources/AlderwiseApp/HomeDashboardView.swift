@@ -114,11 +114,11 @@ struct HomeDashboardView: View {
             Text(currency(snapshot.monthlyReport.currentMonthAcceptedSpend))
                 .font(.system(size: 38, weight: .semibold))
 
-            Text("Last month closed at \(currency(snapshot.monthlyReport.lastMonthAcceptedSpend)) on the same accepted-spend basis.")
+            Text("Last month closed at \(currency(snapshot.monthlyReport.lastMonthAcceptedSpend)) on the same visible-expense basis.")
                 .foregroundStyle(.secondary)
 
             if snapshot.monthlyReport.pendingReviewCount > 0 {
-                Text("\(snapshot.monthlyReport.pendingReviewCount) review item(s) can still change this accepted-only status.")
+                Text("\(snapshot.monthlyReport.pendingReviewCount) review item(s) can still recategorize some visible spend.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .padding(12)

@@ -48,12 +48,16 @@ struct TransactionLedgerHeaderView: View {
         switch chip {
         case .search(let text):
             return "Search: \(text)"
+        case .visibility:
+            return "Visibility: \(chip.text())"
         case .account(_, let name):
             return "Account: \(name)"
         case .category(_, let name):
             return "Category: \(name)"
         case .categoryGroup(_, let name):
             return "Group: \(name)"
+        case .uncategorized:
+            return "Category: Uncategorized"
         case .direction:
             return chip.text()
         case .review:
@@ -69,12 +73,23 @@ struct TransactionLedgerHeaderView: View {
         switch chip {
         case .search:
             return "magnifyingglass"
+        case .visibility(let visibility):
+            return switch visibility {
+            case .active:
+                "eye"
+            case .hidden:
+                "eye.slash"
+            case .all:
+                "tray.full"
+            }
         case .account:
             return "building.columns"
         case .category:
             return "tag"
         case .categoryGroup:
             return "square.stack.3d.up"
+        case .uncategorized:
+            return "questionmark.circle"
         case .direction:
             return "arrow.left.arrow.right"
         case .review:
