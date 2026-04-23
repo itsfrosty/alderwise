@@ -64,6 +64,7 @@ public struct TransactionLedgerRow: Identifiable, Equatable, Sendable {
     public var id: UUID
     public var accountID: UUID
     public var accountName: String
+    public var isHidden: Bool
     public var categoryID: UUID?
     public var categoryName: String?
     public var rawDescription: String
@@ -79,6 +80,7 @@ public struct TransactionLedgerRow: Identifiable, Equatable, Sendable {
         id: UUID,
         accountID: UUID,
         accountName: String,
+        isHidden: Bool = false,
         categoryID: UUID?,
         categoryName: String?,
         rawDescription: String,
@@ -93,6 +95,7 @@ public struct TransactionLedgerRow: Identifiable, Equatable, Sendable {
         self.id = id
         self.accountID = accountID
         self.accountName = accountName
+        self.isHidden = isHidden
         self.categoryID = categoryID
         self.categoryName = categoryName
         self.rawDescription = rawDescription

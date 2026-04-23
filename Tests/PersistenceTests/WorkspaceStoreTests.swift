@@ -1839,6 +1839,145 @@ func bootstrapAcceptsPreviouslyUserCategorizedPendingTransactions() throws {
 }
 
 @Test
+func bootstrapAddsHiddenFlagAndDefaultsLegacyTransactionsToIncluded() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000417")!
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000418")!
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO accounts (id, name, kind, institution_name, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                accountID.uuidString,
+                "Checking",
+                "checking",
+                "Local Bank",
+                Date(timeIntervalSince1970: 1_775_171_200),
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO transactions (
+                id,
+                account_id,
+                raw_description,
+                normalized_merchant_name,
+                amount,
+                transaction_date,
+                direction,
+                decision_source,
+                review_status,
+                duplicate_status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                transactionID.uuidString,
+                accountID.uuidString,
+                "Legacy grocery",
+                "legacy grocery",
+                -12.50,
+                Date(timeIntervalSince1970: 1_775_171_200),
+                "expense",
+                "user",
+                "accepted",
+                "none",
+            ]
+        )
+    }
+
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let rows = try store.fetchTransactionLedger(filter: .empty)
+    let row = try #require(rows.first)
+    let hiddenColumn = try queue.read { db in
+        try Bool.fetchOne(
+            db,
+            sql: "SELECT is_hidden FROM transactions WHERE id = ?",
+            arguments: [transactionID.uuidString]
+        )
+    }
+
+    #expect(row.id == transactionID)
+    #expect(row.isHidden == false)
+    #expect(hiddenColumn == false)
+}
+
+@Test
+func bootstrapRewritesLegacyRejectedTransactionsToPendingAndKeepsThemReadable() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000419")!
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000420")!
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO accounts (id, name, kind, institution_name, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                accountID.uuidString,
+                "Checking",
+                "checking",
+                "Local Bank",
+                Date(timeIntervalSince1970: 1_775_171_200),
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO transactions (
+                id,
+                account_id,
+                raw_description,
+                normalized_merchant_name,
+                amount,
+                transaction_date,
+                direction,
+                decision_source,
+                review_status,
+                duplicate_status
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                transactionID.uuidString,
+                accountID.uuidString,
+                "Legacy rejected row",
+                "legacy rejected row",
+                -18.00,
+                Date(timeIntervalSince1970: 1_775_171_200),
+                "expense",
+                "user",
+                "rejected",
+                "none",
+            ]
+        )
+    }
+
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let detail = try #require(try store.fetchTransactionDetail(id: transactionID))
+    let storedStatus = try queue.read { db in
+        try String.fetchOne(
+            db,
+            sql: "SELECT review_status FROM transactions WHERE id = ?",
+            arguments: [transactionID.uuidString]
+        )
+    }
+
+    #expect(detail.row.reviewStatus == .pending)
+    #expect(detail.row.isHidden == false)
+    #expect(storedStatus == TransactionReviewStatus.pending.rawValue)
+}
+
+@Test
 func monthlyReportCountsOnlyAcceptedCurrentMonthExpenses() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

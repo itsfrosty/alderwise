@@ -96,6 +96,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 table.column("import_session_id", .integer).references("import_sessions", onDelete: .setNull)
                 table.column("merchant_id", .text).references("merchants", onDelete: .setNull)
                 table.column("category_id", .text).references("categories", onDelete: .setNull)
+                table.column("is_hidden", .boolean).notNull().defaults(to: false)
                 table.column("raw_description", .text).notNull()
                 table.column("normalized_merchant_name", .text)
                 table.column("amount", .double).notNull()
@@ -415,6 +416,32 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
             let accountColumns = try columnNames(in: "accounts", db: db)
             if !accountColumns.contains("archived_at") {
                 try db.execute(sql: "ALTER TABLE accounts ADD COLUMN archived_at DATETIME")
+            }
+        }
+        migrator.registerMigration("add-transaction-hidden-state") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            guard try db.tableExists("transactions") else {
+                return
+            }
+
+            let transactionColumns = try columnNames(in: "transactions", db: db)
+            if !transactionColumns.contains("is_hidden") {
+                try db.execute(sql: "ALTER TABLE transactions ADD COLUMN is_hidden BOOLEAN NOT NULL DEFAULT 0")
+            }
+
+            if transactionColumns.contains("review_status") {
+                try db.execute(
+                    sql: """
+                    UPDATE transactions
+                    SET review_status = ?
+                    WHERE review_status = ?
+                    """,
+                    arguments: [
+                        TransactionReviewStatus.pending.rawValue,
+                        TransactionReviewStatus.rejected.rawValue,
+                    ]
+                )
             }
         }
 
@@ -2566,6 +2593,7 @@ private func transactionLedgerQuery(
             transactions.id,
             transactions.account_id,
             accounts.name AS account_name,
+            transactions.is_hidden,
             transactions.category_id,
             categories.name AS category_name,
             transactions.raw_description,
@@ -2650,6 +2678,7 @@ private func transactionLedgerRow(from row: Row) throws -> TransactionLedgerRow 
         id: id,
         accountID: accountID,
         accountName: row["account_name"],
+        isHidden: row["is_hidden"],
         categoryID: categoryID,
         categoryName: row["category_name"],
         rawDescription: rawDescription,
