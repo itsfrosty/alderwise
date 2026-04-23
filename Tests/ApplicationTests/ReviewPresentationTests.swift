@@ -18,10 +18,6 @@ func curatedPrefillUsesBuiltInReviewFirstCopyAndDisablesRuleLearningByDefault() 
     )
 
     #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Built-In Review-First: Groceries")
-    #expect(
-        presentation.starterHintCaption(for: item)
-            == "Built-In Review-First suggested category: Groceries. Review before accepting."
-    )
     #expect(presentation.initialCreateRuleValue(for: item) == false)
     #expect(
         presentation.initialRuleLearningSelection(for: item)
@@ -38,7 +34,6 @@ func nonCuratedItemsKeepExistingSubtitleBehaviorAndLeaveRuleLearningEnabled() {
     let presentation = ReviewPresentation(categories: [])
 
     #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Low confidence category suggestion.")
-    #expect(presentation.starterHintCaption(for: item) == nil)
     #expect(presentation.initialCreateRuleValue(for: item) == true)
     #expect(
         presentation.initialRuleLearningSelection(for: item)
@@ -161,7 +156,6 @@ func curatedPrefillFallsBackToGenericHintWhenCategoryNameIsWhitespace() {
     )
 
     #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Built-In Review-First")
-    #expect(presentation.starterHintCaption(for: item) == "Built-In Review-First suggestion. Review before accepting.")
 }
 
 @Test

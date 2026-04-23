@@ -34,16 +34,6 @@ public struct ReviewPresentation: Sendable {
         .joined(separator: " · ")
     }
 
-    public func starterHintCaption(for item: PendingReviewItem) -> String? {
-        guard isCuratedPrefill(item) else {
-            return nil
-        }
-        if let categoryName = starterHintCategoryName(for: item) {
-            return "\(RuleDisplayText.builtInReviewFirst) suggested category: \(categoryName). Review before accepting."
-        }
-        return "\(RuleDisplayText.builtInReviewFirst) suggestion. Review before accepting."
-    }
-
     public func initialCreateRuleValue(for item: PendingReviewItem) -> Bool {
         !isCuratedPrefill(item)
     }
