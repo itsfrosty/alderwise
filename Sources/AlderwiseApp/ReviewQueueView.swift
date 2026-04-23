@@ -47,6 +47,7 @@ struct ReviewQueueView: View {
 
             ReviewQueueDetail(
                 item: selectedItem,
+                model: model,
                 presentation: presentation,
                 categories: snapshot.categories,
                 categoryGroups: snapshot.categoryGroups,
@@ -172,6 +173,7 @@ private struct ReviewQueueRow: View {
 
 private struct ReviewQueueDetail: View {
     let item: PendingReviewItem?
+    @ObservedObject var model: WorkspaceShellModel
     let presentation: ReviewPresentation
     let categories: [BudgetCategory]
     let categoryGroups: [BudgetCategoryGroup]
@@ -234,9 +236,20 @@ private struct ReviewQueueDetail: View {
                 .formStyle(.grouped)
                 .onAppear {
                     load(item)
+                    refreshPreview(for: item)
                 }
                 .onChange(of: item) { _, newItem in
                     load(newItem)
+                    refreshPreview(for: newItem)
+                }
+                .onChange(of: merchantName) { _, _ in
+                    refreshPreview(for: item)
+                }
+                .onChange(of: createRule) { _, _ in
+                    refreshPreview(for: item)
+                }
+                .onChange(of: selectedRuleLearning) { _, _ in
+                    refreshPreview(for: item)
                 }
             } else {
                 VStack(spacing: 16) {
@@ -251,6 +264,9 @@ private struct ReviewQueueDetail: View {
                         }
                     }
                 }
+                .onAppear {
+                    model.clearReviewRulePreview()
+                }
             }
         }
         .padding()
@@ -258,10 +274,12 @@ private struct ReviewQueueDetail: View {
 
     private func classificationControls(for item: PendingReviewItem) -> some View {
         let learningOptions = ruleLearningOptions(for: item)
+        let resolvedRuleLearning = resolvedRuleLearning(for: item)
+        let previewKey = makePreviewKey(for: item, resolvedRuleLearning: resolvedRuleLearning)
         let consequenceLines = presentation.staticConsequences(
             for: item,
             createRule: createRule,
-            selectedRuleLearning: selectedRuleLearning
+            selectedRuleLearning: resolvedRuleLearning
         )
 
         return VStack(alignment: .leading, spacing: 12) {
@@ -280,14 +298,19 @@ private struct ReviewQueueDetail: View {
                         Text(optionPickerLabel(option)).tag(Optional(option))
                     }
                 }
-                if let selectedRuleLearning {
-                    Text(selectedRuleLearning.detail)
+                if let resolvedRuleLearning {
+                    Text(resolvedRuleLearning.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
             if !consequenceLines.isEmpty {
                 ReviewConsequenceSummary(lines: consequenceLines)
+            }
+            if let previewKey {
+                ReviewRulePreviewSummary(
+                    phase: model.reviewRulePreviewPhase(for: previewKey)
+                )
             }
             Button("Approve Category") {
                 guard let selectedCategoryID else {
@@ -299,7 +322,7 @@ private struct ReviewQueueDetail: View {
                         categoryID: selectedCategoryID,
                         merchantName: merchantName.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
                     ),
-                    createRule ? resolvedRuleLearning(for: item) : nil
+                    createRule ? resolvedRuleLearning : nil
                 )
             }
             .buttonStyle(.borderedProminent)
@@ -337,6 +360,120 @@ private struct ReviewQueueDetail: View {
         case .prefixNormalizedMerchant(let pattern):
             "Shared prefix: \(pattern)"
         }
+    }
+
+    private func refreshPreview(for item: PendingReviewItem?) {
+        guard let item else {
+            model.clearReviewRulePreview()
+            return
+        }
+        let resolvedRuleLearning = resolvedRuleLearning(for: item)
+        guard let previewKey = makePreviewKey(for: item, resolvedRuleLearning: resolvedRuleLearning) else {
+            model.clearReviewRulePreview()
+            return
+        }
+
+        model.scheduleReviewRulePreview(
+            reviewItemID: previewKey.reviewItemID,
+            createRuleEnabled: previewKey.createRuleEnabled,
+            merchantName: previewKey.merchantName,
+            merchantPattern: previewKey.merchantPattern,
+            matchKind: previewKey.matchKind
+        )
+    }
+
+    private func makePreviewKey(
+        for item: PendingReviewItem,
+        resolvedRuleLearning: ReviewRuleLearningOption?
+    ) -> WorkspaceShellModel.ReviewRulePreviewKey? {
+        guard item.type == .lowConfidenceCategory else {
+            return nil
+        }
+
+        return WorkspaceShellModel.ReviewRulePreviewKey(
+            reviewItemID: item.id,
+            createRuleEnabled: createRule,
+            merchantName: merchantName,
+            merchantPattern: resolvedRuleLearning?.pattern
+                ?? item.classification?.normalizedMerchantName
+                ?? "",
+            matchKind: resolvedRuleLearning?.matchKind ?? .exactNormalizedMerchant
+        )
+    }
+}
+
+private struct ReviewRulePreviewSummary: View {
+    let phase: WorkspaceShellModel.ReviewRulePreviewPhase
+
+    var body: some View {
+        switch phase {
+        case .loading:
+            previewContainer {
+                ProgressView("Checking matching transactions…")
+                    .font(.caption)
+                    .controlSize(.small)
+            }
+        case .ready(let preview):
+            previewContainer {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(readyTitle(for: preview))
+                        .font(.caption.weight(.semibold))
+                    if let detail = readyDetail(for: preview) {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        case .noEligiblePreview:
+            previewContainer {
+                Text("Enable Learn this merchant rule to preview additional matches.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .unavailable:
+            previewContainer {
+                Text("Preview is unavailable in this workspace.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .error(let message):
+            previewContainer {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Preview failed.")
+                        .font(.caption.weight(.semibold))
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func previewContainer<Content: View>(
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 0, content: content)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func readyTitle(for preview: LearnedRuleImpactPreview) -> String {
+        if preview.matchedAcceptedTransactionCount == 0,
+           preview.matchedPendingReviewItemCount == 0 {
+            return "Saving this rule would not affect any other items."
+        }
+
+        return "Saving this rule would affect \(preview.matchedAcceptedTransactionCount) accepted transaction\(preview.matchedAcceptedTransactionCount == 1 ? "" : "s") and \(preview.matchedPendingReviewItemCount) pending review item\(preview.matchedPendingReviewItemCount == 1 ? "" : "s")."
+    }
+
+    private func readyDetail(for preview: LearnedRuleImpactPreview) -> String? {
+        guard preview.matchedAcceptedTransactionCount != 0 || preview.matchedPendingReviewItemCount != 0 else {
+            return nil
+        }
+
+        return "The current review item is excluded from this count."
     }
 }
 
