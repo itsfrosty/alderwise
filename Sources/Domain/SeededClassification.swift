@@ -155,7 +155,8 @@ public enum SeededClassification {
             merchantPattern: pattern,
             categoryID: categoryID,
             merchantName: merchantName,
-            matchKind: .contains
+            matchKind: .contains,
+            sourceReferenceKind: .seededSourceID
         )
     }
 

@@ -4,7 +4,7 @@ import Foundation
 import Testing
 
 @Test
-func curatedPrefillUsesStarterHintCopyAndDisablesRuleLearningByDefault() {
+func curatedPrefillUsesBuiltInReviewFirstCopyAndDisablesRuleLearningByDefault() {
     let groceriesID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let item = makeReviewItem(
         source: .curatedPrefill,
@@ -17,11 +17,7 @@ func curatedPrefillUsesStarterHintCopyAndDisablesRuleLearningByDefault() {
         ]
     )
 
-    #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Starter hint: Groceries")
-    #expect(
-        presentation.starterHintCaption(for: item)
-            == "Starter hint: Suggested category is Groceries. Review before accepting."
-    )
+    #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Built-In Review-First: Groceries")
     #expect(presentation.initialCreateRuleValue(for: item) == false)
     #expect(
         presentation.initialRuleLearningSelection(for: item)
@@ -38,7 +34,6 @@ func nonCuratedItemsKeepExistingSubtitleBehaviorAndLeaveRuleLearningEnabled() {
     let presentation = ReviewPresentation(categories: [])
 
     #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Low confidence category suggestion.")
-    #expect(presentation.starterHintCaption(for: item) == nil)
     #expect(presentation.initialCreateRuleValue(for: item) == true)
     #expect(
         presentation.initialRuleLearningSelection(for: item)
@@ -47,10 +42,153 @@ func nonCuratedItemsKeepExistingSubtitleBehaviorAndLeaveRuleLearningEnabled() {
 }
 
 @Test
+func staticConsequencesDescribeWhetherApprovalCreatesALearnedRule() {
+    let item = makeReviewItem(
+        source: .heuristic,
+        reason: "Low confidence category suggestion."
+    )
+    let presentation = ReviewPresentation(categories: [])
+
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: true,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving saves an Exact merchant rule in Your Rules for coffee shop.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: false,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving updates this transaction only. No learned rule will be created.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+}
+
+@Test
+func curatedPrefillConsequencesExplainBuiltInReviewFirstBehavior() {
+    let groceriesID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let item = makeReviewItem(
+        source: .curatedPrefill,
+        reason: "Curated starter match requires review before acceptance.",
+        categoryID: groceriesID
+    )
+    let presentation = ReviewPresentation(
+        categories: [
+            BudgetCategory(id: groceriesID, name: "Groceries", kind: .expense),
+        ]
+    )
+
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: false,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Built-In Review-First suggestions stay review-only until you approve them.",
+                emphasis: .neutral
+            ),
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving updates this transaction only. No learned rule will be created.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+}
+
+@Test
+func prefixLearningConsequencesIncludeBroadScopeWarning() {
+    let item = makeReviewItem(
+        source: .heuristic,
+        reason: "Low confidence category suggestion.",
+        normalizedMerchantName: "99pledg onir baweja"
+    )
+    let presentation = ReviewPresentation(categories: [])
+
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: true,
+            selectedRuleLearning: .prefixNormalizedMerchant(pattern: "99pledg")
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving saves a Shared prefix rule in Your Rules for 99pledg.",
+                emphasis: .neutral
+            ),
+            ReviewPresentation.ConsequenceLine(
+                text: "Shared prefix can match multiple future merchants that start with 99pledg.",
+                emphasis: .warning
+            ),
+        ]
+    )
+}
+
+@Test
 func sourceLabelsUseHumanReadableStrings() {
-    #expect(ReviewPresentation.sourceLabel(for: .curatedPrefill) == "Curated starter match")
+    #expect(ReviewPresentation.sourceLabel(for: .curatedPrefill) == "Built-In Review-First")
     #expect(ReviewPresentation.sourceLabel(for: .rule) == "Rule")
     #expect(ReviewPresentation.sourceLabel(for: nil) == "Unclassified")
+}
+
+@Test
+func ruleProvenanceUsesSpecificSourceLabelsInTransactionDetail() {
+    let learnedProvenance = TransactionRuleProvenance.learnedRule(
+        TransactionLearnedRuleProvenance(
+            id: UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!,
+            merchantPattern: "coffee shop",
+            categoryID: nil,
+            categoryName: nil,
+            merchantName: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant,
+            lifecycle: .active
+        )
+    )
+    let deterministicProvenance = TransactionRuleProvenance.seededSource(
+        TransactionSeededRuleSourceProvenance(
+            id: "deterministic-source",
+            kind: .deterministicRule,
+            merchantPattern: "costco",
+            categoryID: UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!,
+            categoryName: "Groceries",
+            merchantName: "Costco",
+            matchKind: .contains
+        )
+    )
+    let curatedProvenance = TransactionRuleProvenance.seededSource(
+        TransactionSeededRuleSourceProvenance(
+            id: "curated-source",
+            kind: .curatedPrefill,
+            merchantPattern: "coffee shop",
+            categoryID: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!,
+            categoryName: "Coffee Shops",
+            merchantName: "Coffee Shop",
+            matchKind: .contains
+        )
+    )
+
+    #expect(
+        ReviewPresentation.sourceLabel(for: .rule, ruleProvenance: learnedProvenance)
+            == RuleDisplayText.yourRules
+    )
+    #expect(
+        ReviewPresentation.sourceLabel(for: .rule, ruleProvenance: deterministicProvenance)
+            == RuleDisplayText.builtInAutoApplied
+    )
+    #expect(
+        ReviewPresentation.sourceLabel(for: .rule, ruleProvenance: curatedProvenance)
+            == RuleDisplayText.builtInReviewFirst
+    )
 }
 
 @Test
@@ -67,8 +205,7 @@ func curatedPrefillFallsBackToGenericHintWhenCategoryNameIsWhitespace() {
         ]
     )
 
-    #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Starter hint")
-    #expect(presentation.starterHintCaption(for: item) == "Starter hint: Review before accepting.")
+    #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Built-In Review-First")
 }
 
 @Test

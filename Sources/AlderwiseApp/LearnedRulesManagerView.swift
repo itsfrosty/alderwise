@@ -164,24 +164,51 @@ struct LearnedRulesManagerView: View {
         } message: { _ in
             Text("Disabling this rule only changes future classifications. Accepted transactions stay unchanged.")
         }
+        .sheet(item: learnedRuleDraftSheetBinding) { sheet in
+            LearnedRuleDraftSheetView(
+                sheet: sheet,
+                categories: categories,
+                draft: learnedRuleDraftBinding,
+                previewPhase: model.learnedRuleDraftPreviewState?.phase,
+                onCancel: {
+                    model.dismissLearnedRuleDraftSheet()
+                },
+                onSave: {
+                    _ = model.saveLearnedRuleDraft()
+                }
+            )
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 18) {
-            Button {
-                model.selectSettingsDestination(.overview)
-            } label: {
-                Label("Back to Settings", systemImage: "chevron.left")
-            }
-            .buttonStyle(.plain)
+            HStack(alignment: .top, spacing: 16) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Button {
+                        model.selectSettingsDestination(.overview)
+                    } label: {
+                        Label("Back to Settings", systemImage: "chevron.left")
+                    }
+                    .buttonStyle(.plain)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Rules")
-                    .font(.largeTitle.bold())
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Rules")
+                            .font(.largeTitle.bold())
 
-                Text("Learned rules plus Alderwise's included deterministic rules and starter prefills.")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: 720, alignment: .leading)
+                        Text("\(RuleDisplayText.yourRules), \(RuleDisplayText.builtInAutoApplied), and \(RuleDisplayText.builtInReviewFirst) in one place.")
+                            .foregroundStyle(.secondary)
+                            .frame(maxWidth: 720, alignment: .leading)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Button {
+                    model.beginNewLearnedRule()
+                } label: {
+                    Label("New Rule", systemImage: "plus")
+                }
+                .buttonStyle(.borderedProminent)
             }
         }
     }
@@ -211,8 +238,8 @@ struct LearnedRulesManagerView: View {
                     }
                 } header: {
                     RulesSectionHeader(
-                        title: "Learned",
-                        subtitle: "From review decisions"
+                        title: ManagedLearnedRuleRow.sectionTitle,
+                        subtitle: ManagedLearnedRuleRow.sectionSubtitle
                     )
                 }
             }
@@ -228,8 +255,8 @@ struct LearnedRulesManagerView: View {
                     }
                 } header: {
                     RulesSectionHeader(
-                        title: "Deterministic Rules",
-                        subtitle: "Included with App"
+                        title: SeededRuleSourceKind.deterministicRule.sectionTitle,
+                        subtitle: SeededRuleSourceKind.deterministicRule.sectionSubtitle
                     )
                 }
             }
@@ -245,8 +272,8 @@ struct LearnedRulesManagerView: View {
                     }
                 } header: {
                     RulesSectionHeader(
-                        title: "Starter Prefills",
-                        subtitle: "Included with App"
+                        title: SeededRuleSourceKind.curatedPrefill.sectionTitle,
+                        subtitle: SeededRuleSourceKind.curatedPrefill.sectionSubtitle
                     )
                 }
             }
@@ -260,6 +287,15 @@ struct LearnedRulesManagerView: View {
             LearnedRuleDetailView(
                 row: selectedLearnedRule,
                 categoryName: categoryName(for: selectedLearnedRule.categoryID),
+                onViewMatchingTransactions: {
+                    model.showTransactions(
+                        filter: selectedLearnedRule.matchingTransactionsFilter,
+                        clearSelection: true
+                    )
+                },
+                onDuplicate: {
+                    _ = model.beginDuplicateLearnedRule(id: selectedLearnedRule.id)
+                },
                 onDisable: {
                     pendingDisableRule = selectedLearnedRule
                 },
@@ -268,7 +304,7 @@ struct LearnedRulesManagerView: View {
                 }
             )
         } else if let selectedSeededRule {
-            SeededRuleDetailView(
+            SeededRuleDetailPanel(
                 row: selectedSeededRule,
                 categoryName: categoryName(for: selectedSeededRule.categoryID)
             )
@@ -300,6 +336,26 @@ struct LearnedRulesManagerView: View {
         )
     }
 
+    private var learnedRuleDraftSheetBinding: Binding<LearnedRuleDraftSheet?> {
+        Binding(
+            get: { model.learnedRuleDraftSheet },
+            set: { sheet in
+                if sheet == nil {
+                    model.dismissLearnedRuleDraftSheet()
+                }
+            }
+        )
+    }
+
+    private var learnedRuleDraftBinding: Binding<LearnedRuleDraft> {
+        Binding(
+            get: { model.learnedRuleDraftSheet?.draft ?? LearnedRuleDraft() },
+            set: { draft in
+                model.updateLearnedRuleDraft(draft)
+            }
+        )
+    }
+
     private func syncDestination(_ destination: LearnedRulesDestination, force: Bool) {
         guard force || lastSyncedDestination != destination else {
             return
@@ -308,8 +364,13 @@ struct LearnedRulesManagerView: View {
         lastSyncedDestination = destination
         searchText = ""
 
-        if let selectedLearnedRuleID = destination.selectedLearnedRuleID {
-            selectedRowID = .learned(selectedLearnedRuleID)
+        if let selection = destination.selection {
+            switch selection {
+            case .learnedRule(let id):
+                selectedRowID = .learned(id)
+            case .seededSource(let id):
+                selectedRowID = .seeded(id)
+            }
             return
         }
 
@@ -392,7 +453,7 @@ struct LearnedRulesManagerView: View {
 
         return row.merchantPattern.lowercased().contains(query)
             || row.merchantName?.lowercased().contains(query) == true
-            || scopeLabel(for: row.matchKind).lowercased().contains(query)
+            || row.matchKind.ruleDisplayLabel.lowercased().contains(query)
             || statusLabel(for: row).lowercased().contains(query)
             || categoryName(for: row.categoryID)?.lowercased().contains(query) == true
     }
@@ -405,20 +466,9 @@ struct LearnedRulesManagerView: View {
 
         return row.merchantPattern.lowercased().contains(query)
             || row.merchantName?.lowercased().contains(query) == true
-            || scopeLabel(for: row.matchKind).lowercased().contains(query)
+            || row.matchKind.ruleDisplayLabel.lowercased().contains(query)
             || sourceTypeLabel(for: row).lowercased().contains(query)
             || categoryName(for: row.categoryID)?.lowercased().contains(query) == true
-    }
-
-    private func scopeLabel(for matchKind: ClassificationRuleMatchKind) -> String {
-        switch matchKind {
-        case .contains:
-            "Contains"
-        case .exactNormalizedMerchant:
-            "Exact merchant"
-        case .prefixNormalizedMerchant:
-            "Shared prefix"
-        }
     }
 
     private func statusLabel(for row: ManagedLearnedRuleRow) -> String {
@@ -426,12 +476,7 @@ struct LearnedRulesManagerView: View {
     }
 
     private func sourceTypeLabel(for row: SeededRuleSourceRow) -> String {
-        switch row.sourceKind {
-        case .deterministicRule:
-            "Deterministic rule"
-        case .curatedPrefill:
-            "Curated starter prefill"
-        }
+        row.sourceKind.sectionTitle
     }
 }
 
@@ -494,7 +539,7 @@ private struct LearnedRuleRowView: View {
     }
 
     private var subtitle: String {
-        var parts: [String] = [scopeText]
+        var parts: [String] = [row.matchKind.ruleDisplayLabel]
         if let categoryName {
             parts.append(categoryName)
         } else {
@@ -506,17 +551,6 @@ private struct LearnedRuleRowView: View {
         return parts.joined(separator: " · ")
     }
 
-    private var scopeText: String {
-        switch row.matchKind {
-        case .contains:
-            "Contains"
-        case .exactNormalizedMerchant:
-            "Exact merchant"
-        case .prefixNormalizedMerchant:
-            "Shared prefix"
-        }
-    }
-
     private var statusText: String {
         row.isDisabled ? "Disabled" : "Active"
     }
@@ -525,8 +559,15 @@ private struct LearnedRuleRowView: View {
 private struct LearnedRuleDetailView: View {
     let row: ManagedLearnedRuleRow
     let categoryName: String?
+    var onViewMatchingTransactions: () -> Void
+    var onDuplicate: () -> Void
     var onDisable: () -> Void
     var onEnable: () -> Void
+
+    private var supportsDuplicateDraft: Bool {
+        row.matchKind.isAdvancedManualAuthoringOption
+            || LearnedRuleDraftSheet.supportsBasicManualAuthoring(matchKind: row.matchKind)
+    }
 
     var body: some View {
         ScrollView {
@@ -535,7 +576,7 @@ private struct LearnedRuleDetailView: View {
                     Text(row.merchantPattern)
                         .font(.title2.bold())
                     HStack(spacing: 8) {
-                        detailBadge(title: "Learned", tint: .accentColor)
+                        detailBadge(title: ManagedLearnedRuleRow.sectionTitle, tint: .accentColor)
                         detailBadge(title: statusText, tint: row.isDisabled ? .secondary : .green)
                     }
                     Text(detailSummary)
@@ -545,20 +586,38 @@ private struct LearnedRuleDetailView: View {
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                     detailRow(title: "Status", value: statusText)
-                    detailRow(title: "Match Scope", value: scopeText)
+                    detailRow(title: RuleDisplayText.matchedBy, value: row.matchKind.ruleDisplayLabel)
                     detailRow(title: "Category", value: categoryName ?? "No category")
                     detailRow(title: "Merchant Name", value: row.merchantName ?? "Not provided")
                     detailRow(title: "Created", value: row.createdAt.formatted(date: .abbreviated, time: .shortened))
                     if let disabledAt = row.disabledAt {
                         detailRow(title: "Disabled", value: disabledAt.formatted(date: .abbreviated, time: .shortened))
                     }
-                    detailRow(title: "Source", value: "Learned from Review")
+                    detailRow(title: "Source", value: ManagedLearnedRuleRow.detailSourceText)
                 }
 
                 Text(effectStatement)
                     .foregroundStyle(.secondary)
 
+                RulePrecedenceSection(precedenceExplanation: row.precedenceExplanation)
+
                 HStack(spacing: 12) {
+                    Button {
+                        onViewMatchingTransactions()
+                    } label: {
+                        Label("View Matching Transactions", systemImage: "list.bullet.rectangle")
+                    }
+                    .buttonStyle(.bordered)
+
+                    if supportsDuplicateDraft {
+                        Button {
+                            onDuplicate()
+                        } label: {
+                            Label("Duplicate Rule", systemImage: "plus.square.on.square")
+                        }
+                        .buttonStyle(.bordered)
+                    }
+
                     if row.isDisabled {
                         Button {
                             onEnable()
@@ -576,7 +635,6 @@ private struct LearnedRuleDetailView: View {
                         .tint(.red)
                     }
                 }
-
                 Spacer(minLength: 0)
             }
             .padding(24)
@@ -604,14 +662,61 @@ private struct LearnedRuleDetailView: View {
         row.isDisabled ? "Disabled" : "Active"
     }
 
-    private var scopeText: String {
-        switch row.matchKind {
-        case .contains:
-            "Contains"
-        case .exactNormalizedMerchant:
-            "Exact merchant"
-        case .prefixNormalizedMerchant:
-            "Shared prefix"
+    @ViewBuilder
+    private func detailRow(title: String, value: String) -> some View {
+        GridRow {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .textSelection(.enabled)
+        }
+    }
+
+    @ViewBuilder
+    private func detailBadge(title: String, tint: Color) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.thinMaterial, in: Capsule())
+    }
+}
+
+private struct SeededRuleDetailPanel: View {
+    let row: SeededRuleSourceRow
+    let categoryName: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(row.merchantPattern)
+                        .font(.title2.bold())
+                    HStack(spacing: 8) {
+                        detailBadge(title: row.sourceKind.sectionTitle, tint: .accentColor)
+                        detailBadge(title: "Read-only", tint: .secondary)
+                    }
+                    Text("This seeded source is read-only and cannot be edited, enabled, or disabled from this view.")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: 640, alignment: .leading)
+                }
+
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+                    detailRow(title: "Read-only", value: "Yes")
+                    detailRow(title: "Source type", value: row.sourceKind.detailSourceTypeText)
+                    detailRow(title: "Merchant pattern", value: row.merchantPattern)
+                    detailRow(title: RuleDisplayText.matchedBy, value: row.matchKind.ruleDisplayLabel)
+                    detailRow(title: "Category", value: categoryName ?? "No category")
+                    detailRow(title: "Merchant Name", value: row.merchantName ?? "Not provided")
+                }
+
+                RulePrecedenceSection(precedenceExplanation: row.precedenceExplanation)
+
+                Spacer(minLength: 0)
+            }
+            .padding(24)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
     }
 
@@ -633,5 +738,233 @@ private struct LearnedRuleDetailView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(.thinMaterial, in: Capsule())
+    }
+}
+
+private struct RulePrecedenceSection: View {
+    let precedenceExplanation: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Precedence")
+                .font(.headline)
+
+            Text(precedenceExplanation)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 420, alignment: .leading)
+    }
+}
+
+private struct LearnedRuleDraftSheetView: View {
+    let sheet: LearnedRuleDraftSheet
+    let categories: [BudgetCategory]
+    @Binding var draft: LearnedRuleDraft
+    let previewPhase: WorkspaceShellModel.ReviewRulePreviewPhase?
+    var onCancel: () -> Void
+    var onSave: () -> Void
+
+    @State private var isAdvancedExpanded = false
+
+    private var currentSheet: LearnedRuleDraftSheet {
+        var current = sheet
+        current.draft = draft
+        return current
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Rule") {
+                    TextField("Merchant Pattern", text: $draft.merchantPattern, axis: .vertical)
+                        .lineLimit(2, reservesSpace: true)
+
+                    if draft.matchKind.isAdvancedManualAuthoringOption {
+                        LabeledContent("Match Scope", value: draft.matchKind.ruleDisplayLabel)
+                    } else {
+                        Picker("Match Scope", selection: $draft.matchKind) {
+                            ForEach(currentSheet.allowedMatchKinds, id: \.self) { matchKind in
+                                Text(matchKind.ruleDisplayLabel).tag(matchKind)
+                            }
+                        }
+                    }
+
+                    Text(matchScopeHelpText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    DisclosureGroup("Advanced", isExpanded: advancedDisclosureBinding) {
+                        Button {
+                            draft.matchKind = .contains
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(ClassificationRuleMatchKind.contains.ruleDisplayLabel)
+                                    Text(ClassificationRuleMatchKind.contains.manualAuthoringHelpText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                if draft.matchKind == .contains {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(Color.accentColor)
+                                }
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        if draft.matchKind.isAdvancedManualAuthoringOption {
+                            Button("Switch back to Exact merchant") {
+                                draft.matchKind = .exactNormalizedMerchant
+                            }
+                            .font(.caption)
+                        }
+                    }
+
+                    if draft.matchKind == .contains {
+                        LearnedRuleDraftContainsPreviewView(
+                            warningText: draft.matchKind.manualAuthoringWarningText,
+                            previewPhase: previewPhase
+                        )
+                    }
+                }
+
+                Section("Assignment") {
+                    Picker("Category", selection: $draft.categoryID) {
+                        Text("Choose Category").tag(UUID?.none)
+                        ForEach(categories) { category in
+                            Text(category.name).tag(Optional(category.id))
+                        }
+                    }
+
+                    TextField("Merchant Name", text: merchantNameBinding, axis: .vertical)
+                        .lineLimit(2, reservesSpace: true)
+
+                    Text("Saving creates a new learned rule. Existing learned rules and built-in sources stay read-only here.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .formStyle(.grouped)
+            .navigationTitle(currentSheet.title)
+            .frame(minWidth: 520, minHeight: 340)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        onCancel()
+                    }
+                }
+
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(currentSheet.confirmationTitle) {
+                        onSave()
+                    }
+                    .disabled(canSave == false)
+                }
+            }
+        }
+    }
+
+    private var merchantNameBinding: Binding<String> {
+        Binding(
+            get: { draft.merchantName ?? "" },
+            set: { newValue in
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                draft.merchantName = trimmed.isEmpty ? nil : newValue
+            }
+        )
+    }
+
+    private var matchScopeHelpText: String {
+        draft.matchKind.manualAuthoringHelpText
+    }
+
+    private var canSave: Bool {
+        currentSheet.canSave
+    }
+
+    private var advancedDisclosureBinding: Binding<Bool> {
+        Binding(
+            get: { isAdvancedExpanded || draft.matchKind.isAdvancedManualAuthoringOption },
+            set: { isExpanded in
+                isAdvancedExpanded = isExpanded || draft.matchKind.isAdvancedManualAuthoringOption
+            }
+        )
+    }
+}
+
+private struct LearnedRuleDraftContainsPreviewView: View {
+    let warningText: String?
+    let previewPhase: WorkspaceShellModel.ReviewRulePreviewPhase?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let warningText {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.orange)
+                    Text(warningText)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            if let previewPhase {
+                previewSummary(for: previewPhase)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(.quaternary, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    @ViewBuilder
+    private func previewSummary(
+        for previewPhase: WorkspaceShellModel.ReviewRulePreviewPhase
+    ) -> some View {
+        switch previewPhase {
+        case .loading:
+            ProgressView("Checking matching transactions…")
+                .font(.caption)
+                .controlSize(.small)
+        case .ready(let preview):
+            VStack(alignment: .leading, spacing: 4) {
+                Text(readyTitle(for: preview))
+                    .font(.caption.weight(.semibold))
+                Text("Preview counts accepted transactions and pending review items that would match after saving.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        case .noEligiblePreview:
+            Text("Enter a merchant pattern to preview broader matches before saving.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .unavailable:
+            Text("Preview is unavailable in this workspace.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .error(let message):
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Preview failed.")
+                    .font(.caption.weight(.semibold))
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func readyTitle(for preview: LearnedRuleImpactPreview) -> String {
+        if preview.matchedAcceptedTransactionCount == 0,
+           preview.matchedPendingReviewItemCount == 0 {
+            return "This rule would not match any existing items right now."
+        }
+
+        return "This rule currently matches \(preview.matchedAcceptedTransactionCount) accepted transaction\(preview.matchedAcceptedTransactionCount == 1 ? "" : "s") and \(preview.matchedPendingReviewItemCount) pending review item\(preview.matchedPendingReviewItemCount == 1 ? "" : "s")."
     }
 }

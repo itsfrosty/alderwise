@@ -14,6 +14,43 @@ public enum ClassificationRuleMatchKind: String, Codable, Equatable, Sendable {
     case prefixNormalizedMerchant = "prefix_normalized_merchant"
 }
 
+public extension ClassificationRuleMatchKind {
+    var isAdvancedManualAuthoringOption: Bool {
+        self == .contains
+    }
+
+    var precedenceExplanation: String {
+        switch self {
+        case .exactNormalizedMerchant:
+            "Precedence: Exact merchant beats Shared prefix and Contains for the same merchant text."
+        case .prefixNormalizedMerchant:
+            "Precedence: Shared prefix beats Contains, but Exact merchant beats Shared prefix when both match."
+        case .contains:
+            "Precedence: Contains is checked after Exact merchant and Shared prefix."
+        }
+    }
+
+    var manualAuthoringHelpText: String {
+        switch self {
+        case .exactNormalizedMerchant:
+            "Exact merchant matches one normalized merchant name."
+        case .prefixNormalizedMerchant:
+            "Shared prefix matches merchants that start with the same normalized prefix."
+        case .contains:
+            "Contains matches any normalized merchant name that includes this text."
+        }
+    }
+
+    var manualAuthoringWarningText: String? {
+        switch self {
+        case .contains:
+            "Contains can match multiple merchants and may recategorize accepted transactions that are already in this workspace."
+        case .exactNormalizedMerchant, .prefixNormalizedMerchant:
+            nil
+        }
+    }
+}
+
 public struct ClassificationAssignment: Codable, Equatable, Sendable {
     public var categoryID: UUID
     public var merchantName: String?
@@ -24,25 +61,46 @@ public struct ClassificationAssignment: Codable, Equatable, Sendable {
     }
 }
 
+public enum ClassificationRuleSourceReferenceKind: Equatable, Sendable {
+    case learnedRuleID
+    case seededSourceID
+}
+
 public struct ClassificationRule: Equatable, Sendable {
     public var id: UUID
     public var merchantPattern: String
     public var categoryID: UUID
     public var merchantName: String?
     public var matchKind: ClassificationRuleMatchKind
+    public var sourceReferenceKind: ClassificationRuleSourceReferenceKind
 
     public init(
         id: UUID = UUID(),
         merchantPattern: String,
         categoryID: UUID,
         merchantName: String?,
-        matchKind: ClassificationRuleMatchKind = .contains
+        matchKind: ClassificationRuleMatchKind = .contains,
+        sourceReferenceKind: ClassificationRuleSourceReferenceKind = .learnedRuleID
     ) {
         self.id = id
         self.merchantPattern = merchantPattern
         self.categoryID = categoryID
         self.merchantName = merchantName
         self.matchKind = matchKind
+        self.sourceReferenceKind = sourceReferenceKind
+    }
+
+    public var sourceReference: String {
+        switch sourceReferenceKind {
+        case .learnedRuleID:
+            id.uuidString
+        case .seededSourceID:
+            seededSourceID
+        }
+    }
+
+    public var seededSourceID: String {
+        "deterministic:\(categoryID.uuidString.lowercased()):\(matchKind.rawValue):\(merchantPattern.normalizedClassificationPattern)"
     }
 }
 
@@ -178,6 +236,71 @@ public enum ReviewRuleLearningOption: Hashable, Codable, Equatable, Sendable {
         let hasLetter = token.range(of: #"[a-z]"#, options: .regularExpression) != nil
         let hasDigit = token.range(of: #"\d"#, options: .regularExpression) != nil
         return hasLetter && hasDigit
+    }
+}
+
+public struct LearnedRuleMatchCandidate: Equatable, Sendable {
+    public var normalizedMerchantName: String
+    public var rawDescription: String
+
+    public init(normalizedMerchantName: String, rawDescription: String) {
+        self.normalizedMerchantName = normalizedMerchantName
+        self.rawDescription = rawDescription
+    }
+}
+
+public enum LearnedRuleMatcher {
+    public static func normalizedUserEnteredMerchantText(_ userEnteredMerchantText: String) -> String {
+        MerchantNormalizer().normalize(userEnteredMerchantText)
+    }
+
+    public static func normalizedPattern(
+        _ merchantPattern: String,
+        fallbackPattern: String? = nil
+    ) -> String? {
+        merchantPattern
+            .normalizedClassificationPattern
+            .nilIfEmpty
+            ?? fallbackPattern?.normalizedClassificationPattern.nilIfEmpty
+    }
+
+    public static func matches(
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind,
+        candidate: LearnedRuleMatchCandidate,
+        merchantNormalizer: MerchantNormalizer = MerchantNormalizer()
+    ) -> Bool {
+        matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: candidate.normalizedMerchantName
+        ) || matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: merchantNormalizer.normalize(candidate.rawDescription)
+        )
+    }
+
+    public static func matches(
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind,
+        normalizedMerchantName: String
+    ) -> Bool {
+        normalizedMerchantName
+            .normalizedClassificationPattern
+            .matchesClassificationPattern(merchantPattern, matchKind: matchKind)
+    }
+
+    public static func testMatch(
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind,
+        userEnteredMerchantText: String
+    ) -> Bool {
+        matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: normalizedUserEnteredMerchantText(userEnteredMerchantText)
+        )
     }
 }
 
@@ -347,7 +470,7 @@ public struct ClassificationEngine: Sendable {
                 return .reviewRequired(
                     prefill: assignment,
                     source: .rule,
-                    sourceReference: rule.id.uuidString,
+                    sourceReference: rule.sourceReference,
                     confidence: 1.0,
                     reason: "Duplicate concern requires review."
                 )
@@ -356,7 +479,7 @@ public struct ClassificationEngine: Sendable {
             return .autoAccepted(
                 assignment: assignment,
                 source: .rule,
-                sourceReference: rule.id.uuidString,
+                sourceReference: rule.sourceReference,
                 confidence: 1.0,
                 reason: "Matched explicit merchant rule."
             )
@@ -465,18 +588,20 @@ private extension MatchKindOrdered {
 
 private extension ClassificationRule {
     func matches(_ candidate: NormalizedImportCandidate) -> Bool {
-        candidate.normalizedMerchantName.matchesClassificationPattern(
-            merchantPattern,
-            matchKind: matchKind
+        LearnedRuleMatcher.matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: candidate.normalizedMerchantName
         )
     }
 }
 
 private extension CuratedReviewPrefill {
     func matches(_ candidate: NormalizedImportCandidate) -> Bool {
-        candidate.normalizedMerchantName.matchesClassificationPattern(
-            merchantPattern,
-            matchKind: matchKind
+        LearnedRuleMatcher.matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: candidate.normalizedMerchantName
         )
     }
 }

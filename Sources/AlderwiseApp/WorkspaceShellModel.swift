@@ -21,6 +21,63 @@ final class WorkspaceShellModel: ObservableObject {
         case workspaceRestore
     }
 
+    struct ReviewRulePreviewKey: Hashable, Sendable {
+        var reviewItemID: UUID
+        var createRuleEnabled: Bool
+        var merchantPattern: String
+        var matchKind: ClassificationRuleMatchKind
+    }
+
+    enum ReviewRulePreviewPhase: Equatable, Sendable {
+        case loading
+        case ready(LearnedRuleImpactPreview)
+        case noEligiblePreview
+        case unavailable
+        case error(String)
+    }
+
+    struct ReviewRulePreviewState: Equatable, Sendable {
+        var key: ReviewRulePreviewKey
+        var phase: ReviewRulePreviewPhase
+    }
+
+    struct ReviewRulePreviewScheduleToken {
+        private let cancelOperation: @MainActor () -> Void
+
+        init(_ cancelOperation: @escaping @MainActor () -> Void = {}) {
+            self.cancelOperation = cancelOperation
+        }
+
+        @MainActor
+        func cancel() {
+            cancelOperation()
+        }
+    }
+
+    struct ReviewRulePreviewScheduler {
+        var schedule: @MainActor (
+            _ delay: Duration,
+            _ operation: @escaping @MainActor () async -> Void
+        ) -> ReviewRulePreviewScheduleToken
+
+        static let live = ReviewRulePreviewScheduler { delay, operation in
+            let task = Task { @MainActor in
+                do {
+                    try await Task.sleep(for: delay)
+                } catch {
+                    return
+                }
+                guard Task.isCancelled == false else {
+                    return
+                }
+                await operation()
+            }
+            return ReviewRulePreviewScheduleToken {
+                task.cancel()
+            }
+        }
+    }
+
     @Published private(set) var state: State = .loading
     @Published var isPresentingAccountSheet = false
     @Published var isPresentingFileImporter = false
@@ -49,19 +106,49 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var latestMaintenanceOutcome: WorkspaceMaintenanceOutcome?
     @Published private(set) var latestMaintenanceFailure: WorkspaceMaintenanceFailure?
     @Published private(set) var workspaceStatus: WorkspaceStatus = .loading
+    @Published private(set) var reviewRulePreviewState: ReviewRulePreviewState?
+    @Published private(set) var learnedRuleDraftPreviewState: ReviewRulePreviewState?
+    @Published private(set) var learnedRuleDraftSheet: LearnedRuleDraftSheet?
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
     private let csvImportPreviewService: CSVImportPreviewService
+    private let reviewRulePreviewScheduler: ReviewRulePreviewScheduler
+    private let reviewRulePreviewLoader: @MainActor @Sendable (ReviewRulePreviewKey) async throws -> LearnedRuleImpactPreviewState
+    private let reviewRulePreviewDebounceDelay: Duration
+    private var scheduledReviewRulePreview: ReviewRulePreviewScheduleToken?
+    private var scheduledLearnedRuleDraftPreview: ReviewRulePreviewScheduleToken?
+    private var preservesClearedTransactionSelectionOnNextReload = false
+
+    private static let learnedRuleDraftPreviewItemID = UUID(
+        uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff"
+    )!
 
     init(
         store: WorkspaceStore?,
         service: WorkspaceService?,
-        csvImportPreviewService: CSVImportPreviewService = CSVImportPreviewService()
+        csvImportPreviewService: CSVImportPreviewService = CSVImportPreviewService(),
+        reviewRulePreviewScheduler: ReviewRulePreviewScheduler = .live,
+        reviewRulePreviewLoader: (@MainActor @Sendable (ReviewRulePreviewKey) async throws -> LearnedRuleImpactPreviewState)? = nil,
+        reviewRulePreviewDebounceDelay: Duration = .milliseconds(250)
     ) {
         self.store = store
         self.service = service
         self.csvImportPreviewService = csvImportPreviewService
+        self.reviewRulePreviewScheduler = reviewRulePreviewScheduler
+        self.reviewRulePreviewDebounceDelay = reviewRulePreviewDebounceDelay
+        self.reviewRulePreviewLoader = reviewRulePreviewLoader ?? { [service] key in
+            guard let service else {
+                return .unavailable
+            }
+
+            return try service.previewLearnedRuleImpact(
+                reviewItemID: key.reviewItemID,
+                createRuleEnabled: key.createRuleEnabled,
+                merchantPattern: key.merchantPattern,
+                matchKind: key.matchKind
+            )
+        }
         reload()
     }
 
@@ -99,6 +186,46 @@ final class WorkspaceShellModel: ObservableObject {
         workspaceStatus.metadata
     }
 
+    func scheduleReviewRulePreview(
+        reviewItemID: UUID,
+        createRuleEnabled: Bool,
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind
+    ) {
+        let key = ReviewRulePreviewKey(
+            reviewItemID: reviewItemID,
+            createRuleEnabled: createRuleEnabled,
+            merchantPattern: merchantPattern,
+            matchKind: matchKind
+        )
+
+        if reviewRulePreviewState?.key == key,
+           reviewRulePreviewState?.phase == .loading {
+            return
+        }
+
+        scheduledReviewRulePreview?.cancel()
+        scheduledReviewRulePreview = nil
+
+        if createRuleEnabled == false {
+            reviewRulePreviewState = ReviewRulePreviewState(key: key, phase: .noEligiblePreview)
+            return
+        }
+
+        reviewRulePreviewState = ReviewRulePreviewState(key: key, phase: .loading)
+        scheduledReviewRulePreview = reviewRulePreviewScheduler.schedule(
+            reviewRulePreviewDebounceDelay
+        ) { [weak self] in
+            await self?.loadReviewRulePreview(for: key)
+        }
+    }
+
+    func clearReviewRulePreview() {
+        scheduledReviewRulePreview?.cancel()
+        scheduledReviewRulePreview = nil
+        reviewRulePreviewState = nil
+    }
+
     func reload() {
         do {
             try loadWorkspaceState()
@@ -110,6 +237,18 @@ final class WorkspaceShellModel: ObservableObject {
     func retryFailedWorkspaceRecovery() {
         pendingMaintenanceAction = .retryWorkspaceRecovery
         confirmPendingMaintenanceAction()
+    }
+
+    func reviewRulePreviewPhase(
+        for key: ReviewRulePreviewKey
+    ) -> ReviewRulePreviewPhase {
+        guard let reviewRulePreviewState else {
+            return key.createRuleEnabled ? .loading : .noEligiblePreview
+        }
+        guard reviewRulePreviewState.key == key else {
+            return key.createRuleEnabled ? .loading : .noEligiblePreview
+        }
+        return reviewRulePreviewState.phase
     }
 
     func updateSuggestionsEnabled(_ isEnabled: Bool) {
@@ -208,7 +347,33 @@ final class WorkspaceShellModel: ObservableObject {
         reload()
     }
 
+    func showTransactions(filter: TransactionLedgerFilter, clearSelection: Bool = false) {
+        if clearSelection {
+            preservesClearedTransactionSelectionOnNextReload = true
+            selectTransaction(id: nil)
+        }
+        pendingAppSectionNavigation = .transactions
+        updateTransactionFilter(filter)
+    }
+
+    func matchingTransactions(in rows: [TransactionLedgerRow]) -> [TransactionLedgerRow] {
+        guard let ruleFilterIntent = transactionFilter.ruleFilterIntent else {
+            return rows
+        }
+
+        guard let service else {
+            return rows.filter { row in
+                ruleFilterIntent.matches(row)
+            }
+        }
+
+        return service.transactions(matching: ruleFilterIntent, in: rows)
+    }
+
     func selectTransaction(id: UUID?) {
+        if id != nil {
+            preservesClearedTransactionSelectionOnNextReload = false
+        }
         selectedTransactionID = id
         loadSelectedTransactionDetail(id: id)
     }
@@ -295,15 +460,87 @@ final class WorkspaceShellModel: ObservableObject {
         settingsDestination = destination
     }
 
-    func showLearnedRules(selectedLearnedRuleID: UUID? = nil) {
-        settingsDestination = SettingsDestination.learnedRulesRoute(
-            selectedLearnedRuleID: selectedLearnedRuleID
-        )
+    func showLearnedRules(selection: LearnedRulesDestination.Selection? = nil) {
+        settingsDestination = SettingsDestination.learnedRulesRoute(selection: selection)
         pendingAppSectionNavigation = .settings
+    }
+
+    func showLearnedRules(selectedLearnedRuleID: UUID?) {
+        showLearnedRules(selection: selectedLearnedRuleID.map { .learnedRule($0) })
     }
 
     func consumePendingAppSectionNavigation() {
         pendingAppSectionNavigation = nil
+    }
+
+    func beginNewLearnedRule() {
+        learnedRuleDraftSheet = .newRule()
+        clearLearnedRuleDraftPreview()
+        learnedRuleManagerActionErrorMessage = nil
+    }
+
+    @discardableResult
+    func beginDuplicateLearnedRule(id: UUID) -> Bool {
+        guard let service else {
+            learnedRuleManagerActionErrorMessage = WorkspaceServiceError.learnedRuleManagementUnavailable.localizedDescription
+            return false
+        }
+
+        do {
+            guard let draft = try service.duplicateLearnedRuleAsDraft(id: id) else {
+                learnedRuleManagerActionErrorMessage = "The selected learned rule is no longer available."
+                return false
+            }
+            learnedRuleDraftSheet = .duplicateRule(sourceRuleID: id, draft: draft)
+            updateLearnedRuleDraftPreview(for: draft)
+            learnedRuleManagerActionErrorMessage = nil
+            return true
+        } catch {
+            learnedRuleManagerActionErrorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func updateLearnedRuleDraft(_ draft: LearnedRuleDraft) {
+        guard var learnedRuleDraftSheet else {
+            return
+        }
+        learnedRuleDraftSheet.draft = draft
+        self.learnedRuleDraftSheet = learnedRuleDraftSheet
+        updateLearnedRuleDraftPreview(for: draft)
+    }
+
+    func dismissLearnedRuleDraftSheet() {
+        learnedRuleDraftSheet = nil
+        clearLearnedRuleDraftPreview()
+    }
+
+    @discardableResult
+    func saveLearnedRuleDraft() -> Bool {
+        guard let service else {
+            learnedRuleManagerActionErrorMessage = WorkspaceServiceError.learnedRuleManagementUnavailable.localizedDescription
+            return false
+        }
+        guard let learnedRuleDraftSheet else {
+            return false
+        }
+        guard learnedRuleDraftSheet.canSave else {
+            learnedRuleManagerActionErrorMessage = LearnedRuleDraftSheet.unsupportedMatchKindMessage
+            return false
+        }
+
+        do {
+            let createdRule = try service.createLearnedRule(learnedRuleDraftSheet.draft)
+            reload()
+            settingsDestination = .learnedRulesRoute(selection: .learnedRule(createdRule.id))
+            self.learnedRuleDraftSheet = nil
+            clearLearnedRuleDraftPreview()
+            learnedRuleManagerActionErrorMessage = nil
+            return true
+        } catch {
+            learnedRuleManagerActionErrorMessage = error.localizedDescription
+            return false
+        }
     }
 
     @discardableResult
@@ -607,17 +844,28 @@ final class WorkspaceShellModel: ObservableObject {
         if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
             self.selectedTargetID = nil
         }
-        let transactionID = if let selectedTransactionID,
-                               snapshot.transactions.contains(where: { $0.id == selectedTransactionID }) {
-            selectedTransactionID
+        let visibleTransactions = matchingTransactions(in: snapshot.transactions)
+        let transactionID: UUID?
+        if preservesClearedTransactionSelectionOnNextReload {
+            transactionID = nil
+            preservesClearedTransactionSelectionOnNextReload = false
         } else {
-            snapshot.transactions.first?.id
+            transactionID = TransactionLedgerSelectionState.selectionAfterReload(
+                currentSelectionID: selectedTransactionID,
+                visibleRows: visibleTransactions
+            )
         }
         selectedTransactionID = transactionID
         loadSelectedTransactionDetail(id: transactionID)
+
+        if let previewState = reviewRulePreviewState,
+           snapshot.pendingReviewItems.contains(where: { $0.id == previewState.key.reviewItemID }) == false {
+            clearReviewRulePreview()
+        }
     }
 
     private func applyFailedWorkspaceState(message: String) {
+        clearReviewRulePreview()
         managedTargets = []
         selectedTargetID = nil
         selectedTransactionID = nil
@@ -654,5 +902,99 @@ final class WorkspaceShellModel: ObservableObject {
             operation: operation,
             message: error.localizedDescription
         )
+    }
+
+    private func loadReviewRulePreview(for key: ReviewRulePreviewKey) async {
+        do {
+            let preview = try await reviewRulePreviewLoader(key)
+            guard reviewRulePreviewState?.key == key else {
+                return
+            }
+
+            let phase: ReviewRulePreviewPhase
+            switch preview {
+            case .ready(let impact):
+                phase = .ready(impact)
+            case .noEligiblePreview:
+                phase = .noEligiblePreview
+            case .unavailable:
+                phase = .unavailable
+            }
+
+            reviewRulePreviewState = ReviewRulePreviewState(key: key, phase: phase)
+        } catch {
+            guard reviewRulePreviewState?.key == key else {
+                return
+            }
+            reviewRulePreviewState = ReviewRulePreviewState(
+                key: key,
+                phase: .error(error.localizedDescription)
+            )
+        }
+    }
+
+    private func updateLearnedRuleDraftPreview(for draft: LearnedRuleDraft) {
+        guard draft.matchKind == .contains else {
+            scheduledLearnedRuleDraftPreview?.cancel()
+            scheduledLearnedRuleDraftPreview = nil
+            learnedRuleDraftPreviewState = nil
+            return
+        }
+
+        let key = ReviewRulePreviewKey(
+            reviewItemID: Self.learnedRuleDraftPreviewItemID,
+            createRuleEnabled: true,
+            merchantPattern: draft.merchantPattern,
+            matchKind: draft.matchKind
+        )
+
+        if learnedRuleDraftPreviewState?.key == key {
+            return
+        }
+
+        scheduledLearnedRuleDraftPreview?.cancel()
+        scheduledLearnedRuleDraftPreview = nil
+
+        learnedRuleDraftPreviewState = ReviewRulePreviewState(key: key, phase: .loading)
+        scheduledLearnedRuleDraftPreview = reviewRulePreviewScheduler.schedule(
+            reviewRulePreviewDebounceDelay
+        ) { [weak self] in
+            await self?.loadLearnedRuleDraftPreview(for: key)
+        }
+    }
+
+    private func clearLearnedRuleDraftPreview() {
+        scheduledLearnedRuleDraftPreview?.cancel()
+        scheduledLearnedRuleDraftPreview = nil
+        learnedRuleDraftPreviewState = nil
+    }
+
+    private func loadLearnedRuleDraftPreview(for key: ReviewRulePreviewKey) async {
+        do {
+            let preview = try await reviewRulePreviewLoader(key)
+            guard learnedRuleDraftPreviewState?.key == key else {
+                return
+            }
+
+            let phase: ReviewRulePreviewPhase
+            switch preview {
+            case .ready(let impact):
+                phase = .ready(impact)
+            case .noEligiblePreview:
+                phase = .noEligiblePreview
+            case .unavailable:
+                phase = .unavailable
+            }
+
+            learnedRuleDraftPreviewState = ReviewRulePreviewState(key: key, phase: phase)
+        } catch {
+            guard learnedRuleDraftPreviewState?.key == key else {
+                return
+            }
+            learnedRuleDraftPreviewState = ReviewRulePreviewState(
+                key: key,
+                phase: .error(error.localizedDescription)
+            )
+        }
     }
 }

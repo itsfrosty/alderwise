@@ -3262,6 +3262,405 @@ func approveClassificationReviewItemBackfillSkipsTransactionsAlreadyFinalizedByU
 }
 
 @Test
+func previewLearnedRuleImpactCountsExactMatchesWithoutMutatingTransactionsOrReviewItems() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000041")!
+    let previousCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000042")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    try insertCategory(databaseURL: databaseURL, id: previousCategoryID, name: "Misc", kind: "expense")
+
+    let matchingAcceptedTransactionID = UUID(uuidString: "10000000-0000-0000-0000-000000000041")!
+    let ignoredUserTransactionID = UUID(uuidString: "10000000-0000-0000-0000-000000000042")!
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: matchingAcceptedTransactionID,
+        accountID: account.id,
+        categoryID: previousCategoryID,
+        importSessionID: nil,
+        rawDescription: "Coffee Shop",
+        normalizedMerchantName: "coffee shop alias",
+        amount: Decimal(-8.75),
+        transactionDate: Date(timeIntervalSince1970: 1_775_084_800),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.heuristic.rawValue,
+        decisionSourceReference: "seeded:coffee"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: ignoredUserTransactionID,
+        accountID: account.id,
+        categoryID: previousCategoryID,
+        importSessionID: nil,
+        rawDescription: "Coffee Shop",
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-6.25),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.user.rawValue,
+        decisionSourceReference: nil,
+        confidence: 1.0
+    )
+
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_257_600),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-03","Coffee Shop","-4.75"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "coffee shop",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+                        rawDescription: "Coffee Shop",
+                        normalizedMerchantName: "coffee shop",
+                        amount: Decimal(-4.75)
+                    )
+                ),
+                StagedSourceRowDraft(
+                    sourceLineNumber: 3,
+                    rawPayload: #"["2026-04-04","Coffee Shop","-5.25"]"#,
+                    rowHash: "row-2-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "coffee shop",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_257_660),
+                        rawDescription: "Coffee Shop",
+                        normalizedMerchantName: "coffee shop",
+                        amount: Decimal(-5.25)
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 2,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let reviewItems = try store.fetchPendingReviewItems().sorted { $0.sourceRow.sourceLineNumber < $1.sourceRow.sourceLineNumber }
+    let currentReviewItem = try #require(reviewItems.first)
+    let siblingReviewItem = try #require(reviewItems.last)
+
+    let preview = try store.previewLearnedRuleImpact(
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant,
+        excludingReviewItemID: currentReviewItem.id
+    )
+
+    #expect(preview == LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 1,
+        matchedPendingReviewItemCount: 1
+    ))
+    let unfilteredPreview = try store.previewLearnedRuleImpact(
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant,
+        excludingReviewItemID: nil
+    )
+    #expect(unfilteredPreview == LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 1,
+        matchedPendingReviewItemCount: 2
+    ))
+    #expect(Set(try store.fetchPendingReviewItems().map(\.id)) == Set([currentReviewItem.id, siblingReviewItem.id]))
+
+    let matchingDetail = try #require(try store.fetchTransactionDetail(id: matchingAcceptedTransactionID))
+    #expect(matchingDetail.row.categoryID == previousCategoryID)
+    #expect(matchingDetail.row.categoryName == "Misc")
+    #expect(matchingDetail.decisionSource == .heuristic)
+    #expect(matchingDetail.decisionSourceReference == "seeded:coffee")
+}
+
+@Test
+func previewLearnedRuleImpactCountsPrefixMatchesAcrossAcceptedTransactionsAndSiblingReviewItems() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000051")!
+    let previousCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000052")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Donations", kind: "expense")
+    try insertCategory(databaseURL: databaseURL, id: previousCategoryID, name: "Misc", kind: "expense")
+
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000051")!,
+        accountID: account.id,
+        categoryID: previousCategoryID,
+        importSessionID: nil,
+        rawDescription: "99PLEDG",
+        normalizedMerchantName: "99pledg",
+        amount: Decimal(-10),
+        transactionDate: Date(timeIntervalSince1970: 1_775_084_800),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.heuristic.rawValue,
+        decisionSourceReference: "starter:donations"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000052")!,
+        accountID: account.id,
+        categoryID: previousCategoryID,
+        importSessionID: nil,
+        rawDescription: "99PLEDG*ONIR BAWEJA",
+        normalizedMerchantName: "99pledg onir baweja",
+        amount: Decimal(-25),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.curatedPrefill.rawValue,
+        decisionSourceReference: "starter:donations"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000053")!,
+        accountID: account.id,
+        categoryID: previousCategoryID,
+        importSessionID: nil,
+        rawDescription: "PLEDG99",
+        normalizedMerchantName: "pledg99",
+        amount: Decimal(-15),
+        transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.heuristic.rawValue,
+        decisionSourceReference: "starter:donations"
+    )
+
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_344_000),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-04","99PLEDG*ANOTHER DONOR","-18.00"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "99pledg another donor",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_344_000),
+                        rawDescription: "99PLEDG*ANOTHER DONOR",
+                        normalizedMerchantName: "99pledg another donor",
+                        amount: Decimal(-18)
+                    )
+                ),
+                StagedSourceRowDraft(
+                    sourceLineNumber: 3,
+                    rawPayload: #"["2026-04-05","99PLEDG*ONIR BAWEJA","-25.00"]"#,
+                    rowHash: "row-2-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "99pledg onir baweja",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_344_060),
+                        rawDescription: "99PLEDG*ONIR BAWEJA",
+                        normalizedMerchantName: "99pledg onir baweja",
+                        amount: Decimal(-25)
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 2,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let reviewItems = try store.fetchPendingReviewItems().sorted { $0.sourceRow.sourceLineNumber < $1.sourceRow.sourceLineNumber }
+    let currentReviewItem = try #require(reviewItems.first)
+
+    let preview = try store.previewLearnedRuleImpact(
+        merchantPattern: "99pledg",
+        matchKind: .prefixNormalizedMerchant,
+        excludingReviewItemID: currentReviewItem.id
+    )
+
+    #expect(preview == LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 2,
+        matchedPendingReviewItemCount: 1
+    ))
+}
+
+@Test
+func previewLearnedRuleImpactCountsContainsMatchesAcrossAcceptedTransactionsAndSiblingReviewItems() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000061")!
+    let previousCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000062")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+    try insertCategory(databaseURL: databaseURL, id: previousCategoryID, name: "Misc", kind: "expense")
+
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000061")!,
+        accountID: account.id,
+        categoryID: previousCategoryID,
+        importSessionID: nil,
+        rawDescription: "Daily Coffee Roasters",
+        normalizedMerchantName: "daily coffee roasters",
+        amount: Decimal(-8.75),
+        transactionDate: Date(timeIntervalSince1970: 1_775_084_800),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.heuristic.rawValue,
+        decisionSourceReference: "seeded:coffee"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000062")!,
+        accountID: account.id,
+        categoryID: previousCategoryID,
+        importSessionID: nil,
+        rawDescription: "Iced Coffee",
+        normalizedMerchantName: "iced coffee",
+        amount: Decimal(-6.25),
+        transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.curatedPrefill.rawValue,
+        decisionSourceReference: "starter:coffee"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000063")!,
+        accountID: account.id,
+        categoryID: previousCategoryID,
+        importSessionID: nil,
+        rawDescription: "Tea House",
+        normalizedMerchantName: "tea house",
+        amount: Decimal(-7.25),
+        transactionDate: Date(timeIntervalSince1970: 1_775_257_600),
+        reviewStatus: "accepted",
+        decisionSource: ClassificationDecisionSource.heuristic.rawValue,
+        decisionSourceReference: "seeded:tea"
+    )
+
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "checking-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_344_000),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-04","Coffee Shop","-18.00"]"#,
+                    rowHash: "row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "coffee shop",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_344_000),
+                        rawDescription: "Coffee Shop",
+                        normalizedMerchantName: "coffee shop",
+                        amount: Decimal(-18)
+                    )
+                ),
+                StagedSourceRowDraft(
+                    sourceLineNumber: 3,
+                    rawPayload: #"["2026-04-05","Daily Coffee Subscription","-25.00"]"#,
+                    rowHash: "row-2-sha256",
+                    validationStatus: .valid,
+                    importDecision: .imported(reason: "New source row."),
+                    classification: .reviewRequired(
+                        prefill: nil,
+                        source: nil,
+                        sourceReference: nil,
+                        confidence: nil,
+                        reason: "No classification matched."
+                    ),
+                    normalizedMerchantName: "daily coffee subscription",
+                    transaction: StagedTransactionDraft(
+                        transactionDate: Date(timeIntervalSince1970: 1_775_344_060),
+                        rawDescription: "Daily Coffee Subscription",
+                        normalizedMerchantName: "daily coffee subscription",
+                        amount: Decimal(-25)
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: 2,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let reviewItems = try store.fetchPendingReviewItems().sorted { $0.sourceRow.sourceLineNumber < $1.sourceRow.sourceLineNumber }
+    let currentReviewItem = try #require(reviewItems.first)
+
+    let preview = try store.previewLearnedRuleImpact(
+        merchantPattern: "coffee",
+        matchKind: .contains,
+        excludingReviewItemID: currentReviewItem.id
+    )
+
+    #expect(preview == LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 2,
+        matchedPendingReviewItemCount: 1
+    ))
+}
+
+@Test
 func fetchClassificationRulesIgnoresRulesWithoutCategory() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -3400,6 +3799,94 @@ func fetchLearnedRuleSummaryAndDetailResolveDisabledRulesByID() throws {
     #expect(detail.matchKind == .exactNormalizedMerchant)
     #expect(detail.createdAt == createdAt)
     #expect(detail.disabledAt == disabledAt)
+}
+
+@Test
+func createLearnedRulePersistsManualRulesUsingReviewAlignedNormalizationAndOrdering() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000119")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+
+    _ = try store.createLearnedRule(
+        LearnedRuleDraft(
+            merchantPattern: "  coffee  ",
+            categoryID: categoryID,
+            merchantName: "Coffee",
+            matchKind: .contains
+        ),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+    _ = try store.createLearnedRule(
+        LearnedRuleDraft(
+            merchantPattern: " 99PLEDG ",
+            categoryID: categoryID,
+            merchantName: "99Pledg",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_320)
+    )
+    let exactRule = try store.createLearnedRule(
+        LearnedRuleDraft(
+            merchantPattern: "  COFFEE SHOP  ",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant
+        ),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_380)
+    )
+
+    let classifierRules = try store.fetchClassificationRules()
+    let managedRules = try store.fetchLearnedRuleSummaries()
+
+    #expect(classifierRules.map(\.matchKind) == [
+        .exactNormalizedMerchant,
+        .prefixNormalizedMerchant,
+        .contains,
+    ])
+    #expect(classifierRules.map(\.merchantPattern) == [
+        "coffee shop",
+        "99pledg",
+        "coffee",
+    ])
+    #expect(managedRules.map(\.matchKind) == [
+        .exactNormalizedMerchant,
+        .prefixNormalizedMerchant,
+        .contains,
+    ])
+    #expect(managedRules.map(\.merchantPattern) == [
+        "coffee shop",
+        "99pledg",
+        "coffee",
+    ])
+    #expect(exactRule.merchantPattern == "coffee shop")
+    #expect(exactRule.matchKind == .exactNormalizedMerchant)
+    #expect(exactRule.createdAt == Date(timeIntervalSince1970: 1_775_171_380))
+    #expect(exactRule.disabledAt == nil)
+}
+
+@Test
+func createLearnedRuleRejectsDraftsWithoutCategory() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    do {
+        _ = try store.createLearnedRule(
+            LearnedRuleDraft(
+                merchantPattern: "coffee shop",
+                categoryID: nil,
+                merchantName: "Coffee Shop",
+                matchKind: .exactNormalizedMerchant
+            ),
+            createdAt: Date(timeIntervalSince1970: 1_775_171_440)
+        )
+        Issue.record("Expected createLearnedRule to reject drafts without a category.")
+    } catch {
+        #expect(error.localizedDescription == "Learned rules require a category before saving.")
+    }
 }
 
 @Test

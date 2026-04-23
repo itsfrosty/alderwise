@@ -149,7 +149,7 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var categories: [BudgetCategory] = []
@@ -165,12 +165,17 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     var monthlyReport = MonthlyReport.empty
     var managedTargets: [ManagedMonthlyTarget] = []
     var preferences = WorkspacePreferences()
+    var previewLearnedRuleImpactResult = LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 0,
+        matchedPendingReviewItemCount: 0
+    )
     var createMonthlyTargetError: (any Error)?
     var updateMonthlyTargetError: (any Error)?
     var deleteMonthlyTargetError: (any Error)?
     var deleteAccountPermanentlyError: (any Error)?
     var nextCreatedLearnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
     var lastApprovedClassificationRequest: ApprovedClassificationRequest?
+    var lastPreviewLearnedRuleRequest: PreviewLearnedRuleRequest?
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -406,6 +411,56 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
         )
     }
 
+    func createLearnedRule(_ draft: LearnedRuleDraft, createdAt: Date) throws -> ManagedLearnedRule {
+        let rule = ManagedLearnedRule(
+            id: nextCreatedLearnedRuleID,
+            merchantPattern: draft.normalizedMerchantPattern ?? draft.merchantPattern,
+            categoryID: draft.categoryID,
+            merchantName: draft.merchantName,
+            matchKind: draft.matchKind,
+            createdAt: createdAt,
+            lifecycle: .active
+        )
+        learnedRuleSummaries.insert(
+            LearnedRuleSummary(
+                id: rule.id,
+                merchantPattern: rule.merchantPattern,
+                categoryID: rule.categoryID,
+                merchantName: rule.merchantName,
+                matchKind: rule.matchKind,
+                createdAt: rule.createdAt,
+                lifecycle: rule.lifecycle
+            ),
+            at: 0
+        )
+        return rule
+    }
+
+    func disableLearnedRule(id: UUID, disabledAt: Date) throws -> ManagedLearnedRule {
+        let existingIndex = try #require(learnedRuleSummaries.firstIndex { $0.id == id })
+        learnedRuleSummaries[existingIndex].lifecycle = .disabled(disabledAt: disabledAt)
+        return try #require(try fetchLearnedRuleDetail(id: id))
+    }
+
+    func enableLearnedRule(id: UUID) throws -> ManagedLearnedRule {
+        let existingIndex = try #require(learnedRuleSummaries.firstIndex { $0.id == id })
+        learnedRuleSummaries[existingIndex].lifecycle = .active
+        return try #require(try fetchLearnedRuleDetail(id: id))
+    }
+
+    func previewLearnedRuleImpact(
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind,
+        excludingReviewItemID: UUID?
+    ) throws -> LearnedRuleImpactPreview {
+        lastPreviewLearnedRuleRequest = PreviewLearnedRuleRequest(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            excludingReviewItemID: excludingReviewItemID
+        )
+        return previewLearnedRuleImpactResult
+    }
+
     func fetchWorkspacePreferences() throws -> WorkspacePreferences {
         preferences
     }
@@ -516,6 +571,12 @@ private struct ApprovedClassificationRequest: Equatable {
     var assignment: ClassificationAssignment
     var ruleLearning: ReviewRuleLearningOption?
     var resolvedAt: Date
+}
+
+private struct PreviewLearnedRuleRequest: Equatable {
+    var merchantPattern: String
+    var matchKind: ClassificationRuleMatchKind
+    var excludingReviewItemID: UUID?
 }
 
 private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
@@ -2001,6 +2062,48 @@ func seededHeuristicsDoNotAppearInTheManagerSnapshot() throws {
 }
 
 @Test
+func learnedManagerRowsExposePrecedenceHelp() throws {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000611")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000612")!
+    let store = MutableWorkspaceStore()
+    store.learnedRuleSummaries = [
+        LearnedRuleSummary(
+            id: learnedRuleID,
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lifecycle: .active
+        )
+    ]
+
+    let snapshot = try WorkspaceService(store: store).loadLearnedRuleManagerSnapshot()
+    let row = try #require(snapshot.learned.rows.first)
+
+    #expect(
+        row.precedenceExplanation
+            == "Precedence: Exact merchant beats Shared prefix and Contains for the same merchant text."
+    )
+}
+
+@Test
+func seededManagerRowsExposePrecedenceHelp() throws {
+    let snapshot = try WorkspaceService(
+        store: MutableWorkspaceStore(),
+        classifier: SeededClassification.liveClassifier()
+    ).loadLearnedRuleManagerSnapshot()
+    let row = try #require(
+        snapshot.seeded.rows.first { $0.matchKind == .contains }
+    )
+
+    #expect(
+        row.precedenceExplanation
+            == "Precedence: Contains is checked after Exact merchant and Shared prefix."
+    )
+}
+
+@Test
 func loadLearnedRuleManagerSnapshotFailsWithoutLearnedRuleReader() throws {
     let service = WorkspaceService(store: DefaultResetBridgeMaintenanceStore())
 
@@ -2022,7 +2125,7 @@ func loadTransactionDetailPreservesRawRuleReferenceWhenLearnedRuleCannotBeResolv
 
     let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
 
-    #expect(detail.learnedRuleProvenance == nil)
+    #expect(detail.ruleProvenance == nil)
     #expect(detail.decisionSourceReference == unresolvedRuleID.uuidString)
 }
 
@@ -2054,15 +2157,85 @@ func loadTransactionDetailResolvesDisabledLearnedRuleHistoricalProvenance() thro
     ]
 
     let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
-    let provenance = try #require(detail.learnedRuleProvenance)
+    let provenance = try #require(detail.ruleProvenance)
 
-    #expect(provenance.id == learnedRuleID)
-    #expect(provenance.merchantPattern == "local market")
-    #expect(provenance.matchKind == .prefixNormalizedMerchant)
-    #expect(provenance.categoryID == categoryID)
-    #expect(provenance.categoryName == "Groceries")
-    #expect(provenance.isDisabled == true)
-    #expect(provenance.disabledAt == disabledAt)
+    guard case .learnedRule(let learnedRule) = provenance else {
+        Issue.record("Expected learned rule provenance")
+        return
+    }
+
+    #expect(learnedRule.id == learnedRuleID)
+    #expect(learnedRule.merchantPattern == "local market")
+    #expect(learnedRule.matchKind == .prefixNormalizedMerchant)
+    #expect(learnedRule.categoryID == categoryID)
+    #expect(learnedRule.categoryName == "Groceries")
+    #expect(learnedRule.isDisabled == true)
+    #expect(learnedRule.disabledAt == disabledAt)
+}
+
+@Test
+func loadTransactionDetailResolvesDeterministicBuiltInRuleProvenance() throws {
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000524")!
+    let rule = try #require(
+        SeededClassification.deterministicRules.first { $0.merchantPattern == "costco" }
+    )
+    let detailReference = rule.seededSourceID
+    let store = MutableWorkspaceStore()
+    store.categories = [
+        BudgetCategory(id: rule.categoryID, name: "Groceries", kind: .expense)
+    ]
+    store.transactionDetailsByID[transactionID] = makeTransactionDetail(
+        id: transactionID,
+        decisionSource: .rule,
+        decisionSourceReference: detailReference
+    )
+
+    let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
+    let provenance = try #require(detail.ruleProvenance)
+
+    guard case .seededSource(let seededSource) = provenance else {
+        Issue.record("Expected seeded source provenance")
+        return
+    }
+
+    #expect(seededSource.id == detailReference)
+    #expect(seededSource.kind == .deterministicRule)
+    #expect(seededSource.merchantPattern == "costco")
+    #expect(seededSource.matchKind == .contains)
+    #expect(seededSource.categoryID == rule.categoryID)
+    #expect(seededSource.categoryName == "Groceries")
+    #expect(seededSource.merchantName == "Costco")
+}
+
+@Test
+func loadTransactionDetailResolvesCuratedReviewFirstBuiltInProvenance() throws {
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000525")!
+    let source = try #require(SeededClassification.curatedReviewPrefills.first)
+    let store = MutableWorkspaceStore()
+    store.categories = [
+        BudgetCategory(id: source.assignment.categoryID, name: "Donations", kind: .expense)
+    ]
+    store.transactionDetailsByID[transactionID] = makeTransactionDetail(
+        id: transactionID,
+        decisionSource: .curatedPrefill,
+        decisionSourceReference: source.id
+    )
+
+    let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
+    let provenance = try #require(detail.ruleProvenance)
+
+    guard case .seededSource(let seededSource) = provenance else {
+        Issue.record("Expected seeded source provenance")
+        return
+    }
+
+    #expect(seededSource.id == source.id)
+    #expect(seededSource.kind == .curatedPrefill)
+    #expect(seededSource.merchantPattern == source.merchantPattern)
+    #expect(seededSource.matchKind == source.matchKind)
+    #expect(seededSource.categoryID == source.assignment.categoryID)
+    #expect(seededSource.categoryName == "Donations")
+    #expect(seededSource.merchantName == source.assignment.merchantName)
 }
 
 @Test
@@ -2088,7 +2261,7 @@ func approveClassificationReviewItemReturnsDeepLinkActionForCreatedLearnedRule()
 
     #expect(action.ruleID == learnedRuleID)
     #expect(action.merchantLabel == "Coffee Shop")
-    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: learnedRuleID))
+    #expect(action.destination == .learnedRulesRoute(selection: .learnedRule(learnedRuleID)))
 }
 
 @Test
@@ -2125,7 +2298,7 @@ func approveClassificationReviewItemPrefersTheNewlyCreatedRuleOverExistingMatchi
     let action = try #require(result.createdLearnedRuleAction)
 
     #expect(action.ruleID == createdRuleID)
-    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: createdRuleID))
+    #expect(action.destination == .learnedRulesRoute(selection: .learnedRule(createdRuleID)))
 }
 
 @Test
@@ -2146,6 +2319,359 @@ func approveClassificationReviewItemOmitsDeepLinkActionWhenRuleLearningIsDisable
     )
 
     #expect(result.createdLearnedRuleAction == nil)
+}
+
+@Test
+func learnedRuleDraftDefaultsToManualAuthoringValues() {
+    let draft = LearnedRuleDraft()
+
+    #expect(draft.merchantPattern == "")
+    #expect(draft.categoryID == nil)
+    #expect(draft.merchantName == nil)
+    #expect(draft.matchKind == .exactNormalizedMerchant)
+}
+
+@Test
+func learnedRuleDraftSheetForNewRuleStartsBlankAndAllowsOnlyBasicMatchKinds() {
+    let sheet = LearnedRuleDraftSheet.newRule()
+
+    #expect(sheet.mode == .newRule)
+    #expect(sheet.title == "New Rule")
+    #expect(sheet.confirmationTitle == "Save Rule")
+    #expect(sheet.allowedMatchKinds == [
+        .exactNormalizedMerchant,
+        .prefixNormalizedMerchant,
+    ])
+    #expect(sheet.draft == LearnedRuleDraft())
+    #expect(sheet.canSave == false)
+}
+
+@Test
+func learnedRuleDraftSheetForDuplicateRuleCopiesEditableFieldsIntoANewDraft() {
+    let sourceRuleID = UUID(uuidString: "00000000-0000-0000-0000-0000000005A1")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-0000000005A2")!
+    let sheet = LearnedRuleDraftSheet.duplicateRule(
+        sourceRuleID: sourceRuleID,
+        draft: LearnedRuleDraft(
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .prefixNormalizedMerchant
+        )
+    )
+
+    #expect(sheet.mode == .duplicateRule(sourceRuleID: sourceRuleID))
+    #expect(sheet.title == "Duplicate Rule")
+    #expect(sheet.confirmationTitle == "Save Duplicate")
+    #expect(
+        sheet.draft == LearnedRuleDraft(
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .prefixNormalizedMerchant
+        )
+    )
+}
+
+@Test
+func learnedRuleDraftSheetSaveValidationAllowsBasicAndAdvancedManualMatchKinds() {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-0000000005A3")!
+    let exactSheet = LearnedRuleDraftSheet.newRule(
+        draft: LearnedRuleDraft(
+            merchantPattern: "  Coffee Shop  ",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant
+        )
+    )
+    let prefixSheet = LearnedRuleDraftSheet.newRule(
+        draft: LearnedRuleDraft(
+            merchantPattern: "Coffee",
+            categoryID: categoryID,
+            merchantName: "Coffee",
+            matchKind: .prefixNormalizedMerchant
+        )
+    )
+    let containsSheet = LearnedRuleDraftSheet.newRule(
+        draft: LearnedRuleDraft(
+            merchantPattern: "Coffee",
+            categoryID: categoryID,
+            merchantName: "Coffee",
+            matchKind: .contains
+        )
+    )
+
+    #expect(exactSheet.canSave)
+    #expect(prefixSheet.canSave)
+    #expect(containsSheet.canSave)
+}
+
+@Test
+func manualRuleAuthoringKeepsContainsBehindAdvancedDisclosureAndOutOfReview() throws {
+    let learnedRulesSource = try sourceText(in: "Sources/AlderwiseApp/LearnedRulesManagerView.swift")
+    let reviewSource = try sourceText(in: "Sources/AlderwiseApp/ReviewQueueView.swift")
+
+    #expect(learnedRulesSource.contains("DisclosureGroup(\"Advanced\""))
+    #expect(learnedRulesSource.contains("manualAuthoringWarningText"))
+    #expect(reviewSource.contains("Text(\"Contains\")") == false)
+}
+
+@Test
+func createLearnedRulePersistsManualDraftAndReturnsManagedRule() throws {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000551")!
+    let createdAt = Date(timeIntervalSince1970: 1_776_355_340)
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+
+    let createdRule = try service.createLearnedRule(
+        LearnedRuleDraft(
+            merchantPattern: "  COFFEE SHOP  ",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .contains
+        ),
+        createdAt: createdAt
+    )
+
+    #expect(createdRule.merchantPattern == "coffee shop")
+    #expect(createdRule.categoryID == categoryID)
+    #expect(createdRule.merchantName == "Coffee Shop")
+    #expect(createdRule.matchKind == .contains)
+    #expect(createdRule.createdAt == createdAt)
+    #expect(createdRule.isDisabled == false)
+    #expect(store.learnedRuleSummaries.map(\.merchantPattern) == ["coffee shop"])
+}
+
+@Test
+func createLearnedRuleRejectsDraftsWithoutCategory() {
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+
+    #expect(throws: WorkspaceServiceError.learnedRuleCategoryRequired) {
+        try service.createLearnedRule(
+            LearnedRuleDraft(
+                merchantPattern: "coffee shop",
+                categoryID: nil,
+                merchantName: "Coffee Shop",
+                matchKind: .exactNormalizedMerchant
+            )
+        )
+    }
+}
+
+@Test
+func duplicateLearnedRuleAsDraftCopiesOnlyEditableFields() throws {
+    let ruleID = UUID(uuidString: "00000000-0000-0000-0000-000000000552")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000553")!
+    let store = MutableWorkspaceStore()
+    store.learnedRuleSummaries = [
+        LearnedRuleSummary(
+            id: ruleID,
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .prefixNormalizedMerchant,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lifecycle: .disabled(disabledAt: Date(timeIntervalSince1970: 1_776_355_360))
+        )
+    ]
+    let service = WorkspaceService(store: store)
+
+    let draft = try #require(try service.duplicateLearnedRuleAsDraft(id: ruleID))
+
+    #expect(
+        draft == LearnedRuleDraft(
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .prefixNormalizedMerchant
+        )
+    )
+}
+
+@Test
+func previewLearnedRuleImpactReturnsReadyCountsWhenEligible() throws {
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000561")!
+    let store = MutableWorkspaceStore()
+    store.pendingReviewItems = [
+        PendingReviewItem(
+            id: reviewItemID,
+            type: .lowConfidenceCategory,
+            status: .pending,
+            reason: nil,
+            createdAt: Date(timeIntervalSince1970: 1_776_355_360),
+            sourceFile: PendingReviewSourceFile(
+                accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000562")!,
+                originalFilename: "checking.csv"
+            ),
+            sourceRow: PendingReviewSourceRow(
+                id: 1,
+                sourceLineNumber: 2,
+                rowHash: "row-1",
+                rawPayload: #"["2026-04-03","Coffee Shop","-4.75"]"#
+            ),
+            duplicateTransactionID: nil,
+            classification: PendingReviewClassification(
+                normalizedMerchantName: "coffee shop",
+                prefill: nil,
+                source: nil,
+                sourceReference: nil,
+                confidence: nil
+            )
+        )
+    ]
+    store.previewLearnedRuleImpactResult = LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 2,
+        matchedPendingReviewItemCount: 1
+    )
+    let service = WorkspaceService(store: store)
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: reviewItemID,
+        createRuleEnabled: true,
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant
+    )
+
+    #expect(preview == .ready(LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 2,
+        matchedPendingReviewItemCount: 1
+    )))
+    #expect(store.lastPreviewLearnedRuleRequest == PreviewLearnedRuleRequest(
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant,
+        excludingReviewItemID: reviewItemID
+    ))
+}
+
+@Test
+func previewLearnedRuleImpactReusesExistingCountsForContainsRules() throws {
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000568")!
+    let store = MutableWorkspaceStore()
+    store.pendingReviewItems = [
+        PendingReviewItem(
+            id: reviewItemID,
+            type: .lowConfidenceCategory,
+            status: .pending,
+            reason: nil,
+            createdAt: Date(timeIntervalSince1970: 1_776_355_460),
+            sourceFile: PendingReviewSourceFile(
+                accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000569")!,
+                originalFilename: "checking.csv"
+            ),
+            sourceRow: PendingReviewSourceRow(
+                id: 1,
+                sourceLineNumber: 2,
+                rowHash: "row-contains",
+                rawPayload: #"["2026-04-03","Daily Coffee","-4.75"]"#
+            ),
+            duplicateTransactionID: nil,
+            classification: PendingReviewClassification(
+                normalizedMerchantName: "daily coffee",
+                prefill: nil,
+                source: nil,
+                sourceReference: nil,
+                confidence: nil
+            )
+        )
+    ]
+    store.previewLearnedRuleImpactResult = LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 6,
+        matchedPendingReviewItemCount: 2
+    )
+    let service = WorkspaceService(store: store)
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: reviewItemID,
+        createRuleEnabled: true,
+        merchantPattern: "coffee",
+        matchKind: .contains
+    )
+
+    #expect(preview == .ready(LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 6,
+        matchedPendingReviewItemCount: 2
+    )))
+    #expect(store.lastPreviewLearnedRuleRequest == PreviewLearnedRuleRequest(
+        merchantPattern: "coffee",
+        matchKind: .contains,
+        excludingReviewItemID: reviewItemID
+    ))
+}
+
+@Test
+func previewLearnedRuleImpactReturnsNoEligiblePreviewWhenRuleCreationIsDisabled() throws {
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000563")!
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: reviewItemID,
+        createRuleEnabled: false,
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant
+    )
+
+    #expect(preview == .noEligiblePreview)
+    #expect(store.lastPreviewLearnedRuleRequest == nil)
+}
+
+@Test
+func previewLearnedRuleImpactReturnsNoEligiblePreviewWhenDraftCannotProduceValidPattern() throws {
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000564")!
+    let store = MutableWorkspaceStore()
+    store.pendingReviewItems = [
+        PendingReviewItem(
+            id: reviewItemID,
+            type: .lowConfidenceCategory,
+            status: .pending,
+            reason: nil,
+            createdAt: Date(timeIntervalSince1970: 1_776_355_420),
+            sourceFile: PendingReviewSourceFile(
+                accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000565")!,
+                originalFilename: "checking.csv"
+            ),
+            sourceRow: PendingReviewSourceRow(
+                id: 1,
+                sourceLineNumber: 2,
+                rowHash: "row-1",
+                rawPayload: #"["2026-04-03","","-4.75"]"#
+            ),
+            duplicateTransactionID: nil,
+            classification: PendingReviewClassification(
+                normalizedMerchantName: "",
+                prefill: nil,
+                source: nil,
+                sourceReference: nil,
+                confidence: nil
+            )
+        )
+    ]
+    let service = WorkspaceService(store: store)
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: reviewItemID,
+        createRuleEnabled: true,
+        merchantPattern: "   ",
+        matchKind: .exactNormalizedMerchant
+    )
+
+    #expect(preview == .noEligiblePreview)
+    #expect(store.lastPreviewLearnedRuleRequest == nil)
+}
+
+@Test
+func previewLearnedRuleImpactReturnsUnavailableWithoutPreviewReader() throws {
+    let service = WorkspaceService(store: DefaultResetBridgeMaintenanceStore())
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: UUID(uuidString: "00000000-0000-0000-0000-000000000566")!,
+        createRuleEnabled: true,
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant
+    )
+
+    #expect(preview == .unavailable)
 }
 
 private func makeTransactionDetail(
@@ -2175,4 +2701,13 @@ private func makeTransactionDetail(
         confidence: 1,
         duplicateStatus: "unique"
     )
+}
+
+private func sourceText(in relativePath: String) throws -> String {
+    let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let sourceURL = repoRoot.appendingPathComponent(relativePath)
+    return try String(contentsOf: sourceURL, encoding: .utf8)
 }

@@ -2,6 +2,21 @@ import Domain
 import Foundation
 
 public struct ReviewPresentation: Sendable {
+    public struct ConsequenceLine: Equatable, Sendable {
+        public enum Emphasis: Equatable, Sendable {
+            case neutral
+            case warning
+        }
+
+        public let text: String
+        public let emphasis: Emphasis
+
+        public init(text: String, emphasis: Emphasis) {
+            self.text = text
+            self.emphasis = emphasis
+        }
+    }
+
     private let categoryNamesByID: [UUID: String]
 
     public init(categories: [BudgetCategory]) {
@@ -17,16 +32,6 @@ public struct ReviewPresentation: Sendable {
         ]
         .compactMap { $0 }
         .joined(separator: " · ")
-    }
-
-    public func starterHintCaption(for item: PendingReviewItem) -> String? {
-        guard isCuratedPrefill(item) else {
-            return nil
-        }
-        if let categoryName = starterHintCategoryName(for: item) {
-            return "Starter hint: Suggested category is \(categoryName). Review before accepting."
-        }
-        return "Starter hint: Review before accepting."
     }
 
     public func initialCreateRuleValue(for item: PendingReviewItem) -> Bool {
@@ -51,12 +56,56 @@ public struct ReviewPresentation: Sendable {
         selectedRuleLearning ?? initialRuleLearningSelection(for: item)
     }
 
+    public func staticConsequences(
+        for item: PendingReviewItem,
+        createRule: Bool,
+        selectedRuleLearning: ReviewRuleLearningOption?
+    ) -> [ConsequenceLine] {
+        var lines: [ConsequenceLine] = []
+
+        if isCuratedPrefill(item) {
+            lines.append(
+                ConsequenceLine(
+                    text: "\(RuleDisplayText.builtInReviewFirst) suggestions stay review-only until you approve them.",
+                    emphasis: .neutral
+                )
+            )
+        }
+
+        guard createRule,
+              let selectedRuleLearning = resolvedRuleLearningSelection(
+                  for: item,
+                  selectedRuleLearning: selectedRuleLearning
+              ) else {
+            lines.append(
+                ConsequenceLine(
+                    text: "Approving updates this transaction only. No learned rule will be created.",
+                    emphasis: .neutral
+                )
+            )
+            return lines
+        }
+
+        lines.append(learnedRuleCreationConsequence(for: selectedRuleLearning))
+
+        if case .prefixNormalizedMerchant(let pattern) = selectedRuleLearning {
+            lines.append(
+                ConsequenceLine(
+                    text: "Shared prefix can match multiple future merchants that start with \(pattern).",
+                    emphasis: .warning
+                )
+            )
+        }
+
+        return lines
+    }
+
     public static func sourceLabel(for source: ClassificationDecisionSource?) -> String {
         switch source {
         case .rule:
             "Rule"
         case .curatedPrefill:
-            "Curated starter match"
+            RuleDisplayText.builtInReviewFirst
         case .heuristic:
             "Heuristic"
         case .suggestion:
@@ -68,14 +117,35 @@ public struct ReviewPresentation: Sendable {
         }
     }
 
+    public static func sourceLabel(
+        for source: ClassificationDecisionSource?,
+        ruleProvenance: TransactionRuleProvenance?
+    ) -> String {
+        guard let ruleProvenance else {
+            return sourceLabel(for: source)
+        }
+
+        switch ruleProvenance {
+        case .learnedRule:
+            return RuleDisplayText.yourRules
+        case .seededSource(let seededSource):
+            switch seededSource.kind {
+            case .deterministicRule:
+                return RuleDisplayText.builtInAutoApplied
+            case .curatedPrefill:
+                return RuleDisplayText.builtInReviewFirst
+            }
+        }
+    }
+
     private func starterHintLabel(for item: PendingReviewItem) -> String? {
         guard isCuratedPrefill(item) else {
             return nil
         }
         if let categoryName = starterHintCategoryName(for: item) {
-            return "Starter hint: \(categoryName)"
+            return "\(RuleDisplayText.builtInReviewFirst): \(categoryName)"
         }
-        return "Starter hint"
+        return RuleDisplayText.builtInReviewFirst
     }
 
     private func starterHintCategoryName(for item: PendingReviewItem) -> String? {
@@ -92,5 +162,22 @@ public struct ReviewPresentation: Sendable {
 
     private func isCuratedPrefill(_ item: PendingReviewItem) -> Bool {
         item.classification?.source == .curatedPrefill
+    }
+
+    private func learnedRuleCreationConsequence(
+        for option: ReviewRuleLearningOption
+    ) -> ConsequenceLine {
+        switch option {
+        case .exactNormalizedMerchant(let pattern):
+            ConsequenceLine(
+                text: "Approving saves an \(option.title) rule in \(RuleDisplayText.yourRules) for \(pattern).",
+                emphasis: .neutral
+            )
+        case .prefixNormalizedMerchant(let pattern):
+            ConsequenceLine(
+                text: "Approving saves a \(option.title) rule in \(RuleDisplayText.yourRules) for \(pattern).",
+                emphasis: .neutral
+            )
+        }
     }
 }

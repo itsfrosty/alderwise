@@ -9,6 +9,7 @@ public enum WorkspaceServiceError: Error, Equatable, Sendable {
     case transactionLedgerUnavailable
     case reviewQueueUnavailable
     case learnedRuleManagementUnavailable
+    case learnedRuleCategoryRequired
     case monthlyTargetConflict(MonthlyTargetConflict)
     case archivedAccountImportUnavailable
     case accountManagementUnavailable
@@ -32,6 +33,8 @@ extension WorkspaceServiceError: LocalizedError {
             "The review queue is unavailable for this workspace."
         case .learnedRuleManagementUnavailable:
             "Learned rules are unavailable for this workspace."
+        case .learnedRuleCategoryRequired:
+            "Learned rules require a category before saving."
         case .monthlyTargetConflict(let conflict):
             switch conflict {
             case .duplicateScope:
@@ -164,6 +167,41 @@ public struct WorkspaceService: Sendable {
         )
     }
 
+    public func transactions(
+        matching ruleFilterIntent: TransactionLedgerRuleFilterIntent,
+        in rows: [TransactionLedgerRow]
+    ) -> [TransactionLedgerRow] {
+        rows.filter { row in
+            ruleFilterIntent.matches(row, merchantNormalizer: merchantNormalizer)
+        }
+    }
+
+    @discardableResult
+    public func createLearnedRule(
+        _ draft: LearnedRuleDraft,
+        createdAt: Date = .now
+    ) throws -> ManagedLearnedRule {
+        guard draft.categoryID != nil else {
+            throw WorkspaceServiceError.learnedRuleCategoryRequired
+        }
+        guard let learnedRuleWriter = store as? any LearnedRuleWriting else {
+            throw WorkspaceServiceError.learnedRuleManagementUnavailable
+        }
+
+        return try learnedRuleWriter.createLearnedRule(draft, createdAt: createdAt)
+    }
+
+    public func duplicateLearnedRuleAsDraft(id: UUID) throws -> LearnedRuleDraft? {
+        guard let learnedRuleReader = learnedRuleReader() else {
+            throw WorkspaceServiceError.learnedRuleManagementUnavailable
+        }
+
+        guard let detail = try learnedRuleReader.fetchLearnedRuleDetail(id: id) else {
+            return nil
+        }
+        return LearnedRuleDraft(rule: detail)
+    }
+
     @discardableResult
     public func disableLearnedRule(id: UUID, disabledAt: Date = .now) throws -> ManagedLearnedRule {
         guard let learnedRuleWriter = store as? any LearnedRuleWriting else {
@@ -186,7 +224,7 @@ public struct WorkspaceService: Sendable {
         guard var detail = try transactionLedgerReader().fetchTransactionDetail(id: id) else {
             return nil
         }
-        detail.learnedRuleProvenance = try resolveLearnedRuleProvenance(for: detail)
+        detail.ruleProvenance = try resolveRuleProvenance(for: detail)
         return detail
     }
 
@@ -238,6 +276,33 @@ public struct WorkspaceService: Sendable {
             decisionEvent: decisionEvent,
             createdLearnedRuleAction: createdLearnedRuleAction
         )
+    }
+
+    public func previewLearnedRuleImpact(
+        reviewItemID: UUID,
+        createRuleEnabled: Bool,
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind
+    ) throws -> LearnedRuleImpactPreviewState {
+        guard createRuleEnabled else {
+            return .noEligiblePreview
+        }
+        guard let previewReader = store as? any LearnedRulePreviewReading else {
+            return .unavailable
+        }
+        guard let sanitizedPattern = try previewMerchantPattern(
+            reviewItemID: reviewItemID,
+            merchantPattern: merchantPattern
+        ) else {
+            return .noEligiblePreview
+        }
+
+        let preview = try previewReader.previewLearnedRuleImpact(
+            merchantPattern: sanitizedPattern,
+            matchKind: matchKind,
+            excludingReviewItemID: reviewItemID
+        )
+        return .ready(preview)
     }
 
     public func fetchManagedTargets(referenceDate: Date = Date()) throws -> [ManagedMonthlyTarget] {
@@ -598,24 +663,81 @@ public struct WorkspaceService: Sendable {
         store as? any LearnedRuleReading
     }
 
-    private func resolveLearnedRuleProvenance(
+    private func previewMerchantPattern(
+        reviewItemID: UUID,
+        merchantPattern: String
+    ) throws -> String? {
+        let fallbackPattern = try (store as? any ReviewQueueReading)?
+            .fetchPendingReviewItems()
+            .first { $0.id == reviewItemID }?
+            .classification?
+            .normalizedMerchantName
+        return LearnedRuleMatcher.normalizedPattern(
+            merchantPattern,
+            fallbackPattern: fallbackPattern
+        )
+    }
+
+    private func resolveRuleProvenance(
         for detail: TransactionDetail
-    ) throws -> TransactionLearnedRuleProvenance? {
-        guard detail.decisionSource == .rule,
-              let reference = detail.decisionSourceReference,
-              let learnedRuleID = UUID(uuidString: reference),
-              let summary = try learnedRuleReader()?.fetchLearnedRuleSummary(id: learnedRuleID) else {
+    ) throws -> TransactionRuleProvenance? {
+        guard let reference = detail.decisionSourceReference else {
             return nil
         }
 
-        return TransactionLearnedRuleProvenance(
-            id: summary.id,
-            merchantPattern: summary.merchantPattern,
-            categoryID: summary.categoryID,
-            categoryName: try categoryName(for: summary.categoryID),
-            merchantName: summary.merchantName,
-            matchKind: summary.matchKind,
-            lifecycle: summary.lifecycle
+        if detail.decisionSource == .rule,
+           let learnedRuleID = UUID(uuidString: reference),
+           let summary = try learnedRuleReader()?.fetchLearnedRuleSummary(id: learnedRuleID) {
+            return .learnedRule(
+                TransactionLearnedRuleProvenance(
+                    id: summary.id,
+                    merchantPattern: summary.merchantPattern,
+                    categoryID: summary.categoryID,
+                    categoryName: try categoryName(for: summary.categoryID),
+                    merchantName: summary.merchantName,
+                    matchKind: summary.matchKind,
+                    lifecycle: summary.lifecycle
+                )
+            )
+        }
+
+        guard let seededSource = try resolveSeededRuleProvenance(
+            decisionSource: detail.decisionSource,
+            reference: reference
+        ) else {
+            return nil
+        }
+
+        return .seededSource(seededSource)
+    }
+
+    private func resolveSeededRuleProvenance(
+        decisionSource: ClassificationDecisionSource?,
+        reference: String
+    ) throws -> TransactionSeededRuleSourceProvenance? {
+        let row = seededRuleSourceRows().first { row in
+            switch decisionSource {
+            case .rule:
+                return row.sourceKind == .deterministicRule && row.id == reference
+            case .curatedPrefill:
+                return row.sourceKind == .curatedPrefill && row.id == reference
+            case .heuristic, .suggestion, .user, .none:
+                return false
+            }
+        }
+
+        guard let row else {
+            return nil
+        }
+
+        return TransactionSeededRuleSourceProvenance(
+            id: row.id,
+            kind: row.sourceKind == .deterministicRule ? .deterministicRule : .curatedPrefill,
+            merchantPattern: row.merchantPattern,
+            categoryID: row.categoryID,
+            categoryName: try categoryName(for: row.categoryID),
+            merchantName: row.merchantName,
+            matchKind: row.matchKind
         )
     }
 
@@ -651,7 +773,7 @@ public struct WorkspaceService: Sendable {
             merchantLabel: merchantLabel?.isEmpty == false
                 ? merchantLabel ?? matchingSummary.merchantPattern
                 : matchingSummary.merchantPattern,
-            destination: .learnedRulesRoute(selectedLearnedRuleID: matchingSummary.id)
+            destination: .learnedRulesRoute(selection: .learnedRule(matchingSummary.id))
         )
     }
 
@@ -665,7 +787,7 @@ public struct WorkspaceService: Sendable {
     private func seededRuleSourceRows() -> [SeededRuleSourceRow] {
         let deterministicRows = SeededClassification.deterministicRules.map { rule in
             SeededRuleSourceRow(
-                id: rule.id.uuidString,
+                id: rule.seededSourceID,
                 merchantPattern: rule.merchantPattern,
                 categoryID: rule.categoryID,
                 merchantName: rule.merchantName,

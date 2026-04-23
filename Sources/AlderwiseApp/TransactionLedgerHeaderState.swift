@@ -57,6 +57,7 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
     enum Chip: Equatable, Hashable, Sendable {
         case search(String)
         case visibility(TransactionVisibilityFilter)
+        case ruleMatch(TransactionLedgerRuleFilterIntent.Source, String)
         case account(UUID, String)
         case category(UUID, String)
         case categoryGroup(UUID, String)
@@ -72,6 +73,8 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
                 return text
             case .visibility(let visibility):
                 return visibility.rawValue.capitalized
+            case .ruleMatch(_, let label):
+                return label
             case .account(_, let name),
                     .category(_, let name),
                     .categoryGroup(_, let name),
@@ -134,6 +137,8 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
             nextFilter.searchText = ""
         case .visibility:
             nextFilter.visibility = nil
+        case .ruleMatch:
+            nextFilter.ruleFilterIntent = nil
         case .account:
             nextFilter.accountID = nil
         case .category:
@@ -176,6 +181,8 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
             return "Search: \"\(text)\""
         case .visibility:
             return "Visibility: \(chip.text(using: formatting))"
+        case .ruleMatch(_, let label):
+            return "Matching rule: \(label)"
         case .account(_, let name):
             return "Account: \(name)"
         case .category(_, let name):
@@ -241,6 +248,9 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         if let visibility = filter.visibility, visibility != .active {
             chips.append(.visibility(visibility))
         }
+        if let ruleFilterIntent = filter.ruleFilterIntent {
+            chips.append(.ruleMatch(ruleFilterIntent.source, ruleFilterIntent.merchantLabel))
+        }
         if let accountID = filter.accountID {
             chips.append(.account(accountID, accountName ?? "Selected account"))
         }
@@ -282,6 +292,8 @@ private extension TransactionLedgerFilter {
     var hasNonSearchCriteria: Bool {
         startDate != nil ||
         endDate != nil ||
+        visibility != nil ||
+        ruleFilterIntent != nil ||
         accountID != nil ||
         categoryID != nil ||
         categoryGroupID != nil ||

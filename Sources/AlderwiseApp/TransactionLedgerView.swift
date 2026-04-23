@@ -60,7 +60,7 @@ struct TransactionLedgerView: View {
 
     private var headerState: TransactionLedgerHeaderState {
         TransactionLedgerHeaderState(
-            rows: snapshot.transactions,
+            rows: visibleTransactions,
             filter: model.transactionFilter,
             accountName: selectedAccountName,
             categoryName: selectedCategoryName,
@@ -71,6 +71,10 @@ struct TransactionLedgerView: View {
 
     private var hasActiveSecondaryFilters: Bool {
         hasActiveSecondaryFilters(in: model.transactionFilter)
+    }
+
+    private var visibleTransactions: [TransactionLedgerRow] {
+        model.matchingTransactions(in: snapshot.transactions)
     }
 
     private var secondaryFiltersExpansion: Binding<Bool> {
@@ -103,12 +107,12 @@ struct TransactionLedgerView: View {
                 onDraftChange: { draftCoordinator.updateDraft($0) },
                 onSave: handleSave,
                 onSetHidden: { model.setSelectedTransactionHidden($0) },
-                onViewLearnedRule: { model.showLearnedRules(selectedLearnedRuleID: $0) }
+                onViewRule: handleViewRule
             )
                 .frame(idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
         .alert(
-            "Save changes before switching transactions?",
+            "Save changes before leaving this transaction?",
             isPresented: isPresentingSelectionChangeConfirmation
         ) {
             Button("Save Changes") {
@@ -121,7 +125,7 @@ struct TransactionLedgerView: View {
                 draftCoordinator.cancelPendingSelectionChange()
             }
         } message: {
-            Text("You have unsaved edits in the inspector. Save them before switching transactions.")
+            Text("You have unsaved edits in the inspector. Save them before switching transactions or opening Rules.")
         }
         .navigationTitle("Transactions")
         .searchable(text: $searchText, isPresented: $isSearchPresented, placement: .toolbar, prompt: "Search transactions")
@@ -130,6 +134,18 @@ struct TransactionLedgerView: View {
         }
         .onChange(of: searchText) { _, _ in
             applyFilters()
+        }
+        .onAppear {
+            syncControlsFromFilter()
+            syncDraftCoordinator()
+            if model.selectedTransactionID == nil, model.transactionFilter.ruleFilterIntent == nil {
+                model.selectTransaction(
+                    id: TransactionLedgerSelectionState.selectionAfterReload(
+                        currentSelectionID: nil,
+                        visibleRows: visibleTransactions
+                    )
+                )
+            }
         }
         .onChange(of: model.transactionFilter) { oldFilter, newFilter in
             if hasActiveSecondaryFilters(in: oldFilter), !hasActiveSecondaryFilters(in: newFilter) {
@@ -261,7 +277,7 @@ struct TransactionLedgerView: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 6) {
-                        ForEach(snapshot.transactions) { transaction in
+                        ForEach(visibleTransactions) { transaction in
                             Button {
                                 listSelectionID = transaction.id
                             } label: {
@@ -289,6 +305,7 @@ struct TransactionLedgerView: View {
                 }
                 .background(.background)
                 .onAppear {
+                    syncListSelectionFromModel()
                     scrollSelectionIfNeeded(with: proxy, animated: false)
                 }
                 .onChange(of: model.selectedTransactionID) { _, _ in
@@ -559,6 +576,15 @@ struct TransactionLedgerView: View {
         applyPendingSelectionChange(draftCoordinator.completeSave(didSucceed: didSave))
     }
 
+    private func handleViewRule(_ selection: LearnedRulesDestination.Selection) {
+        switch draftCoordinator.ruleNavigationDecision(for: selection) {
+        case .proceed:
+            model.showLearnedRules(selection: selection)
+        case .promptToSaveDiscardOrCancel:
+            break
+        }
+    }
+
     private func saveAndApplyPendingSelection() {
         guard let draft = draftCoordinator.currentDraft else {
             return
@@ -579,6 +605,8 @@ struct TransactionLedgerView: View {
             if selectionID != model.selectedTransactionID {
                 model.selectTransaction(id: selectionID)
             }
+        case let .rules(selection):
+            model.showLearnedRules(selection: selection)
         }
     }
 
@@ -653,25 +681,25 @@ struct TransactionLedgerView: View {
     }
 
     private func moveSelection(by offset: Int) {
-        guard snapshot.transactions.isEmpty == false else {
+        guard visibleTransactions.isEmpty == false else {
             return
         }
 
         let currentSelectionID = listSelectionID ?? model.selectedTransactionID
         let currentIndex = if let currentSelectionID,
-                              let index = snapshot.transactions.firstIndex(where: { $0.id == currentSelectionID }) {
+                              let index = visibleTransactions.firstIndex(where: { $0.id == currentSelectionID }) {
             index
         } else if offset > 0 {
-            snapshot.transactions.startIndex
+            visibleTransactions.startIndex
         } else {
-            snapshot.transactions.index(before: snapshot.transactions.endIndex)
+            visibleTransactions.index(before: visibleTransactions.endIndex)
         }
 
         let nextIndex = min(
-            max(currentIndex + offset, snapshot.transactions.startIndex),
-            snapshot.transactions.index(before: snapshot.transactions.endIndex)
+            max(currentIndex + offset, visibleTransactions.startIndex),
+            visibleTransactions.index(before: visibleTransactions.endIndex)
         )
-        listSelectionID = snapshot.transactions[nextIndex].id
+        listSelectionID = visibleTransactions[nextIndex].id
     }
 
     private func scrollSelectionIfNeeded(with proxy: ScrollViewProxy, animated: Bool) {
@@ -705,7 +733,7 @@ private extension TransactionLedgerHeaderState.Chip {
         switch self {
         case .visibility, .direction, .review, .importSession:
             return true
-        case .search, .account, .category, .categoryGroup, .uncategorized, .dateRange:
+        case .search, .ruleMatch, .account, .category, .categoryGroup, .uncategorized, .dateRange:
             return false
         }
     }

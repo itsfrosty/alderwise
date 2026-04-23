@@ -6,14 +6,15 @@ import Testing
 func explicitRuleAutoAcceptsWhenThereIsNoDuplicateConcern() {
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let ruleID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let rule = ClassificationRule(
+        id: ruleID,
+        merchantPattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop"
+    )
     let engine = ClassificationEngine(
         explicitRules: [
-            ClassificationRule(
-                id: ruleID,
-                merchantPattern: "coffee shop",
-                categoryID: categoryID,
-                merchantName: "Coffee Shop"
-            ),
+            rule,
         ]
     )
 
@@ -241,14 +242,15 @@ func explicitRulesStillTakePrecedenceOverCuratedReviewPrefills() {
     let explicitCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let curatedCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
     let ruleID = UUID(uuidString: "00000000-0000-0000-0000-000000000333")!
+    let rule = ClassificationRule(
+        id: ruleID,
+        merchantPattern: "coffee",
+        categoryID: explicitCategoryID,
+        merchantName: "Explicit Coffee"
+    )
     let engine = ClassificationEngine(
         explicitRules: [
-            ClassificationRule(
-                id: ruleID,
-                merchantPattern: "coffee",
-                categoryID: explicitCategoryID,
-                merchantName: "Explicit Coffee"
-            ),
+            rule,
         ],
         curatedReviewPrefills: [
             CuratedReviewPrefill(
@@ -275,6 +277,25 @@ func explicitRulesStillTakePrecedenceOverCuratedReviewPrefills() {
         confidence: 1.0,
         reason: "Matched explicit merchant rule."
     ))
+}
+
+@Test
+func deterministicSeededSourceIDCanonicalizesWhitespaceAndCasingOnlyPatternChanges() {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000777")!
+    let loosePatternRule = ClassificationRule(
+        merchantPattern: "  Coffee Shop  ",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        sourceReferenceKind: .seededSourceID
+    )
+    let canonicalPatternRule = ClassificationRule(
+        merchantPattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        sourceReferenceKind: .seededSourceID
+    )
+
+    #expect(loosePatternRule.seededSourceID == canonicalPatternRule.seededSourceID)
 }
 
 @Test
@@ -444,6 +465,94 @@ func prefixRulesMatchSharedMerchantFamilyAtTheStartOnly() {
 }
 
 @Test
+func readOnlyLearnedRuleMatcherReusesExactPrefixAndContainsMatchingSemantics() {
+    let exactCandidate = LearnedRuleMatchCandidate(
+        normalizedMerchantName: "alias merchant",
+        rawDescription: "Coffee Shop"
+    )
+    let prefixCandidate = LearnedRuleMatchCandidate(
+        normalizedMerchantName: "other merchant",
+        rawDescription: "99PLEDG*ONIR BAWEJA"
+    )
+    let containsCandidate = LearnedRuleMatchCandidate(
+        normalizedMerchantName: "daily coffee roasters",
+        rawDescription: "DAILY COFFEE ROASTERS"
+    )
+
+    #expect(LearnedRuleMatcher.matches(
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant,
+        candidate: exactCandidate
+    ))
+    #expect(LearnedRuleMatcher.matches(
+        merchantPattern: "99pledg",
+        matchKind: .prefixNormalizedMerchant,
+        candidate: prefixCandidate
+    ))
+    #expect(LearnedRuleMatcher.matches(
+        merchantPattern: "coffee",
+        matchKind: .contains,
+        candidate: containsCandidate
+    ))
+    #expect(LearnedRuleMatcher.matches(
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant,
+        candidate: LearnedRuleMatchCandidate(
+            normalizedMerchantName: "coffee shop downtown",
+            rawDescription: "Coffee Shop Downtown"
+        )
+    ) == false)
+}
+
+@Test
+func userFacingPrecedenceStatementsDescribeExactPrefixContainsOrder() {
+    #expect(
+        ClassificationRuleMatchKind.exactNormalizedMerchant.precedenceExplanation
+            == "Precedence: Exact merchant beats Shared prefix and Contains for the same merchant text."
+    )
+    #expect(
+        ClassificationRuleMatchKind.prefixNormalizedMerchant.precedenceExplanation
+            == "Precedence: Shared prefix beats Contains, but Exact merchant beats Shared prefix when both match."
+    )
+    #expect(
+        ClassificationRuleMatchKind.contains.precedenceExplanation
+            == "Precedence: Contains is checked after Exact merchant and Shared prefix."
+    )
+}
+
+@Test
+func testMatchNormalizesUserEnteredMerchantTextForExactPrefixAndContainsRules() {
+    #expect(
+        LearnedRuleMatcher.testMatch(
+            merchantPattern: "coffee shop",
+            matchKind: .exactNormalizedMerchant,
+            userEnteredMerchantText: "  COFFEE SHOP  "
+        )
+    )
+    #expect(
+        LearnedRuleMatcher.testMatch(
+            merchantPattern: "99pledg",
+            matchKind: .prefixNormalizedMerchant,
+            userEnteredMerchantText: "99PLEDG*ONIR BAWEJA"
+        )
+    )
+    #expect(
+        LearnedRuleMatcher.testMatch(
+            merchantPattern: "coffee",
+            matchKind: .contains,
+            userEnteredMerchantText: "DAILY COFFEE ROASTERS"
+        )
+    )
+    #expect(
+        LearnedRuleMatcher.testMatch(
+            merchantPattern: "coffee shop",
+            matchKind: .exactNormalizedMerchant,
+            userEnteredMerchantText: "Coffee Shop Downtown"
+        ) == false
+    )
+}
+
+@Test
 func patternLikeMerchantsOfferExactAndPrefixLearningOptions() {
     let options = ReviewRuleLearningOption.options(forNormalizedMerchantName: "99pledg onir baweja")
 
@@ -455,6 +564,43 @@ func patternLikeMerchantsOfferExactAndPrefixLearningOptions() {
         ReviewRuleLearningOption.defaultOption(forNormalizedMerchantName: "99pledg onir baweja")
             == .exactNormalizedMerchant(pattern: "99pledg onir baweja")
     )
+}
+
+@Test
+func reviewLearningOptionsNeverExposeContainsMatching() {
+    let patternLikeOptions = ReviewRuleLearningOption.options(
+        forNormalizedMerchantName: "99pledg onir baweja"
+    )
+    let ordinaryOptions = ReviewRuleLearningOption.options(
+        forNormalizedMerchantName: "daily coffee roasters"
+    )
+
+    #expect(
+        patternLikeOptions.allSatisfy { option in
+            switch option {
+            case .exactNormalizedMerchant, .prefixNormalizedMerchant:
+                true
+            }
+        }
+    )
+    #expect(
+        ordinaryOptions.allSatisfy { option in
+            switch option {
+            case .exactNormalizedMerchant, .prefixNormalizedMerchant:
+                true
+            }
+        }
+    )
+}
+
+@Test
+func containsMatchKindUsesStrongerManualAuthoringWarningCopy() {
+    #expect(ClassificationRuleMatchKind.contains.isAdvancedManualAuthoringOption)
+    #expect(
+        ClassificationRuleMatchKind.contains.manualAuthoringWarningText
+            == "Contains can match multiple merchants and may recategorize accepted transactions that are already in this workspace."
+    )
+    #expect(ClassificationRuleMatchKind.prefixNormalizedMerchant.manualAuthoringWarningText == nil)
 }
 
 @Test

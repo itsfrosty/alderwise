@@ -53,6 +53,48 @@ public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
             disabledAt: summary.disabledAt
         )
     }
+
+    public init(rule: ManagedLearnedRule) {
+        self.init(
+            id: rule.id,
+            merchantPattern: rule.merchantPattern,
+            categoryID: rule.categoryID,
+            merchantName: rule.merchantName,
+            matchKind: rule.matchKind,
+            createdAt: rule.createdAt,
+            isDisabled: rule.isDisabled,
+            disabledAt: rule.disabledAt
+        )
+    }
+
+    public static var sectionTitle: String {
+        RuleDisplayText.yourRules
+    }
+
+    public static var sectionSubtitle: String {
+        "Created from review or manually"
+    }
+
+    public static var detailSourceText: String {
+        "User-created rule"
+    }
+
+    public var precedenceExplanation: String {
+        matchKind.precedenceExplanation
+    }
+
+    public var matchingTransactionsFilter: TransactionLedgerFilter {
+        TransactionLedgerFilter(ruleFilterIntent: matchingTransactionsFilterIntent)
+    }
+
+    public var matchingTransactionsFilterIntent: TransactionLedgerRuleFilterIntent {
+        TransactionLedgerRuleFilterIntent(
+            source: .learnedRule(id),
+            merchantPattern: merchantPattern,
+            merchantLabel: merchantName?.nilIfEmpty ?? merchantPattern,
+            matchKind: matchKind
+        )
+    }
 }
 
 public struct SeededRuleSourceRow: Identifiable, Equatable, Sendable {
@@ -77,6 +119,16 @@ public struct SeededRuleSourceRow: Identifiable, Equatable, Sendable {
         self.merchantName = merchantName
         self.matchKind = matchKind
         self.sourceKind = sourceKind
+    }
+
+    public var precedenceExplanation: String {
+        matchKind.precedenceExplanation
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? {
+        isEmpty ? nil : self
     }
 }
 
@@ -103,13 +155,101 @@ public struct LearnedRuleManagerSnapshot: Equatable, Sendable {
     }
 }
 
-public struct LearnedRulesDestination: Equatable, Sendable {
-    public var mode: LearnedRuleManagerMode
-    public var selectedLearnedRuleID: UUID?
+public enum LearnedRuleDraftSheetMode: Equatable, Sendable {
+    case newRule
+    case duplicateRule(sourceRuleID: UUID)
+}
 
-    public init(mode: LearnedRuleManagerMode, selectedLearnedRuleID: UUID? = nil) {
+public struct LearnedRuleDraftSheet: Identifiable, Equatable, Sendable {
+    public static let basicAllowedMatchKinds: [ClassificationRuleMatchKind] = [
+        .exactNormalizedMerchant,
+        .prefixNormalizedMerchant,
+    ]
+    public static let unsupportedMatchKindMessage = "Contains rules are not available in manual authoring yet."
+
+    public var id: UUID
+    public var mode: LearnedRuleDraftSheetMode
+    public var draft: LearnedRuleDraft
+
+    public init(
+        id: UUID = UUID(),
+        mode: LearnedRuleDraftSheetMode,
+        draft: LearnedRuleDraft
+    ) {
+        self.id = id
         self.mode = mode
-        self.selectedLearnedRuleID = selectedLearnedRuleID
+        self.draft = draft
+    }
+
+    public static func newRule(
+        id: UUID = UUID(),
+        draft: LearnedRuleDraft = LearnedRuleDraft()
+    ) -> LearnedRuleDraftSheet {
+        LearnedRuleDraftSheet(id: id, mode: .newRule, draft: draft)
+    }
+
+    public static func duplicateRule(
+        sourceRuleID: UUID,
+        draft: LearnedRuleDraft,
+        id: UUID = UUID()
+    ) -> LearnedRuleDraftSheet {
+        LearnedRuleDraftSheet(
+            id: id,
+            mode: .duplicateRule(sourceRuleID: sourceRuleID),
+            draft: draft
+        )
+    }
+
+    public var title: String {
+        switch mode {
+        case .newRule:
+            "New Rule"
+        case .duplicateRule:
+            "Duplicate Rule"
+        }
+    }
+
+    public var confirmationTitle: String {
+        switch mode {
+        case .newRule:
+            "Save Rule"
+        case .duplicateRule:
+            "Save Duplicate"
+        }
+    }
+
+    public var allowedMatchKinds: [ClassificationRuleMatchKind] {
+        Self.basicAllowedMatchKinds
+    }
+
+    public static func supportsBasicManualAuthoring(
+        matchKind: ClassificationRuleMatchKind
+    ) -> Bool {
+        basicAllowedMatchKinds.contains(matchKind)
+    }
+
+    public var canSave: Bool {
+        draft.categoryID != nil
+            && draft.normalizedMerchantPattern != nil
+            && (
+                draft.matchKind.isAdvancedManualAuthoringOption
+                    || allowedMatchKinds.contains(draft.matchKind)
+            )
+    }
+}
+
+public struct LearnedRulesDestination: Equatable, Sendable {
+    public enum Selection: Equatable, Sendable {
+        case learnedRule(UUID)
+        case seededSource(String)
+    }
+
+    public var mode: LearnedRuleManagerMode
+    public var selection: Selection?
+
+    public init(mode: LearnedRuleManagerMode, selection: Selection? = nil) {
+        self.mode = mode
+        self.selection = selection
     }
 }
 
@@ -117,12 +257,50 @@ public enum SettingsDestination: Equatable, Sendable {
     case overview
     case learnedRules(LearnedRulesDestination)
 
-    public static func learnedRulesRoute(selectedLearnedRuleID: UUID? = nil) -> SettingsDestination {
-        .learnedRules(
+    public static func learnedRulesRoute(
+        selection: LearnedRulesDestination.Selection? = nil
+    ) -> SettingsDestination {
+        let mode: LearnedRuleManagerMode
+        switch selection {
+        case .seededSource:
+            mode = .seeded
+        case .learnedRule, .none:
+            mode = .learned
+        }
+
+        return SettingsDestination.learnedRules(
             LearnedRulesDestination(
-                mode: .learned,
-                selectedLearnedRuleID: selectedLearnedRuleID
+                mode: mode,
+                selection: selection
             )
         )
+    }
+
+    public static func learnedRulesRoute(selectedLearnedRuleID: UUID? = nil) -> SettingsDestination {
+        learnedRulesRoute(selection: selectedLearnedRuleID.map { .learnedRule($0) })
+    }
+}
+
+public extension SeededRuleSourceKind {
+    var sectionTitle: String {
+        switch self {
+        case .deterministicRule:
+            RuleDisplayText.builtInAutoApplied
+        case .curatedPrefill:
+            RuleDisplayText.builtInReviewFirst
+        }
+    }
+
+    var detailSourceTypeText: String {
+        switch self {
+        case .deterministicRule:
+            "Built-In Auto-Applied rule"
+        case .curatedPrefill:
+            "Built-In Review-First hint"
+        }
+    }
+
+    var sectionSubtitle: String {
+        "Included with App"
     }
 }
