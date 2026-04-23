@@ -12,23 +12,17 @@ public struct WorkspaceInsightSummary: Equatable, Sendable {
 
 public struct WorkspaceInsight: Equatable, Sendable {
     public var kind: WorkspaceInsightKind
-    public var title: String
-    public var summary: String
     public var confidence: Double
     public var rank: Int
     public var score: Double
 
     public init(
         kind: WorkspaceInsightKind,
-        title: String,
-        summary: String,
         confidence: Double,
         rank: Int,
         score: Double
     ) {
         self.kind = kind
-        self.title = title
-        self.summary = summary
         self.confidence = confidence
         self.rank = rank
         self.score = score
