@@ -27,9 +27,27 @@ INFO_PLIST="$APP_CONTENTS/Info.plist"
 
 cd "$ROOT_DIR"
 
+print_help() {
+  cat <<EOF
+usage: $0 [run|--debug|--logs|--telemetry|--verify|--help]
+
+All modes restart Alderwise before their mode-specific behavior.
+
+run         Build and launch Alderwise, then return.
+verify      Build and relaunch Alderwise, then require it to stay alive across a short smoke-check window.
+debug       Build Alderwise and launch it under LLDB with the run started automatically.
+logs        Build and relaunch Alderwise, then attach to a process-filtered unified log stream.
+telemetry   Build and relaunch Alderwise, then attach to a subsystem-filtered unified log stream.
+help        Show this launcher summary and exit without building or restarting.
+EOF
+}
+
 case "$MODE" in
   run)
     MODE="run"
+    ;;
+  -h|--help|help)
+    MODE="help"
     ;;
   --debug|debug)
     MODE="debug"
@@ -44,10 +62,15 @@ case "$MODE" in
     MODE="verify"
     ;;
   *)
-    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--debug|--logs|--telemetry|--verify|--help]" >&2
     exit 2
     ;;
 esac
+
+if [[ "$MODE" == "help" ]]; then
+  print_help
+  exit 0
+fi
 
 "$PKILL_BIN" -x "$APP_NAME" >/dev/null 2>&1 || true
 
@@ -88,6 +111,7 @@ verify_relaunch_sticks() {
   local startup_attempt
   local smoke_check
 
+  # Verify means the relaunched app must appear and then remain alive briefly.
   for ((startup_attempt = 0; startup_attempt < VERIFY_STARTUP_ATTEMPTS; startup_attempt++)); do
     if "$PGREP_BIN" -x "$APP_NAME" >/dev/null; then
       break

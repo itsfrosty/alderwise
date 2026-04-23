@@ -30,6 +30,18 @@ assert_exit_code() {
   fi
 }
 
+assert_file_not_contains() {
+  local file="$1"
+  local unexpected="$2"
+
+  if grep -F -- "$unexpected" "$file" >/dev/null 2>&1; then
+    echo "Did not expect to find: $unexpected" >&2
+    echo "In file: $file" >&2
+    cat "$file" >&2
+    fail "unexpected content present"
+  fi
+}
+
 assert_file_order() {
   local file="$1"
   local first="$2"
@@ -284,6 +296,35 @@ run_invalid_mode_contract() {
   fi
 }
 
+run_help_contract() {
+  local temp_dir
+  local exit_code
+  temp_dir="$(mktemp -d)"
+  trap 'rm -rf "$temp_dir"' RETURN
+
+  make_stub_environment "$temp_dir"
+
+  exit_code=0
+  PATH="$temp_dir/stubs:$PATH" \
+  OPEN_BIN="$temp_dir/stubs/open" \
+  "$SCRIPT_PATH" --help >"$temp_dir/help.out" 2>"$temp_dir/help.err" || exit_code=$?
+
+  assert_exit_code 0 "$exit_code"
+  assert_file_contains "$temp_dir/help.out" "usage: $SCRIPT_PATH [run|--debug|--logs|--telemetry|--verify|--help]"
+  assert_file_contains "$temp_dir/help.out" "All modes restart Alderwise before their mode-specific behavior."
+  assert_file_contains "$temp_dir/help.out" "run         Build and launch Alderwise, then return."
+  assert_file_contains "$temp_dir/help.out" "verify      Build and relaunch Alderwise, then require it to stay alive across a short smoke-check window."
+  assert_file_contains "$temp_dir/help.out" "debug       Build Alderwise and launch it under LLDB with the run started automatically."
+  assert_file_contains "$temp_dir/help.out" "logs        Build and relaunch Alderwise, then attach to a process-filtered unified log stream."
+  assert_file_contains "$temp_dir/help.out" "telemetry   Build and relaunch Alderwise, then attach to a subsystem-filtered unified log stream."
+  assert_file_not_contains "$temp_dir/help.err" "usage:"
+
+  if [[ -f "$temp_dir/command.log" ]]; then
+    fail "help should not build, kill, or launch anything"
+  fi
+}
+
+run_help_contract
 run_debug_contract
 run_verify_contract
 run_verify_success_contract
