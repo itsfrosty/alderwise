@@ -11,12 +11,17 @@ func overviewHealthStatusUsesHealthyAndRecoveryNeededCopy() {
     let recoveryPresentation = SettingsPresentation(
         workspaceStatus: .failedToOpen("The workspace file could not be opened.")
     )
+    let metadataUnavailablePresentation = SettingsPresentation(
+        workspaceStatus: .available(nil)
+    )
 
     #expect(healthyPresentation.overview.healthStatus.state == .healthy)
     #expect(healthyPresentation.overview.healthSectionTitle == "Workspace health")
     #expect(healthyPresentation.overview.healthStatus.title == "Workspace looks healthy")
     #expect(recoveryPresentation.overview.healthStatus.state == .recoveryNeeded)
     #expect(recoveryPresentation.overview.healthStatus.title == "Workspace needs recovery")
+    #expect(metadataUnavailablePresentation.overview.healthStatus.state == .checking)
+    #expect(metadataUnavailablePresentation.overview.healthStatus.title == "Checking workspace details")
 }
 
 @Test

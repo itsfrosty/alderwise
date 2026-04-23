@@ -132,7 +132,14 @@ public struct SettingsPresentation: Equatable, Sendable {
                     systemImage: "exclamationmark.triangle.fill"
                 )
             case .available(let metadata):
-                if let metadata, metadata.databaseExists == false {
+                if metadata == nil {
+                    self.init(
+                        state: .checking,
+                        title: "Checking workspace details",
+                        detail: "Alderwise opened the workspace, but diagnostics are still unavailable. Use backup and restore actions if you need a safe recovery path right now.",
+                        systemImage: "clock.badge.exclamationmark"
+                    )
+                } else if let metadata, metadata.databaseExists == false {
                     self.init(
                         state: .recoveryNeeded,
                         title: "Workspace needs recovery",
