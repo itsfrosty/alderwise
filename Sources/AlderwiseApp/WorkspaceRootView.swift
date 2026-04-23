@@ -28,7 +28,10 @@ struct WorkspaceRootView: View {
     private var selectedSectionBinding: Binding<AppSection> {
         Binding(
             get: { selectedSection },
-            set: { selectedSectionRawValue = $0.rawValue }
+            set: { section in
+                model.prepareForSidebarSelection(section)
+                selectedSectionRawValue = section.rawValue
+            }
         )
     }
 

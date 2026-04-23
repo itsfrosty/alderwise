@@ -29,6 +29,22 @@ func rulesDeepLinkResolvesToSettingsRules() {
 }
 
 @Test
+func sidebarRulesSelectionBuildsDefaultRulesRoute() {
+    let state = SettingsShellState.sidebarSelection(.rules)
+
+    #expect(state.sidebarDestination == .rules)
+    #expect(
+        state.destination
+            == .rules(
+                LearnedRulesDestination(
+                    mode: .learned,
+                    selectedLearnedRuleID: nil
+                )
+            )
+    )
+}
+
+@Test
 @MainActor
 func showLearnedRulesSetsSettingsRouteAndPendingSettingsNavigation() {
     let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000444")!
@@ -46,4 +62,17 @@ func showLearnedRulesSetsSettingsRouteAndPendingSettingsNavigation() {
             )
     )
     #expect(model.pendingAppSectionNavigation == .settings)
+}
+
+@Test
+@MainActor
+func reEnteringSettingsFromSidebarResetsRulesDeepLinkToOverview() {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000455")!
+    let model = WorkspaceShellModel(store: nil, service: nil)
+
+    model.showLearnedRules(selectedLearnedRuleID: learnedRuleID)
+    model.prepareForSidebarSelection(.review)
+    model.prepareForSidebarSelection(.settings)
+
+    #expect(model.settingsDestination == .overview)
 }

@@ -291,6 +291,14 @@ final class WorkspaceShellModel: ObservableObject {
         selectedTargetID = id
     }
 
+    func prepareForSidebarSelection(_ section: AppSection) {
+        guard section == .settings else {
+            return
+        }
+
+        settingsDestination = SettingsShellState.directEntry().destination
+    }
+
     func selectSettingsDestination(_ destination: SettingsDestination) {
         settingsDestination = SettingsShellState.deepLink(destination).destination
     }

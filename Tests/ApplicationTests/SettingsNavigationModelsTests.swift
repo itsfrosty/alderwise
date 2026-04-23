@@ -35,3 +35,18 @@ func settingsDestinationSupportsOverviewBackupsAndRecoveryAndRules() {
     #expect(destinations[1] == .backupsAndRecovery)
     #expect(destinations[2] == .rules(rulesDestination))
 }
+
+@Test
+func settingsDestinationMapsToSidebarDestination() {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000423")!
+    let rulesDestination = SettingsDestination.rules(
+        LearnedRulesDestination(
+            mode: .learned,
+            selectedLearnedRuleID: learnedRuleID
+        )
+    )
+
+    #expect(SettingsDestination.overview.sidebarDestination == .overview)
+    #expect(SettingsDestination.backupsAndRecovery.sidebarDestination == .backupsAndRecovery)
+    #expect(rulesDestination.sidebarDestination == .rules)
+}
