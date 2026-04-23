@@ -455,8 +455,24 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 db,
                 sql: "SELECT COUNT(*) FROM accounts WHERE archived_at IS NULL"
             ) ?? 0
-            let transactionCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM transactions") ?? 0
-            let reviewCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM review_items WHERE status = 'pending'") ?? 0
+            let transactionCount = try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM transactions WHERE is_hidden = 0"
+            ) ?? 0
+            let reviewCount = try Int.fetchOne(
+                db,
+                sql: """
+                SELECT COUNT(*)
+                FROM review_items
+                LEFT JOIN transactions ON transactions.id = review_items.transaction_id
+                WHERE review_items.status = ?
+                  AND (
+                    transactions.id IS NULL
+                    OR transactions.is_hidden = 0
+                  )
+                """,
+                arguments: [ReviewItemStatus.pending.rawValue]
+            ) ?? 0
             let targetCount = try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM targets") ?? 0
 
             return WorkspaceSummary(
@@ -673,7 +689,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                   AND (
                     review_items.type != ?
                     OR transactions.review_status IS NULL
-                    OR transactions.review_status = ?
+                    OR (
+                        transactions.review_status = ?
+                        AND transactions.is_hidden = 0
+                    )
                   )
                 ORDER BY review_items.created_at ASC, review_items.id ASC
                 """,
@@ -1719,7 +1738,16 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
             let lastMonthSpend = try acceptedExpenseSpend(db: db, interval: lastMonthInterval)
             let pendingReviewCount = try Int.fetchOne(
                 db,
-                sql: "SELECT COUNT(*) FROM review_items WHERE status = ?",
+                sql: """
+                SELECT COUNT(*)
+                FROM review_items
+                LEFT JOIN transactions ON transactions.id = review_items.transaction_id
+                WHERE review_items.status = ?
+                  AND (
+                    transactions.id IS NULL
+                    OR transactions.is_hidden = 0
+                  )
+                """,
                 arguments: [ReviewItemStatus.pending.rawValue]
             ) ?? 0
             let targetRows = try Row.fetchAll(
@@ -2570,6 +2598,9 @@ private func transactionLedgerQuery(
         predicates.append("categories.category_group_id = ?")
         appendArgument(categoryGroupID.uuidString, to: &arguments)
     }
+    if filter.uncategorizedOnly {
+        predicates.append("transactions.category_id IS NULL")
+    }
     if let direction = filter.direction {
         predicates.append("transactions.direction = ?")
         appendArgument(direction.rawValue, to: &arguments)
@@ -2577,6 +2608,14 @@ private func transactionLedgerQuery(
     if let reviewStatus = filter.reviewStatus {
         predicates.append("transactions.review_status = ?")
         appendArgument(reviewStatus.rawValue, to: &arguments)
+    }
+    switch filter.visibility ?? .active {
+    case .active:
+        predicates.append("transactions.is_hidden = 0")
+    case .hidden:
+        predicates.append("transactions.is_hidden = 1")
+    case .all:
+        break
     }
     if let importSessionID = filter.importSessionID {
         predicates.append("transactions.import_session_id = ?")
@@ -2736,14 +2775,13 @@ private func acceptedExpenseSpend(
     categoryGroupID: UUID? = nil
 ) throws -> Decimal {
     var predicates = [
-        "transactions.review_status = ?",
+        "transactions.is_hidden = 0",
         "transactions.direction = ?",
         "transactions.amount < 0",
         "transactions.transaction_date >= ?",
         "transactions.transaction_date < ?",
     ]
     var arguments = StatementArguments()
-    appendArgument(TransactionReviewStatus.accepted.rawValue, to: &arguments)
     appendArgument(TransactionDirection.expense.rawValue, to: &arguments)
     appendArgument(interval.start, to: &arguments)
     appendArgument(interval.end, to: &arguments)
@@ -2789,7 +2827,7 @@ private func monthlySpendSeries(
             CAST(STRFTIME('%d', transactions.transaction_date) AS INTEGER) AS day,
             COALESCE(SUM(-transactions.amount), 0) AS spend
         FROM transactions
-        WHERE transactions.review_status = ?
+        WHERE transactions.is_hidden = 0
             AND transactions.direction = ?
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
@@ -2798,7 +2836,6 @@ private func monthlySpendSeries(
         ORDER BY day ASC
         """,
         arguments: [
-            TransactionReviewStatus.accepted.rawValue,
             TransactionDirection.expense.rawValue,
             interval.start,
             interval.end,
@@ -2836,9 +2873,9 @@ private func spendingDrivers(
             category_groups.name AS category_group_name,
             COALESCE(SUM(-transactions.amount), 0) AS spend
         FROM transactions
-        JOIN categories ON categories.id = transactions.category_id
+        LEFT JOIN categories ON categories.id = transactions.category_id
         LEFT JOIN category_groups ON category_groups.id = categories.category_group_id
-        WHERE transactions.review_status = ?
+        WHERE transactions.is_hidden = 0
             AND transactions.direction = ?
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
@@ -2850,7 +2887,6 @@ private func spendingDrivers(
             category_groups.name
         """,
         arguments: [
-            TransactionReviewStatus.accepted.rawValue,
             TransactionDirection.expense.rawValue,
             currentInterval.start,
             currentInterval.end,
@@ -2866,9 +2902,9 @@ private func spendingDrivers(
             category_groups.name AS category_group_name,
             COALESCE(SUM(-transactions.amount), 0) AS spend
         FROM transactions
-        JOIN categories ON categories.id = transactions.category_id
+        LEFT JOIN categories ON categories.id = transactions.category_id
         LEFT JOIN category_groups ON category_groups.id = categories.category_group_id
-        WHERE transactions.review_status = ?
+        WHERE transactions.is_hidden = 0
             AND transactions.direction = ?
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
@@ -2880,7 +2916,6 @@ private func spendingDrivers(
             category_groups.name
         """,
         arguments: [
-            TransactionReviewStatus.accepted.rawValue,
             TransactionDirection.expense.rawValue,
             comparisonInterval.start,
             comparisonInterval.end,
@@ -2928,7 +2963,12 @@ private func spendingDriverRollup(from row: Row) throws -> SpendingDriverRollup 
         )
     }
 
-    let categoryIDText: String = row["category_id"]
+    guard let categoryIDText = row["category_id"] as String? else {
+        return SpendingDriverRollup(
+            title: "Uncategorized",
+            scope: .uncategorized
+        )
+    }
     guard let categoryID = UUID(uuidString: categoryIDText) else {
         throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: categoryIDText)
     }
@@ -2961,10 +3001,12 @@ private func compareMonthlySpendingDrivers(_ lhs: MonthlySpendingDriver, _ rhs: 
 
 private func spendingDriverScopeSortKey(_ scope: SpendingDriverScope) -> String {
     switch scope {
-    case .category(let id):
-        return "category:\(id.uuidString)"
-    case .categoryGroup(let id):
-        return "categoryGroup:\(id.uuidString)"
+        case .category(let id):
+            return "category:\(id.uuidString)"
+        case .categoryGroup(let id):
+            return "categoryGroup:\(id.uuidString)"
+        case .uncategorized:
+            return "uncategorized"
     }
 }
 

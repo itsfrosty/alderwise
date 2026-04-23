@@ -528,6 +528,8 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             lhs == rhs
         case (.categoryGroup(let lhs), .categoryGroup(let rhs)):
             lhs == rhs
+        case (_, .uncategorized):
+            false
         default:
             false
         }
@@ -539,6 +541,8 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             "category:\(id.uuidString)"
         case .categoryGroup(let id):
             "group:\(id.uuidString)"
+        case .uncategorized:
+            "uncategorized"
         }
     }
 
