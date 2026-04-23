@@ -2262,7 +2262,7 @@ func learnedRuleDraftSheetForDuplicateRuleCopiesEditableFieldsIntoANewDraft() {
 }
 
 @Test
-func learnedRuleDraftSheetSaveValidationAllowsExactAndSharedPrefixButNotContains() {
+func learnedRuleDraftSheetSaveValidationAllowsBasicAndAdvancedManualMatchKinds() {
     let categoryID = UUID(uuidString: "00000000-0000-0000-0000-0000000005A3")!
     let exactSheet = LearnedRuleDraftSheet.newRule(
         draft: LearnedRuleDraft(
@@ -2291,7 +2291,7 @@ func learnedRuleDraftSheetSaveValidationAllowsExactAndSharedPrefixButNotContains
 
     #expect(exactSheet.canSave)
     #expect(prefixSheet.canSave)
-    #expect(containsSheet.canSave == false)
+    #expect(containsSheet.canSave)
 }
 
 @Test

@@ -200,7 +200,10 @@ public struct LearnedRuleDraftSheet: Identifiable, Equatable, Sendable {
     public var canSave: Bool {
         draft.categoryID != nil
             && draft.normalizedMerchantPattern != nil
-            && allowedMatchKinds.contains(draft.matchKind)
+            && (
+                draft.matchKind.isAdvancedManualAuthoringOption
+                    || allowedMatchKinds.contains(draft.matchKind)
+            )
     }
 }
 

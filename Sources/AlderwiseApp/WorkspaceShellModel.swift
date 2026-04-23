@@ -461,8 +461,7 @@ final class WorkspaceShellModel: ObservableObject {
         guard let learnedRuleDraftSheet else {
             return false
         }
-        guard learnedRuleDraftSheet.draft.matchKind.isAdvancedManualAuthoringOption
-            || learnedRuleDraftSheet.allowedMatchKinds.contains(learnedRuleDraftSheet.draft.matchKind) else {
+        guard learnedRuleDraftSheet.canSave else {
             learnedRuleManagerActionErrorMessage = LearnedRuleDraftSheet.unsupportedMatchKindMessage
             return false
         }
@@ -867,10 +866,9 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     private func updateLearnedRuleDraftPreview(for draft: LearnedRuleDraft) {
-        scheduledLearnedRuleDraftPreview?.cancel()
-        scheduledLearnedRuleDraftPreview = nil
-
         guard draft.matchKind == .contains else {
+            scheduledLearnedRuleDraftPreview?.cancel()
+            scheduledLearnedRuleDraftPreview = nil
             learnedRuleDraftPreviewState = nil
             return
         }
@@ -878,10 +876,17 @@ final class WorkspaceShellModel: ObservableObject {
         let key = ReviewRulePreviewKey(
             reviewItemID: Self.learnedRuleDraftPreviewItemID,
             createRuleEnabled: true,
-            merchantName: draft.merchantName ?? "",
+            merchantName: "",
             merchantPattern: draft.merchantPattern,
             matchKind: draft.matchKind
         )
+
+        if learnedRuleDraftPreviewState?.key == key {
+            return
+        }
+
+        scheduledLearnedRuleDraftPreview?.cancel()
+        scheduledLearnedRuleDraftPreview = nil
 
         learnedRuleDraftPreviewState = ReviewRulePreviewState(key: key, phase: .loading)
         scheduledLearnedRuleDraftPreview = reviewRulePreviewScheduler.schedule(

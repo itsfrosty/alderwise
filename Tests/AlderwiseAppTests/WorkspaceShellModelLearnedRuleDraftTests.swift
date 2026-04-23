@@ -234,6 +234,50 @@ func manualContainsDraftReusesPreviewInfrastructure() async throws {
 }
 
 @Test
+@MainActor
+func manualContainsPreviewDoesNotRestartForMerchantNameOnlyEdits() async throws {
+    let scheduler = ManualLearnedRuleDraftPreviewScheduler()
+    let loader = LearnedRuleDraftPreviewLoaderHarness()
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: WorkspaceService(store: LearnedRuleDraftWorkspaceStore()),
+        reviewRulePreviewScheduler: scheduler.scheduler,
+        reviewRulePreviewLoader: loader.load
+    )
+    model.beginNewLearnedRule()
+
+    model.updateLearnedRuleDraft(
+        LearnedRuleDraft(
+            merchantPattern: "Coffee",
+            categoryID: UUID(uuidString: "67676767-6767-6767-6767-676767676767")!,
+            merchantName: "Coffee",
+            matchKind: .contains
+        )
+    )
+    #expect(scheduler.pendingCount == 1)
+    #expect(scheduler.scheduledCount == 1)
+
+    model.updateLearnedRuleDraft(
+        LearnedRuleDraft(
+            merchantPattern: "Coffee",
+            categoryID: UUID(uuidString: "67676767-6767-6767-6767-676767676767")!,
+            merchantName: "Coffee Roasters",
+            matchKind: .contains
+        )
+    )
+
+    #expect(scheduler.pendingCount == 1)
+    #expect(scheduler.scheduledCount == 1)
+
+    scheduler.fireNext()
+    await Task.yield()
+
+    let key = try #require(loader.receivedKeys.only)
+    #expect(key.merchantName == "")
+    #expect(key.merchantPattern == "Coffee")
+}
+
+@Test
 func learnedRuleDraftViewKeepsContainsBehindAdvancedDisclosure() throws {
     let source = try sourceText(in: "Sources/AlderwiseApp/LearnedRulesManagerView.swift")
 
@@ -412,6 +456,7 @@ private final class ManualLearnedRuleDraftPreviewScheduler {
     }
 
     private var entries: [Entry] = []
+    private(set) var scheduledCount = 0
 
     var pendingCount: Int {
         entries.count
@@ -420,6 +465,7 @@ private final class ManualLearnedRuleDraftPreviewScheduler {
     var scheduler: WorkspaceShellModel.ReviewRulePreviewScheduler {
         .init { _, operation in
             let id = UUID()
+            self.scheduledCount += 1
             self.entries.append(Entry(id: id, operation: operation))
             return WorkspaceShellModel.ReviewRulePreviewScheduleToken {
                 self.entries.removeAll { $0.id == id }

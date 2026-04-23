@@ -787,12 +787,7 @@ private struct LearnedRuleDraftSheetView: View {
     }
 
     private var canSave: Bool {
-        draft.categoryID != nil
-            && draft.normalizedMerchantPattern != nil
-            && (
-                draft.matchKind.isAdvancedManualAuthoringOption
-                    || currentSheet.allowedMatchKinds.contains(draft.matchKind)
-            )
+        currentSheet.canSave
     }
 
     private var advancedDisclosureBinding: Binding<Bool> {
