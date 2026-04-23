@@ -68,7 +68,7 @@ struct ReviewQueueView: View {
                     }
                 },
                 onManageLearnedRule: { action in
-                    model.showLearnedRules(selectedLearnedRuleID: action.ruleID)
+                    model.showLearnedRules(selection: .learnedRule(action.ruleID))
                 }
             )
             .frame(idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)

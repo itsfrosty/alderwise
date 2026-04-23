@@ -208,12 +208,17 @@ public struct LearnedRuleDraftSheet: Identifiable, Equatable, Sendable {
 }
 
 public struct LearnedRulesDestination: Equatable, Sendable {
-    public var mode: LearnedRuleManagerMode
-    public var selectedLearnedRuleID: UUID?
+    public enum Selection: Equatable, Sendable {
+        case learnedRule(UUID)
+        case seededSource(String)
+    }
 
-    public init(mode: LearnedRuleManagerMode, selectedLearnedRuleID: UUID? = nil) {
+    public var mode: LearnedRuleManagerMode
+    public var selection: Selection?
+
+    public init(mode: LearnedRuleManagerMode, selection: Selection? = nil) {
         self.mode = mode
-        self.selectedLearnedRuleID = selectedLearnedRuleID
+        self.selection = selection
     }
 }
 
@@ -221,13 +226,27 @@ public enum SettingsDestination: Equatable, Sendable {
     case overview
     case learnedRules(LearnedRulesDestination)
 
-    public static func learnedRulesRoute(selectedLearnedRuleID: UUID? = nil) -> SettingsDestination {
-        .learnedRules(
+    public static func learnedRulesRoute(
+        selection: LearnedRulesDestination.Selection? = nil
+    ) -> SettingsDestination {
+        let mode: LearnedRuleManagerMode
+        switch selection {
+        case .seededSource:
+            mode = .seeded
+        case .learnedRule, .none:
+            mode = .learned
+        }
+
+        return SettingsDestination.learnedRules(
             LearnedRulesDestination(
-                mode: .learned,
-                selectedLearnedRuleID: selectedLearnedRuleID
+                mode: mode,
+                selection: selection
             )
         )
+    }
+
+    public static func learnedRulesRoute(selectedLearnedRuleID: UUID? = nil) -> SettingsDestination {
+        learnedRulesRoute(selection: selectedLearnedRuleID.map { .learnedRule($0) })
     }
 }
 

@@ -95,7 +95,7 @@ struct TransactionLedgerView: View {
                 isDirty: draftCoordinator.isDirty,
                 onDraftChange: { draftCoordinator.updateDraft($0) },
                 onSave: handleSave,
-                onViewLearnedRule: { model.showLearnedRules(selectedLearnedRuleID: $0) }
+                onViewRule: { model.showLearnedRules(selection: $0) }
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         )

@@ -399,11 +399,13 @@ final class WorkspaceShellModel: ObservableObject {
         settingsDestination = destination
     }
 
-    func showLearnedRules(selectedLearnedRuleID: UUID? = nil) {
-        settingsDestination = SettingsDestination.learnedRulesRoute(
-            selectedLearnedRuleID: selectedLearnedRuleID
-        )
+    func showLearnedRules(selection: LearnedRulesDestination.Selection? = nil) {
+        settingsDestination = SettingsDestination.learnedRulesRoute(selection: selection)
         pendingAppSectionNavigation = .settings
+    }
+
+    func showLearnedRules(selectedLearnedRuleID: UUID?) {
+        showLearnedRules(selection: selectedLearnedRuleID.map { .learnedRule($0) })
     }
 
     func consumePendingAppSectionNavigation() {
@@ -469,7 +471,7 @@ final class WorkspaceShellModel: ObservableObject {
         do {
             let createdRule = try service.createLearnedRule(learnedRuleDraftSheet.draft)
             reload()
-            settingsDestination = .learnedRulesRoute(selectedLearnedRuleID: createdRule.id)
+            settingsDestination = .learnedRulesRoute(selection: .learnedRule(createdRule.id))
             self.learnedRuleDraftSheet = nil
             clearLearnedRuleDraftPreview()
             learnedRuleManagerActionErrorMessage = nil

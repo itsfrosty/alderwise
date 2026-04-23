@@ -1320,7 +1320,12 @@ func stageCSVImportReturnsClassificationResultsForImportedRows() throws {
                     merchantName: "Coffee Shop"
                 ),
                 source: .rule,
-                sourceReference: ruleID.uuidString,
+                sourceReference: ClassificationRule(
+                    id: ruleID,
+                    merchantPattern: "coffee shop",
+                    categoryID: categoryID,
+                    merchantName: "Coffee Shop"
+                ).seededSourceID,
                 confidence: 1.0,
                 reason: "Matched explicit merchant rule."
             )
@@ -2083,7 +2088,7 @@ func loadTransactionDetailPreservesRawRuleReferenceWhenLearnedRuleCannotBeResolv
 
     let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
 
-    #expect(detail.learnedRuleProvenance == nil)
+    #expect(detail.ruleProvenance == nil)
     #expect(detail.decisionSourceReference == unresolvedRuleID.uuidString)
 }
 
@@ -2115,15 +2120,85 @@ func loadTransactionDetailResolvesDisabledLearnedRuleHistoricalProvenance() thro
     ]
 
     let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
-    let provenance = try #require(detail.learnedRuleProvenance)
+    let provenance = try #require(detail.ruleProvenance)
 
-    #expect(provenance.id == learnedRuleID)
-    #expect(provenance.merchantPattern == "local market")
-    #expect(provenance.matchKind == .prefixNormalizedMerchant)
-    #expect(provenance.categoryID == categoryID)
-    #expect(provenance.categoryName == "Groceries")
-    #expect(provenance.isDisabled == true)
-    #expect(provenance.disabledAt == disabledAt)
+    guard case .learnedRule(let learnedRule) = provenance else {
+        Issue.record("Expected learned rule provenance")
+        return
+    }
+
+    #expect(learnedRule.id == learnedRuleID)
+    #expect(learnedRule.merchantPattern == "local market")
+    #expect(learnedRule.matchKind == .prefixNormalizedMerchant)
+    #expect(learnedRule.categoryID == categoryID)
+    #expect(learnedRule.categoryName == "Groceries")
+    #expect(learnedRule.isDisabled == true)
+    #expect(learnedRule.disabledAt == disabledAt)
+}
+
+@Test
+func loadTransactionDetailResolvesDeterministicBuiltInRuleProvenance() throws {
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000524")!
+    let rule = try #require(
+        SeededClassification.deterministicRules.first { $0.merchantPattern == "costco" }
+    )
+    let detailReference = rule.seededSourceID
+    let store = MutableWorkspaceStore()
+    store.categories = [
+        BudgetCategory(id: rule.categoryID, name: "Groceries", kind: .expense)
+    ]
+    store.transactionDetailsByID[transactionID] = makeTransactionDetail(
+        id: transactionID,
+        decisionSource: .rule,
+        decisionSourceReference: detailReference
+    )
+
+    let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
+    let provenance = try #require(detail.ruleProvenance)
+
+    guard case .seededSource(let seededSource) = provenance else {
+        Issue.record("Expected seeded source provenance")
+        return
+    }
+
+    #expect(seededSource.id == detailReference)
+    #expect(seededSource.kind == .deterministicRule)
+    #expect(seededSource.merchantPattern == "costco")
+    #expect(seededSource.matchKind == .contains)
+    #expect(seededSource.categoryID == rule.categoryID)
+    #expect(seededSource.categoryName == "Groceries")
+    #expect(seededSource.merchantName == "Costco")
+}
+
+@Test
+func loadTransactionDetailResolvesCuratedReviewFirstBuiltInProvenance() throws {
+    let transactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000525")!
+    let source = try #require(SeededClassification.curatedReviewPrefills.first)
+    let store = MutableWorkspaceStore()
+    store.categories = [
+        BudgetCategory(id: source.assignment.categoryID, name: "Donations", kind: .expense)
+    ]
+    store.transactionDetailsByID[transactionID] = makeTransactionDetail(
+        id: transactionID,
+        decisionSource: .curatedPrefill,
+        decisionSourceReference: source.id
+    )
+
+    let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
+    let provenance = try #require(detail.ruleProvenance)
+
+    guard case .seededSource(let seededSource) = provenance else {
+        Issue.record("Expected seeded source provenance")
+        return
+    }
+
+    #expect(seededSource.id == source.id)
+    #expect(seededSource.kind == .curatedPrefill)
+    #expect(seededSource.merchantPattern == source.merchantPattern)
+    #expect(seededSource.matchKind == source.matchKind)
+    #expect(seededSource.categoryID == source.assignment.categoryID)
+    #expect(seededSource.categoryName == "Donations")
+    #expect(seededSource.merchantName == source.assignment.merchantName)
 }
 
 @Test
@@ -2149,7 +2224,7 @@ func approveClassificationReviewItemReturnsDeepLinkActionForCreatedLearnedRule()
 
     #expect(action.ruleID == learnedRuleID)
     #expect(action.merchantLabel == "Coffee Shop")
-    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: learnedRuleID))
+    #expect(action.destination == .learnedRulesRoute(selection: .learnedRule(learnedRuleID)))
 }
 
 @Test
@@ -2186,7 +2261,7 @@ func approveClassificationReviewItemPrefersTheNewlyCreatedRuleOverExistingMatchi
     let action = try #require(result.createdLearnedRuleAction)
 
     #expect(action.ruleID == createdRuleID)
-    #expect(action.destination == .learnedRulesRoute(selectedLearnedRuleID: createdRuleID))
+    #expect(action.destination == .learnedRulesRoute(selection: .learnedRule(createdRuleID)))
 }
 
 @Test

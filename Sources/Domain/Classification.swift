@@ -70,6 +70,10 @@ public struct ClassificationRule: Equatable, Sendable {
         self.merchantName = merchantName
         self.matchKind = matchKind
     }
+
+    public var seededSourceID: String {
+        "deterministic:\(categoryID.uuidString.lowercased()):\(matchKind.rawValue):\(merchantPattern)"
+    }
 }
 
 public struct ClassificationHeuristic: Equatable, Sendable {
@@ -422,7 +426,7 @@ public struct ClassificationEngine: Sendable {
                 return .reviewRequired(
                     prefill: assignment,
                     source: .rule,
-                    sourceReference: rule.id.uuidString,
+                    sourceReference: rule.seededSourceID,
                     confidence: 1.0,
                     reason: "Duplicate concern requires review."
                 )
@@ -431,7 +435,7 @@ public struct ClassificationEngine: Sendable {
             return .autoAccepted(
                 assignment: assignment,
                 source: .rule,
-                sourceReference: rule.id.uuidString,
+                sourceReference: rule.seededSourceID,
                 confidence: 1.0,
                 reason: "Matched explicit merchant rule."
             )

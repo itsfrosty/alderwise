@@ -111,7 +111,7 @@ public struct TransactionDetail: Equatable, Sendable {
     public var notes: String?
     public var decisionSource: ClassificationDecisionSource?
     public var decisionSourceReference: String?
-    public var learnedRuleProvenance: TransactionLearnedRuleProvenance?
+    public var ruleProvenance: TransactionRuleProvenance?
     public var confidence: Double?
     public var duplicateStatus: String
 
@@ -120,7 +120,7 @@ public struct TransactionDetail: Equatable, Sendable {
         notes: String?,
         decisionSource: ClassificationDecisionSource?,
         decisionSourceReference: String?,
-        learnedRuleProvenance: TransactionLearnedRuleProvenance? = nil,
+        ruleProvenance: TransactionRuleProvenance? = nil,
         confidence: Double?,
         duplicateStatus: String
     ) {
@@ -128,7 +128,7 @@ public struct TransactionDetail: Equatable, Sendable {
         self.notes = notes
         self.decisionSource = decisionSource
         self.decisionSourceReference = decisionSourceReference
-        self.learnedRuleProvenance = learnedRuleProvenance
+        self.ruleProvenance = ruleProvenance
         self.confidence = confidence
         self.duplicateStatus = duplicateStatus
     }
@@ -136,6 +136,11 @@ public struct TransactionDetail: Equatable, Sendable {
     public var importOrigin: TransactionImportOrigin? {
         row.importOrigin
     }
+}
+
+public enum TransactionRuleProvenance: Equatable, Sendable {
+    case learnedRule(TransactionLearnedRuleProvenance)
+    case seededSource(TransactionSeededRuleSourceProvenance)
 }
 
 public struct TransactionLearnedRuleProvenance: Equatable, Sendable {
@@ -175,6 +180,39 @@ public struct TransactionLearnedRuleProvenance: Equatable, Sendable {
 
     public var disabledAt: Date? {
         lifecycle.disabledAt
+    }
+}
+
+public enum TransactionSeededRuleSourceKind: Equatable, Sendable {
+    case deterministicRule
+    case curatedPrefill
+}
+
+public struct TransactionSeededRuleSourceProvenance: Equatable, Sendable {
+    public var id: String
+    public var kind: TransactionSeededRuleSourceKind
+    public var merchantPattern: String
+    public var categoryID: UUID
+    public var categoryName: String?
+    public var merchantName: String?
+    public var matchKind: ClassificationRuleMatchKind
+
+    public init(
+        id: String,
+        kind: TransactionSeededRuleSourceKind,
+        merchantPattern: String,
+        categoryID: UUID,
+        categoryName: String?,
+        merchantName: String?,
+        matchKind: ClassificationRuleMatchKind
+    ) {
+        self.id = id
+        self.kind = kind
+        self.merchantPattern = merchantPattern
+        self.categoryID = categoryID
+        self.categoryName = categoryName
+        self.merchantName = merchantName
+        self.matchKind = matchKind
     }
 }
 

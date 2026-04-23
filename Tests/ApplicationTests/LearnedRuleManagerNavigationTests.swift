@@ -4,11 +4,11 @@ import Foundation
 import Testing
 
 @Test
-func learnedRulesRouteForcesLearnedModeAndPreservesSelectedRuleID() {
+func learnedRulesRouteForcesLearnedModeAndPreservesSelectedLearnedRuleSelection() {
     let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000411")!
 
     let destination = SettingsDestination.learnedRulesRoute(
-        selectedLearnedRuleID: learnedRuleID
+        selection: .learnedRule(learnedRuleID)
     )
 
     #expect(
@@ -16,19 +16,38 @@ func learnedRulesRouteForcesLearnedModeAndPreservesSelectedRuleID() {
             == .learnedRules(
                 LearnedRulesDestination(
                     mode: .learned,
-                    selectedLearnedRuleID: learnedRuleID
+                    selection: .learnedRule(learnedRuleID)
                 )
             )
     )
 }
 
 @Test
-func learnedRulesDestinationCarriesOnlyModeAndSelection() {
-    let destination = LearnedRulesDestination(mode: .learned, selectedLearnedRuleID: nil)
+func learnedRulesRouteForcesSeededModeAndPreservesSelectedSeededSourceSelection() {
+    let seededSourceID = "deterministic:contains:costco"
+
+    let destination = SettingsDestination.learnedRulesRoute(
+        selection: .seededSource(seededSourceID)
+    )
+
+    #expect(
+        destination
+            == .learnedRules(
+                LearnedRulesDestination(
+                    mode: .seeded,
+                    selection: .seededSource(seededSourceID)
+                )
+            )
+    )
+}
+
+@Test
+func learnedRulesDestinationCarriesOnlyModeAndSelectionPayload() {
+    let destination = LearnedRulesDestination(mode: .learned, selection: nil)
     let mirroredDestination = Mirror(reflecting: destination)
     let labels = mirroredDestination.children.compactMap(\.label)
 
-    #expect(labels == ["mode", "selectedLearnedRuleID"])
+    #expect(labels == ["mode", "selection"])
     #expect(labels.contains { $0.localizedCaseInsensitiveContains("search") } == false)
     #expect(labels.contains { $0.localizedCaseInsensitiveContains("filter") } == false)
 }

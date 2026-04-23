@@ -11,7 +11,7 @@ extension TransactionLedgerView {
         let isDirty: Bool
         var onDraftChange: (TransactionLedgerEditDraft) -> Void
         var onSave: (TransactionLedgerEditDraft) -> Void
-        var onViewLearnedRule: (UUID) -> Void
+        var onViewRule: (LearnedRulesDestination.Selection) -> Void
 
         var body: some View {
             Group {
@@ -97,21 +97,23 @@ extension TransactionLedgerView {
 
                         Section("Trust Evidence") {
                             LabeledContent("Source", value: ReviewPresentation.sourceLabel(for: detail.decisionSource))
-                            if let provenance = detail.learnedRuleProvenance {
-                                LabeledContent("Merchant Pattern", value: provenance.merchantPattern)
-                                LabeledContent(RuleDisplayText.matchedBy, value: provenance.matchKind.ruleDisplayLabel)
-                                LabeledContent("Assigned Category", value: provenance.categoryName ?? "Unknown Category")
-                                if let merchantName = normalized(provenance.merchantName) {
+                            if let provenance = detail.ruleProvenance {
+                                LabeledContent("Merchant Pattern", value: merchantPattern(for: provenance))
+                                LabeledContent(RuleDisplayText.matchedBy, value: matchKind(for: provenance).ruleDisplayLabel)
+                                LabeledContent("Assigned Category", value: categoryName(for: provenance) ?? "Unknown Category")
+                                if let merchantName = merchantName(for: provenance) {
                                     LabeledContent("Merchant Name", value: merchantName)
                                 }
-                                if provenance.isDisabled, let disabledAt = provenance.disabledAt {
+                                if case .learnedRule(let learnedRule) = provenance,
+                                   learnedRule.isDisabled,
+                                   let disabledAt = learnedRule.disabledAt {
                                     LabeledContent(
                                         "Lifecycle",
                                         value: "Disabled \(disabledAt.formatted(date: .abbreviated, time: .shortened))"
                                     )
                                 }
-                                Button("View in \(RuleDisplayText.yourRules)") {
-                                    onViewLearnedRule(provenance.id)
+                                Button("View in \(rulesDestinationLabel(for: provenance))") {
+                                    onViewRule(rulesSelection(for: provenance))
                                 }
                             }
                             if let confidence = detail.confidence {
@@ -237,6 +239,67 @@ extension TransactionLedgerView {
                 return nil
             }
             return reference
+        }
+
+        private func merchantPattern(for provenance: TransactionRuleProvenance) -> String {
+            switch provenance {
+            case .learnedRule(let learnedRule):
+                learnedRule.merchantPattern
+            case .seededSource(let seededSource):
+                seededSource.merchantPattern
+            }
+        }
+
+        private func matchKind(for provenance: TransactionRuleProvenance) -> ClassificationRuleMatchKind {
+            switch provenance {
+            case .learnedRule(let learnedRule):
+                learnedRule.matchKind
+            case .seededSource(let seededSource):
+                seededSource.matchKind
+            }
+        }
+
+        private func categoryName(for provenance: TransactionRuleProvenance) -> String? {
+            switch provenance {
+            case .learnedRule(let learnedRule):
+                learnedRule.categoryName
+            case .seededSource(let seededSource):
+                seededSource.categoryName
+            }
+        }
+
+        private func merchantName(for provenance: TransactionRuleProvenance) -> String? {
+            switch provenance {
+            case .learnedRule(let learnedRule):
+                normalized(learnedRule.merchantName)
+            case .seededSource(let seededSource):
+                normalized(seededSource.merchantName)
+            }
+        }
+
+        private func rulesSelection(
+            for provenance: TransactionRuleProvenance
+        ) -> LearnedRulesDestination.Selection {
+            switch provenance {
+            case .learnedRule(let learnedRule):
+                .learnedRule(learnedRule.id)
+            case .seededSource(let seededSource):
+                .seededSource(seededSource.id)
+            }
+        }
+
+        private func rulesDestinationLabel(for provenance: TransactionRuleProvenance) -> String {
+            switch provenance {
+            case .learnedRule:
+                RuleDisplayText.yourRules
+            case .seededSource(let seededSource):
+                switch seededSource.kind {
+                case .deterministicRule:
+                    RuleDisplayText.builtInAutoApplied
+                case .curatedPrefill:
+                    RuleDisplayText.builtInReviewFirst
+                }
+            }
         }
 
         private func formattedStatusLabel(_ value: String) -> String {

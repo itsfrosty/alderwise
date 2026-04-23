@@ -358,8 +358,13 @@ struct LearnedRulesManagerView: View {
         lastSyncedDestination = destination
         searchText = ""
 
-        if let selectedLearnedRuleID = destination.selectedLearnedRuleID {
-            selectedRowID = .learned(selectedLearnedRuleID)
+        if let selection = destination.selection {
+            switch selection {
+            case .learnedRule(let id):
+                selectedRowID = .learned(id)
+            case .seededSource(let id):
+                selectedRowID = .seeded(id)
+            }
             return
         }
 
