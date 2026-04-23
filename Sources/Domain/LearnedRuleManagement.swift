@@ -100,6 +100,33 @@ public protocol LearnedRuleReading: Sendable {
     func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule?
 }
 
+public struct LearnedRuleImpactPreview: Equatable, Sendable {
+    public var matchedAcceptedTransactionCount: Int
+    public var matchedPendingReviewItemCount: Int
+
+    public init(
+        matchedAcceptedTransactionCount: Int,
+        matchedPendingReviewItemCount: Int
+    ) {
+        self.matchedAcceptedTransactionCount = matchedAcceptedTransactionCount
+        self.matchedPendingReviewItemCount = matchedPendingReviewItemCount
+    }
+}
+
+public enum LearnedRuleImpactPreviewState: Equatable, Sendable {
+    case ready(LearnedRuleImpactPreview)
+    case noEligiblePreview
+    case unavailable
+}
+
+public protocol LearnedRulePreviewReading: Sendable {
+    func previewLearnedRuleImpact(
+        reviewItemID: UUID,
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind
+    ) throws -> LearnedRuleImpactPreview
+}
+
 public protocol LearnedRuleWriting: Sendable {
     func disableLearnedRule(id: UUID, disabledAt: Date) throws -> ManagedLearnedRule
     func enableLearnedRule(id: UUID) throws -> ManagedLearnedRule

@@ -181,6 +181,55 @@ public enum ReviewRuleLearningOption: Hashable, Codable, Equatable, Sendable {
     }
 }
 
+public struct LearnedRuleMatchCandidate: Equatable, Sendable {
+    public var normalizedMerchantName: String
+    public var rawDescription: String
+
+    public init(normalizedMerchantName: String, rawDescription: String) {
+        self.normalizedMerchantName = normalizedMerchantName
+        self.rawDescription = rawDescription
+    }
+}
+
+public enum LearnedRuleMatcher {
+    public static func normalizedPattern(
+        _ merchantPattern: String,
+        fallbackPattern: String? = nil
+    ) -> String? {
+        merchantPattern
+            .normalizedClassificationPattern
+            .nilIfEmpty
+            ?? fallbackPattern?.normalizedClassificationPattern.nilIfEmpty
+    }
+
+    public static func matches(
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind,
+        candidate: LearnedRuleMatchCandidate,
+        merchantNormalizer: MerchantNormalizer = MerchantNormalizer()
+    ) -> Bool {
+        matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: candidate.normalizedMerchantName
+        ) || matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: merchantNormalizer.normalize(candidate.rawDescription)
+        )
+    }
+
+    public static func matches(
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind,
+        normalizedMerchantName: String
+    ) -> Bool {
+        normalizedMerchantName
+            .normalizedClassificationPattern
+            .matchesClassificationPattern(merchantPattern, matchKind: matchKind)
+    }
+}
+
 public struct ClassificationSuggestion: Equatable, Sendable {
     public var assignment: ClassificationAssignment
     public var confidence: Double
@@ -465,18 +514,20 @@ private extension MatchKindOrdered {
 
 private extension ClassificationRule {
     func matches(_ candidate: NormalizedImportCandidate) -> Bool {
-        candidate.normalizedMerchantName.matchesClassificationPattern(
-            merchantPattern,
-            matchKind: matchKind
+        LearnedRuleMatcher.matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: candidate.normalizedMerchantName
         )
     }
 }
 
 private extension CuratedReviewPrefill {
     func matches(_ candidate: NormalizedImportCandidate) -> Bool {
-        candidate.normalizedMerchantName.matchesClassificationPattern(
-            merchantPattern,
-            matchKind: matchKind
+        LearnedRuleMatcher.matches(
+            merchantPattern: merchantPattern,
+            matchKind: matchKind,
+            normalizedMerchantName: candidate.normalizedMerchantName
         )
     }
 }

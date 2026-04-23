@@ -149,7 +149,7 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleReading, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var categories: [BudgetCategory] = []
@@ -165,12 +165,17 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     var monthlyReport = MonthlyReport.empty
     var managedTargets: [ManagedMonthlyTarget] = []
     var preferences = WorkspacePreferences()
+    var previewLearnedRuleImpactResult = LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 0,
+        matchedPendingReviewItemCount: 0
+    )
     var createMonthlyTargetError: (any Error)?
     var updateMonthlyTargetError: (any Error)?
     var deleteMonthlyTargetError: (any Error)?
     var deleteAccountPermanentlyError: (any Error)?
     var nextCreatedLearnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000999")!
     var lastApprovedClassificationRequest: ApprovedClassificationRequest?
+    var lastPreviewLearnedRuleRequest: PreviewLearnedRuleRequest?
 
     init(summary: WorkspaceSummary = .empty, accounts: [Account] = []) {
         self.summary = summary
@@ -406,6 +411,19 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
         )
     }
 
+    func previewLearnedRuleImpact(
+        reviewItemID: UUID,
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind
+    ) throws -> LearnedRuleImpactPreview {
+        lastPreviewLearnedRuleRequest = PreviewLearnedRuleRequest(
+            reviewItemID: reviewItemID,
+            merchantPattern: merchantPattern,
+            matchKind: matchKind
+        )
+        return previewLearnedRuleImpactResult
+    }
+
     func fetchWorkspacePreferences() throws -> WorkspacePreferences {
         preferences
     }
@@ -516,6 +534,12 @@ private struct ApprovedClassificationRequest: Equatable {
     var assignment: ClassificationAssignment
     var ruleLearning: ReviewRuleLearningOption?
     var resolvedAt: Date
+}
+
+private struct PreviewLearnedRuleRequest: Equatable {
+    var reviewItemID: UUID
+    var merchantPattern: String
+    var matchKind: ClassificationRuleMatchKind
 }
 
 private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
@@ -2146,6 +2170,136 @@ func approveClassificationReviewItemOmitsDeepLinkActionWhenRuleLearningIsDisable
     )
 
     #expect(result.createdLearnedRuleAction == nil)
+}
+
+@Test
+func previewLearnedRuleImpactReturnsReadyCountsWhenEligible() throws {
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000561")!
+    let store = MutableWorkspaceStore()
+    store.pendingReviewItems = [
+        PendingReviewItem(
+            id: reviewItemID,
+            type: .lowConfidenceCategory,
+            status: .pending,
+            reason: nil,
+            createdAt: Date(timeIntervalSince1970: 1_776_355_360),
+            sourceFile: PendingReviewSourceFile(
+                accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000562")!,
+                originalFilename: "checking.csv"
+            ),
+            sourceRow: PendingReviewSourceRow(
+                id: 1,
+                sourceLineNumber: 2,
+                rowHash: "row-1",
+                rawPayload: #"["2026-04-03","Coffee Shop","-4.75"]"#
+            ),
+            duplicateTransactionID: nil,
+            classification: PendingReviewClassification(
+                normalizedMerchantName: "coffee shop",
+                prefill: nil,
+                source: nil,
+                sourceReference: nil,
+                confidence: nil
+            )
+        )
+    ]
+    store.previewLearnedRuleImpactResult = LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 2,
+        matchedPendingReviewItemCount: 1
+    )
+    let service = WorkspaceService(store: store)
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: reviewItemID,
+        createRuleEnabled: true,
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant
+    )
+
+    #expect(preview == .ready(LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 2,
+        matchedPendingReviewItemCount: 1
+    )))
+    #expect(store.lastPreviewLearnedRuleRequest == PreviewLearnedRuleRequest(
+        reviewItemID: reviewItemID,
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant
+    ))
+}
+
+@Test
+func previewLearnedRuleImpactReturnsNoEligiblePreviewWhenRuleCreationIsDisabled() throws {
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000563")!
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: reviewItemID,
+        createRuleEnabled: false,
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant
+    )
+
+    #expect(preview == .noEligiblePreview)
+    #expect(store.lastPreviewLearnedRuleRequest == nil)
+}
+
+@Test
+func previewLearnedRuleImpactReturnsNoEligiblePreviewWhenDraftCannotProduceValidPattern() throws {
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000564")!
+    let store = MutableWorkspaceStore()
+    store.pendingReviewItems = [
+        PendingReviewItem(
+            id: reviewItemID,
+            type: .lowConfidenceCategory,
+            status: .pending,
+            reason: nil,
+            createdAt: Date(timeIntervalSince1970: 1_776_355_420),
+            sourceFile: PendingReviewSourceFile(
+                accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000565")!,
+                originalFilename: "checking.csv"
+            ),
+            sourceRow: PendingReviewSourceRow(
+                id: 1,
+                sourceLineNumber: 2,
+                rowHash: "row-1",
+                rawPayload: #"["2026-04-03","","-4.75"]"#
+            ),
+            duplicateTransactionID: nil,
+            classification: PendingReviewClassification(
+                normalizedMerchantName: "",
+                prefill: nil,
+                source: nil,
+                sourceReference: nil,
+                confidence: nil
+            )
+        )
+    ]
+    let service = WorkspaceService(store: store)
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: reviewItemID,
+        createRuleEnabled: true,
+        merchantPattern: "   ",
+        matchKind: .exactNormalizedMerchant
+    )
+
+    #expect(preview == .noEligiblePreview)
+    #expect(store.lastPreviewLearnedRuleRequest == nil)
+}
+
+@Test
+func previewLearnedRuleImpactReturnsUnavailableWithoutPreviewReader() throws {
+    let service = WorkspaceService(store: DefaultResetBridgeMaintenanceStore())
+
+    let preview = try service.previewLearnedRuleImpact(
+        reviewItemID: UUID(uuidString: "00000000-0000-0000-0000-000000000566")!,
+        createRuleEnabled: true,
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant
+    )
+
+    #expect(preview == .unavailable)
 }
 
 private func makeTransactionDetail(

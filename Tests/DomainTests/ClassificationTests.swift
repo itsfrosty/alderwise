@@ -444,6 +444,46 @@ func prefixRulesMatchSharedMerchantFamilyAtTheStartOnly() {
 }
 
 @Test
+func readOnlyLearnedRuleMatcherReusesExactPrefixAndContainsMatchingSemantics() {
+    let exactCandidate = LearnedRuleMatchCandidate(
+        normalizedMerchantName: "alias merchant",
+        rawDescription: "Coffee Shop"
+    )
+    let prefixCandidate = LearnedRuleMatchCandidate(
+        normalizedMerchantName: "other merchant",
+        rawDescription: "99PLEDG*ONIR BAWEJA"
+    )
+    let containsCandidate = LearnedRuleMatchCandidate(
+        normalizedMerchantName: "daily coffee roasters",
+        rawDescription: "DAILY COFFEE ROASTERS"
+    )
+
+    #expect(LearnedRuleMatcher.matches(
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant,
+        candidate: exactCandidate
+    ))
+    #expect(LearnedRuleMatcher.matches(
+        merchantPattern: "99pledg",
+        matchKind: .prefixNormalizedMerchant,
+        candidate: prefixCandidate
+    ))
+    #expect(LearnedRuleMatcher.matches(
+        merchantPattern: "coffee",
+        matchKind: .contains,
+        candidate: containsCandidate
+    ))
+    #expect(LearnedRuleMatcher.matches(
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant,
+        candidate: LearnedRuleMatchCandidate(
+            normalizedMerchantName: "coffee shop downtown",
+            rawDescription: "Coffee Shop Downtown"
+        )
+    ) == false)
+}
+
+@Test
 func patternLikeMerchantsOfferExactAndPrefixLearningOptions() {
     let options = ReviewRuleLearningOption.options(forNormalizedMerchantName: "99pledg onir baweja")
 

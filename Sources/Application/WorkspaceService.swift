@@ -233,6 +233,33 @@ public struct WorkspaceService: Sendable {
         )
     }
 
+    public func previewLearnedRuleImpact(
+        reviewItemID: UUID,
+        createRuleEnabled: Bool,
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind
+    ) throws -> LearnedRuleImpactPreviewState {
+        guard createRuleEnabled else {
+            return .noEligiblePreview
+        }
+        guard let previewReader = store as? any LearnedRulePreviewReading else {
+            return .unavailable
+        }
+        guard let sanitizedPattern = try previewMerchantPattern(
+            reviewItemID: reviewItemID,
+            merchantPattern: merchantPattern
+        ) else {
+            return .noEligiblePreview
+        }
+
+        let preview = try previewReader.previewLearnedRuleImpact(
+            reviewItemID: reviewItemID,
+            merchantPattern: sanitizedPattern,
+            matchKind: matchKind
+        )
+        return .ready(preview)
+    }
+
     public func fetchManagedTargets(referenceDate: Date = Date()) throws -> [ManagedMonthlyTarget] {
         try targetManager().fetchManagedTargets(referenceDate: referenceDate)
     }
@@ -589,6 +616,21 @@ public struct WorkspaceService: Sendable {
 
     private func learnedRuleReader() -> (any LearnedRuleReading)? {
         store as? any LearnedRuleReading
+    }
+
+    private func previewMerchantPattern(
+        reviewItemID: UUID,
+        merchantPattern: String
+    ) throws -> String? {
+        let fallbackPattern = try (store as? any ReviewQueueReading)?
+            .fetchPendingReviewItems()
+            .first { $0.id == reviewItemID }?
+            .classification?
+            .normalizedMerchantName
+        return LearnedRuleMatcher.normalizedPattern(
+            merchantPattern,
+            fallbackPattern: fallbackPattern
+        )
     }
 
     private func resolveLearnedRuleProvenance(

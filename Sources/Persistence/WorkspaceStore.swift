@@ -5,7 +5,7 @@ import GRDB
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -1073,6 +1073,32 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
     }
 
+    public func previewLearnedRuleImpact(
+        reviewItemID: UUID,
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind
+    ) throws -> LearnedRuleImpactPreview {
+        try databaseQueue.read { db in
+            let matchedCandidates = try matchingTransactionCandidatesForLearnedRule(
+                db: db,
+                merchantPattern: merchantPattern,
+                matchKind: matchKind
+            )
+            let matchedTransactionIDs = matchedCandidates.map(\.transactionID)
+            let siblingReviewItems = try fetchPendingSiblingReviewItems(
+                db: db,
+                matchedTransactionIDs: matchedTransactionIDs,
+                excludingReviewItemID: reviewItemID.uuidString
+            )
+            return LearnedRuleImpactPreview(
+                matchedAcceptedTransactionCount: matchedCandidates.filter {
+                    $0.reviewStatus == TransactionReviewStatus.accepted.rawValue
+                }.count,
+                matchedPendingReviewItemCount: siblingReviewItems.count
+            )
+        }
+    }
+
     public func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
         try databaseQueue.read { db in
             let rows = try Row.fetchAll(
@@ -1235,36 +1261,11 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         assignment: ClassificationAssignment,
         resolvedAt: Date
     ) throws {
-        let backfillableDecisionSources = learnedRuleBackfillDecisionSources.map(\.rawValue)
-        let candidateRows = try Row.fetchAll(
-            db,
-            sql: """
-            SELECT id, normalized_merchant_name, raw_description, review_status
-            FROM transactions
-            WHERE review_status = ?
-               OR (
-                    review_status = ?
-                AND decision_source IN (?, ?)
-               )
-            """,
-            arguments: [
-                TransactionReviewStatus.pending.rawValue,
-                TransactionReviewStatus.accepted.rawValue,
-                backfillableDecisionSources[0],
-                backfillableDecisionSources[1],
-            ]
-        )
-        let merchantNormalizer = MerchantNormalizer()
-        let matchedTransactionIDs = try candidateRows.compactMap { row -> String? in
-            let storedMerchantName = (row["normalized_merchant_name"] as String?) ?? ""
-            let rawDescription = try requireString(row["raw_description"], field: "transactions.raw_description")
-            let rawDescriptionMerchantName = merchantNormalizer.normalize(rawDescription)
-            guard learnedRule.matchesMerchantName(storedMerchantName)
-                || learnedRule.matchesMerchantName(rawDescriptionMerchantName) else {
-                return nil
-            }
-            return try requireString(row["id"], field: "transactions.id")
-        }
+        let matchedTransactionIDs = try matchingTransactionCandidatesForLearnedRule(
+            db: db,
+            merchantPattern: learnedRule.pattern,
+            matchKind: learnedRule.matchKind
+        ).map(\.transactionID)
         guard !matchedTransactionIDs.isEmpty else {
             return
         }
@@ -1304,7 +1305,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
 
     private func fetchPendingSiblingReviewItems(
         db: Database,
-        matchedTransactionIDs: [String]
+        matchedTransactionIDs: [String],
+        excludingReviewItemID: String? = nil
     ) throws -> [(reviewItemID: String, sourceRowID: Int64)] {
         guard !matchedTransactionIDs.isEmpty else {
             return []
@@ -1320,12 +1322,15 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
             WHERE transaction_id IN (\(placeholders))
               AND status = ?
               AND type = ?
+              AND (? IS NULL OR id != ?)
             """,
             arguments: {
                 var argumentsWithFilters = arguments
                 _ = argumentsWithFilters.append(contentsOf: StatementArguments([
                     ReviewItemStatus.pending.rawValue,
                     ReviewItemType.lowConfidenceCategory.rawValue,
+                    excludingReviewItemID,
+                    excludingReviewItemID,
                 ]))
                 return argumentsWithFilters
             }()
@@ -1380,6 +1385,53 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                     "Automatically resolved after learned-rule backfill.",
                     resolvedAt,
                 ]
+            )
+        }
+    }
+
+    private func matchingTransactionCandidatesForLearnedRule(
+        db: Database,
+        merchantPattern: String,
+        matchKind: ClassificationRuleMatchKind
+    ) throws -> [LearnedRuleBackfillCandidate] {
+        let backfillableDecisionSources = learnedRuleBackfillDecisionSources.map(\.rawValue)
+        let candidateRows = try Row.fetchAll(
+            db,
+            sql: """
+            SELECT id, normalized_merchant_name, raw_description, review_status
+            FROM transactions
+            WHERE review_status = ?
+               OR (
+                    review_status = ?
+                AND decision_source IN (?, ?)
+               )
+            """,
+            arguments: [
+                TransactionReviewStatus.pending.rawValue,
+                TransactionReviewStatus.accepted.rawValue,
+                backfillableDecisionSources[0],
+                backfillableDecisionSources[1],
+            ]
+        )
+
+        return try candidateRows.compactMap { row -> LearnedRuleBackfillCandidate? in
+            let transactionID = try requireString(row["id"], field: "transactions.id")
+            let rawDescription = try requireString(row["raw_description"], field: "transactions.raw_description")
+            let reviewStatus = try requireString(row["review_status"], field: "transactions.review_status")
+            let candidate = LearnedRuleMatchCandidate(
+                normalizedMerchantName: (row["normalized_merchant_name"] as String?) ?? "",
+                rawDescription: rawDescription
+            )
+            guard LearnedRuleMatcher.matches(
+                merchantPattern: merchantPattern,
+                matchKind: matchKind,
+                candidate: candidate
+            ) else {
+                return nil
+            }
+            return LearnedRuleBackfillCandidate(
+                transactionID: transactionID,
+                reviewStatus: reviewStatus
             )
         }
     }
@@ -3951,6 +4003,11 @@ private let acceptedTransactionPromotionDecisionSources: Set<ClassificationDecis
     .curatedPrefill,
     .suggestion,
 ]
+
+private struct LearnedRuleBackfillCandidate {
+    var transactionID: String
+    var reviewStatus: String
+}
 
 private func isAcceptedTransactionPromotableToUserOnEdit(
     _ decisionSource: ClassificationDecisionSource?
