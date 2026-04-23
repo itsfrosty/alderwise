@@ -291,12 +291,16 @@ final class WorkspaceShellModel: ObservableObject {
         selectedTargetID = id
     }
 
+    func directSettingsSidebarEntry() {
+        settingsDestination = SettingsShellState.directEntry().destination
+    }
+
     func prepareForSidebarSelection(_ section: AppSection) {
         guard section == .settings else {
             return
         }
 
-        settingsDestination = SettingsShellState.directEntry().destination
+        directSettingsSidebarEntry()
     }
 
     func selectSettingsDestination(_ destination: SettingsDestination) {

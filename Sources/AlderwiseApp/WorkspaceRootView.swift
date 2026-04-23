@@ -214,12 +214,32 @@ struct WorkspaceRootView: View {
     private var sidebar: some View {
         List(selection: selectedSectionBinding) {
             ForEach(AppSection.allCases) { section in
-                Label(section.title, systemImage: section.systemImage)
-                    .tag(section)
+                sidebarRow(for: section)
             }
         }
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+    }
+
+    @ViewBuilder
+    private func sidebarRow(for section: AppSection) -> some View {
+        Label(section.title, systemImage: section.systemImage)
+            .tag(section)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    handleDirectSidebarTap(section)
+                }
+            )
+    }
+
+    private func handleDirectSidebarTap(_ section: AppSection) {
+        guard section == .settings else {
+            return
+        }
+
+        model.directSettingsSidebarEntry()
+        selectedSectionRawValue = section.rawValue
     }
 
     private func selectedFileURL(from result: Result<[URL], Error>) -> Result<URL, Error> {

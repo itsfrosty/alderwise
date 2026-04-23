@@ -71,8 +71,7 @@ func reEnteringSettingsFromSidebarResetsRulesDeepLinkToOverview() {
     let model = WorkspaceShellModel(store: nil, service: nil)
 
     model.showLearnedRules(selectedLearnedRuleID: learnedRuleID)
-    model.prepareForSidebarSelection(.review)
-    model.prepareForSidebarSelection(.settings)
+    model.directSettingsSidebarEntry()
 
     #expect(model.settingsDestination == .overview)
 }
