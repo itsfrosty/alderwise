@@ -1320,12 +1320,7 @@ func stageCSVImportReturnsClassificationResultsForImportedRows() throws {
                     merchantName: "Coffee Shop"
                 ),
                 source: .rule,
-                sourceReference: ClassificationRule(
-                    id: ruleID,
-                    merchantPattern: "coffee shop",
-                    categoryID: categoryID,
-                    merchantName: "Coffee Shop"
-                ).seededSourceID,
+                sourceReference: ruleID.uuidString,
                 confidence: 1.0,
                 reason: "Matched explicit merchant rule."
             )

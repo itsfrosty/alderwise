@@ -26,7 +26,7 @@ func explicitRuleAutoAcceptsWhenThereIsNoDuplicateConcern() {
             merchantName: "Coffee Shop"
         ),
         source: .rule,
-        sourceReference: rule.seededSourceID,
+        sourceReference: ruleID.uuidString,
         confidence: 1.0,
         reason: "Matched explicit merchant rule."
     ))
@@ -273,10 +273,29 @@ func explicitRulesStillTakePrecedenceOverCuratedReviewPrefills() {
             merchantName: "Explicit Coffee"
         ),
         source: .rule,
-        sourceReference: rule.seededSourceID,
+        sourceReference: ruleID.uuidString,
         confidence: 1.0,
         reason: "Matched explicit merchant rule."
     ))
+}
+
+@Test
+func deterministicSeededSourceIDCanonicalizesWhitespaceAndCasingOnlyPatternChanges() {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000777")!
+    let loosePatternRule = ClassificationRule(
+        merchantPattern: "  Coffee Shop  ",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        sourceReferenceKind: .seededSourceID
+    )
+    let canonicalPatternRule = ClassificationRule(
+        merchantPattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        sourceReferenceKind: .seededSourceID
+    )
+
+    #expect(loosePatternRule.seededSourceID == canonicalPatternRule.seededSourceID)
 }
 
 @Test

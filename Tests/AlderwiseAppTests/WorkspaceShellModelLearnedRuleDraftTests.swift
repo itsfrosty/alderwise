@@ -20,6 +20,23 @@ func beginNewLearnedRulePresentsBlankDraftSheet() {
 
 @Test
 @MainActor
+func showLearnedRulesPreservesSeededSelectionDeepLink() {
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: WorkspaceService(store: LearnedRuleDraftWorkspaceStore())
+    )
+    let seededSourceID = "deterministic:fixture"
+
+    model.showLearnedRules(selection: .seededSource(seededSourceID))
+
+    #expect(
+        model.settingsDestination == .learnedRulesRoute(selection: .seededSource(seededSourceID))
+    )
+    #expect(model.pendingAppSectionNavigation == .settings)
+}
+
+@Test
+@MainActor
 func beginDuplicateLearnedRuleLoadsEditableDraftIntoSheet() {
     let ruleID = UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!
     let categoryID = UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!

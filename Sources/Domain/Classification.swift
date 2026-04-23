@@ -50,29 +50,46 @@ public struct ClassificationAssignment: Codable, Equatable, Sendable {
     }
 }
 
+public enum ClassificationRuleSourceReferenceKind: Equatable, Sendable {
+    case learnedRuleID
+    case seededSourceID
+}
+
 public struct ClassificationRule: Equatable, Sendable {
     public var id: UUID
     public var merchantPattern: String
     public var categoryID: UUID
     public var merchantName: String?
     public var matchKind: ClassificationRuleMatchKind
+    public var sourceReferenceKind: ClassificationRuleSourceReferenceKind
 
     public init(
         id: UUID = UUID(),
         merchantPattern: String,
         categoryID: UUID,
         merchantName: String?,
-        matchKind: ClassificationRuleMatchKind = .contains
+        matchKind: ClassificationRuleMatchKind = .contains,
+        sourceReferenceKind: ClassificationRuleSourceReferenceKind = .learnedRuleID
     ) {
         self.id = id
         self.merchantPattern = merchantPattern
         self.categoryID = categoryID
         self.merchantName = merchantName
         self.matchKind = matchKind
+        self.sourceReferenceKind = sourceReferenceKind
+    }
+
+    public var sourceReference: String {
+        switch sourceReferenceKind {
+        case .learnedRuleID:
+            id.uuidString
+        case .seededSourceID:
+            seededSourceID
+        }
     }
 
     public var seededSourceID: String {
-        "deterministic:\(categoryID.uuidString.lowercased()):\(matchKind.rawValue):\(merchantPattern)"
+        "deterministic:\(categoryID.uuidString.lowercased()):\(matchKind.rawValue):\(merchantPattern.normalizedClassificationPattern)"
     }
 }
 
@@ -426,7 +443,7 @@ public struct ClassificationEngine: Sendable {
                 return .reviewRequired(
                     prefill: assignment,
                     source: .rule,
-                    sourceReference: rule.seededSourceID,
+                    sourceReference: rule.sourceReference,
                     confidence: 1.0,
                     reason: "Duplicate concern requires review."
                 )
@@ -435,7 +452,7 @@ public struct ClassificationEngine: Sendable {
             return .autoAccepted(
                 assignment: assignment,
                 source: .rule,
-                sourceReference: rule.seededSourceID,
+                sourceReference: rule.sourceReference,
                 confidence: 1.0,
                 reason: "Matched explicit merchant rule."
             )
