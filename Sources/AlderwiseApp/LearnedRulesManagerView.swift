@@ -525,7 +525,7 @@ private struct LearnedRuleDetailView: View {
                     if let disabledAt = row.disabledAt {
                         detailRow(title: "Disabled", value: disabledAt.formatted(date: .abbreviated, time: .shortened))
                     }
-                    detailRow(title: "Source", value: ManagedLearnedRuleRow.sectionTitle)
+                    detailRow(title: "Source", value: ManagedLearnedRuleRow.detailSourceText)
                 }
 
                 Text(effectStatement)

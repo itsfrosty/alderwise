@@ -57,6 +57,10 @@ public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
     public static var sectionTitle: String {
         RuleDisplayText.yourRules
     }
+
+    public static var detailSourceText: String {
+        "Learned from Review"
+    }
 }
 
 public struct SeededRuleSourceRow: Identifiable, Equatable, Sendable {
@@ -138,6 +142,15 @@ public extension SeededRuleSourceKind {
             RuleDisplayText.builtInAutoApplied
         case .curatedPrefill:
             RuleDisplayText.builtInReviewFirst
+        }
+    }
+
+    var detailSourceTypeText: String {
+        switch self {
+        case .deterministicRule:
+            "Built-In Auto-Applied rule"
+        case .curatedPrefill:
+            "Built-In Review-First hint"
         }
     }
 }

@@ -76,7 +76,7 @@ struct SeededRuleDetailView: View {
 
                 Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
                     detailRow(title: "Read-only", value: "Yes")
-                    detailRow(title: "Source type", value: row.sourceKind.sectionTitle)
+                    detailRow(title: "Source type", value: row.sourceKind.detailSourceTypeText)
                     detailRow(title: "Merchant pattern", value: row.merchantPattern)
                     detailRow(title: RuleDisplayText.matchedBy, value: row.matchKind.ruleDisplayLabel)
                     detailRow(title: "Category", value: categoryName ?? "No category")

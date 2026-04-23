@@ -42,6 +42,14 @@ func learnedRuleManagerModelsReuseSharedSectionTitles() {
     #expect(SeededRuleSourceKind.curatedPrefill.sectionTitle == RuleDisplayText.builtInReviewFirst)
 }
 
+@Test
+func detailSourceCopyStaysMoreSpecificThanSectionTitles() {
+    #expect(ManagedLearnedRuleRow.detailSourceText == "Learned from Review")
+    #expect(ManagedLearnedRuleRow.detailSourceText != ManagedLearnedRuleRow.sectionTitle)
+    #expect(SeededRuleSourceKind.deterministicRule.detailSourceTypeText == "Built-In Auto-Applied rule")
+    #expect(SeededRuleSourceKind.curatedPrefill.detailSourceTypeText == "Built-In Review-First hint")
+}
+
 private func sourceText(in relativePath: String) throws -> String {
     let repoRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
