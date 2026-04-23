@@ -412,14 +412,14 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     }
 
     func previewLearnedRuleImpact(
-        reviewItemID: UUID,
         merchantPattern: String,
-        matchKind: ClassificationRuleMatchKind
+        matchKind: ClassificationRuleMatchKind,
+        excludingReviewItemID: UUID?
     ) throws -> LearnedRuleImpactPreview {
         lastPreviewLearnedRuleRequest = PreviewLearnedRuleRequest(
-            reviewItemID: reviewItemID,
             merchantPattern: merchantPattern,
-            matchKind: matchKind
+            matchKind: matchKind,
+            excludingReviewItemID: excludingReviewItemID
         )
         return previewLearnedRuleImpactResult
     }
@@ -537,9 +537,9 @@ private struct ApprovedClassificationRequest: Equatable {
 }
 
 private struct PreviewLearnedRuleRequest: Equatable {
-    var reviewItemID: UUID
     var merchantPattern: String
     var matchKind: ClassificationRuleMatchKind
+    var excludingReviewItemID: UUID?
 }
 
 private final class MaintenanceWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleReading, WorkspaceMaintenanceManaging, @unchecked Sendable {
@@ -2221,9 +2221,9 @@ func previewLearnedRuleImpactReturnsReadyCountsWhenEligible() throws {
         matchedPendingReviewItemCount: 1
     )))
     #expect(store.lastPreviewLearnedRuleRequest == PreviewLearnedRuleRequest(
-        reviewItemID: reviewItemID,
         merchantPattern: "coffee shop",
-        matchKind: .exactNormalizedMerchant
+        matchKind: .exactNormalizedMerchant,
+        excludingReviewItemID: reviewItemID
     ))
 }
 

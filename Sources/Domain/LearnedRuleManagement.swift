@@ -121,9 +121,9 @@ public enum LearnedRuleImpactPreviewState: Equatable, Sendable {
 
 public protocol LearnedRulePreviewReading: Sendable {
     func previewLearnedRuleImpact(
-        reviewItemID: UUID,
         merchantPattern: String,
-        matchKind: ClassificationRuleMatchKind
+        matchKind: ClassificationRuleMatchKind,
+        excludingReviewItemID: UUID?
     ) throws -> LearnedRuleImpactPreview
 }
 

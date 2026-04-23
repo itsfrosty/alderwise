@@ -253,9 +253,9 @@ public struct WorkspaceService: Sendable {
         }
 
         let preview = try previewReader.previewLearnedRuleImpact(
-            reviewItemID: reviewItemID,
             merchantPattern: sanitizedPattern,
-            matchKind: matchKind
+            matchKind: matchKind,
+            excludingReviewItemID: reviewItemID
         )
         return .ready(preview)
     }

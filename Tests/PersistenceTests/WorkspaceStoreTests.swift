@@ -3150,14 +3150,23 @@ func previewLearnedRuleImpactCountsExactMatchesWithoutMutatingTransactionsOrRevi
     let siblingReviewItem = try #require(reviewItems.last)
 
     let preview = try store.previewLearnedRuleImpact(
-        reviewItemID: currentReviewItem.id,
         merchantPattern: "coffee shop",
-        matchKind: .exactNormalizedMerchant
+        matchKind: .exactNormalizedMerchant,
+        excludingReviewItemID: currentReviewItem.id
     )
 
     #expect(preview == LearnedRuleImpactPreview(
         matchedAcceptedTransactionCount: 1,
         matchedPendingReviewItemCount: 1
+    ))
+    let unfilteredPreview = try store.previewLearnedRuleImpact(
+        merchantPattern: "coffee shop",
+        matchKind: .exactNormalizedMerchant,
+        excludingReviewItemID: nil
+    )
+    #expect(unfilteredPreview == LearnedRuleImpactPreview(
+        matchedAcceptedTransactionCount: 1,
+        matchedPendingReviewItemCount: 2
     ))
     #expect(Set(try store.fetchPendingReviewItems().map(\.id)) == Set([currentReviewItem.id, siblingReviewItem.id]))
 
@@ -3288,9 +3297,9 @@ func previewLearnedRuleImpactCountsPrefixMatchesAcrossAcceptedTransactionsAndSib
     let currentReviewItem = try #require(reviewItems.first)
 
     let preview = try store.previewLearnedRuleImpact(
-        reviewItemID: currentReviewItem.id,
         merchantPattern: "99pledg",
-        matchKind: .prefixNormalizedMerchant
+        matchKind: .prefixNormalizedMerchant,
+        excludingReviewItemID: currentReviewItem.id
     )
 
     #expect(preview == LearnedRuleImpactPreview(
@@ -3419,9 +3428,9 @@ func previewLearnedRuleImpactCountsContainsMatchesAcrossAcceptedTransactionsAndS
     let currentReviewItem = try #require(reviewItems.first)
 
     let preview = try store.previewLearnedRuleImpact(
-        reviewItemID: currentReviewItem.id,
         merchantPattern: "coffee",
-        matchKind: .contains
+        matchKind: .contains,
+        excludingReviewItemID: currentReviewItem.id
     )
 
     #expect(preview == LearnedRuleImpactPreview(

@@ -1074,9 +1074,9 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
     }
 
     public func previewLearnedRuleImpact(
-        reviewItemID: UUID,
         merchantPattern: String,
-        matchKind: ClassificationRuleMatchKind
+        matchKind: ClassificationRuleMatchKind,
+        excludingReviewItemID: UUID?
     ) throws -> LearnedRuleImpactPreview {
         try databaseQueue.read { db in
             let matchedCandidates = try matchingTransactionCandidatesForLearnedRule(
@@ -1088,7 +1088,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
             let siblingReviewItems = try fetchPendingSiblingReviewItems(
                 db: db,
                 matchedTransactionIDs: matchedTransactionIDs,
-                excludingReviewItemID: reviewItemID.uuidString
+                excludingReviewItemID: excludingReviewItemID?.uuidString
             )
             return LearnedRuleImpactPreview(
                 matchedAcceptedTransactionCount: matchedCandidates.filter {
