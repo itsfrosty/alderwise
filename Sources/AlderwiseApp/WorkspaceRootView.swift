@@ -429,14 +429,20 @@ struct WorkspaceRootView: View {
 
     private func routeToTransactions(_ filter: TransactionLedgerFilter) {
         selectedSectionRawValue = AppSection.transactions.rawValue
-        model.showTransactions(filter: filter, clearSelection: filter.ruleFilterIntent != nil)
+        model.showTransactions(filter: filter, clearSelection: filter.clearsSelectionOnNavigation)
     }
 
     private func route(intent: WorkspaceNavigationIntent) {
         selectedSectionRawValue = intent.section.rawValue
         model.selectTarget(id: intent.targetID)
         if let filter = intent.transactionFilter {
-            model.showTransactions(filter: filter, clearSelection: filter.ruleFilterIntent != nil)
+            model.showTransactions(filter: filter, clearSelection: filter.clearsSelectionOnNavigation)
         }
+    }
+}
+
+private extension TransactionLedgerFilter {
+    var clearsSelectionOnNavigation: Bool {
+        ruleFilterIntent != nil || normalizedMerchantName != nil
     }
 }

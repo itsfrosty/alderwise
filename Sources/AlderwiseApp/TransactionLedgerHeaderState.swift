@@ -56,6 +56,7 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
 
     enum Chip: Equatable, Hashable, Sendable {
         case search(String)
+        case merchant(String)
         case visibility(TransactionVisibilityFilter)
         case ruleMatch(TransactionLedgerRuleFilterIntent.Source, String)
         case account(UUID, String)
@@ -71,6 +72,8 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
             switch self {
             case .search(let text):
                 return text
+            case .merchant(let merchantName):
+                return merchantName.localizedCapitalized
             case .visibility(let visibility):
                 return visibility.rawValue.capitalized
             case .ruleMatch(_, let label):
@@ -135,6 +138,8 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         switch chip {
         case .search:
             nextFilter.searchText = ""
+        case .merchant:
+            nextFilter.normalizedMerchantName = nil
         case .visibility:
             nextFilter.visibility = nil
         case .ruleMatch:
@@ -179,6 +184,8 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         switch chip {
         case .search(let text):
             return "Search: \"\(text)\""
+        case .merchant:
+            return "Merchant: \(chip.text(using: formatting))"
         case .visibility:
             return "Visibility: \(chip.text(using: formatting))"
         case .ruleMatch(_, let label):
@@ -245,6 +252,10 @@ struct TransactionLedgerHeaderState: Equatable, Sendable {
         if filter.hasSearchText {
             chips.append(.search(filter.trimmedSearchText))
         }
+        if let normalizedMerchantName = filter.normalizedMerchantName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !normalizedMerchantName.isEmpty {
+            chips.append(.merchant(normalizedMerchantName.lowercased()))
+        }
         if let visibility = filter.visibility, visibility != .active {
             chips.append(.visibility(visibility))
         }
@@ -292,6 +303,7 @@ private extension TransactionLedgerFilter {
     var hasNonSearchCriteria: Bool {
         startDate != nil ||
         endDate != nil ||
+        normalizedMerchantName != nil ||
         visibility != nil ||
         ruleFilterIntent != nil ||
         accountID != nil ||

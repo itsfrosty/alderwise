@@ -168,6 +168,9 @@ func homeDashboardProjectsTopRecurringInsightIntoDedicatedSection() throws {
     #expect(section.message.contains("3 charges"))
     #expect(section.destination == HomeDashboardDestination.transactions(
         TransactionLedgerFilter(
+            startDate: homeDashboardUTCDate(year: 2026, month: 2, day: 9),
+            endDate: homeDashboardEndOfDay(year: 2026, month: 4, day: 9),
+            normalizedMerchantName: "netflix",
             direction: .expense,
             visibility: .active
         )
@@ -616,6 +619,7 @@ private func homeDashboardRecurringInsights(
                             homeDashboardID("00000000-0000-0000-0000-000000009102"),
                             homeDashboardID("00000000-0000-0000-0000-000000009103"),
                         ],
+                        firstObservedDate: homeDashboardUTCDate(year: 2026, month: 2, day: 9),
                         lastObservedDate: homeDashboardUTCDate(year: 2026, month: 4, day: 9),
                         nextExpectedDateWindow: nil
                     )
@@ -695,4 +699,8 @@ private func homeDashboardEndOfMonth(_ monthStart: Date) -> Date? {
         return nil
     }
     return calendar.date(byAdding: DateComponents(second: -1), to: nextMonth)
+}
+
+private func homeDashboardEndOfDay(year: Int, month: Int, day: Int) -> Date {
+    homeDashboardUTCDate(year: year, month: month, day: day, hour: 23, minute: 59, second: 59)
 }

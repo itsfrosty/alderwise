@@ -228,6 +228,23 @@ func homeTransactionDestinationPreservesFilterInNavigationIntent() throws {
 }
 
 @Test
+func recurringHomeDestinationPreservesExactMerchantDrilldownFilterInNavigationIntent() {
+    let filter = TransactionLedgerFilter(
+        startDate: Date(timeIntervalSince1970: 1_775_692_800),
+        endDate: Date(timeIntervalSince1970: 1_780_963_199),
+        normalizedMerchantName: "netflix",
+        direction: .expense,
+        visibility: .active
+    )
+
+    let intent = HomeDashboardDestination.transactions(filter).workspaceNavigationIntent
+
+    #expect(intent.section == .transactions)
+    #expect(intent.targetID == nil)
+    #expect(intent.transactionFilter == filter)
+}
+
+@Test
 func emptyWorkspaceHomeStillExposesOnlyExistingSetupSurfaces() throws {
     let service = try task15Service()
 

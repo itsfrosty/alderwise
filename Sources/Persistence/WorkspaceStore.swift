@@ -2737,6 +2737,11 @@ private func transactionLedgerQuery(
         predicates.append("transactions.transaction_date <= ?")
         appendArgument(endDate, to: &arguments)
     }
+    if let normalizedMerchantName = filter.normalizedMerchantName?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+       !normalizedMerchantName.isEmpty {
+        predicates.append("LOWER(COALESCE(transactions.normalized_merchant_name, '')) = ?")
+        appendArgument(normalizedMerchantName, to: &arguments)
+    }
     if let accountID = filter.accountID {
         predicates.append("transactions.account_id = ?")
         appendArgument(accountID.uuidString, to: &arguments)
@@ -3008,6 +3013,7 @@ private func recurringInsightCandidate(
             maximum: amounts.max() ?? .zero
         ),
         supportingTransactionIDs: supportingObservations.map(\.transactionID),
+        firstObservedDate: supportingObservations.first?.transactionDate,
         lastObservedDate: lastObservedDate,
         nextExpectedDateWindow: nextExpectedDateWindow
     )

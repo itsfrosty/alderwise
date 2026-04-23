@@ -271,7 +271,7 @@ struct HomeDashboardSections: View {
         case .targets(let targetID):
             return "targets:\(targetID?.uuidString ?? "root")"
         case .transactions(let filter):
-            return "transactions:\(filter.startDate?.timeIntervalSince1970 ?? 0):\(filter.endDate?.timeIntervalSince1970 ?? 0):\(filter.categoryID?.uuidString ?? "none"):\(filter.categoryGroupID?.uuidString ?? "none")"
+            return "transactions:\(filter.startDate?.timeIntervalSince1970 ?? 0):\(filter.endDate?.timeIntervalSince1970 ?? 0):\(filter.normalizedMerchantName ?? "none"):\(filter.categoryID?.uuidString ?? "none"):\(filter.categoryGroupID?.uuidString ?? "none")"
         }
     }
 }

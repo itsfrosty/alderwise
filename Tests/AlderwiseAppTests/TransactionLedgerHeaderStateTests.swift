@@ -63,6 +63,17 @@ func categoryOnlyFilterProducesExpectedScopeAndChip() {
 }
 
 @Test
+func merchantOnlyFilterProducesExpectedScopeAndChip() {
+    let state = TransactionLedgerHeaderState(
+        rows: [makeRow()],
+        filter: TransactionLedgerFilter(normalizedMerchantName: "netflix")
+    )
+
+    #expect(state.scopeSummaryText == "Merchant: Netflix")
+    #expect(state.activeChips == [.merchant("netflix")])
+}
+
+@Test
 func importOnlyFilterProducesExpectedScopeAndChip() {
     let state = TransactionLedgerHeaderState(
         rows: [makeRow()],
@@ -217,6 +228,21 @@ func removingVisibilityChipClearsOnlyVisibilityFilter() {
     #expect(nextFilter.categoryID == categoryID)
     #expect(nextFilter.reviewStatus == .pending)
     #expect(nextFilter.visibility == nil)
+}
+
+@Test
+func removingMerchantChipClearsOnlyMerchantFilter() {
+    let filter = TransactionLedgerFilter(
+        startDate: makeDate(year: 2026, month: 1, day: 5),
+        normalizedMerchantName: "netflix",
+        direction: .expense
+    )
+
+    let nextFilter = TransactionLedgerHeaderState.removing(.merchant("netflix"), from: filter)
+
+    #expect(nextFilter.normalizedMerchantName == nil)
+    #expect(nextFilter.direction == TransactionDirection.expense)
+    #expect(nextFilter.startDate == makeDate(year: 2026, month: 1, day: 5))
 }
 
 @Test

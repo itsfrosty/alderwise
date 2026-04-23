@@ -311,12 +311,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             merchantName: detail.normalizedMerchantName,
             title: "\(merchantDisplayName(detail.normalizedMerchantName)) may be recurring",
             message: "\(recurringCadenceTitle(detail.cadence)) at \(recurringAmountSummary(detail.amountRange)) across \(detail.observationCount) \(chargeLabel(count: detail.observationCount)).",
-            destination: .transactions(
-                TransactionLedgerFilter(
-                    direction: .expense,
-                    visibility: .active
-                )
-            )
+            destination: .transactions(TransactionDrilldownFilterBuilder.recurringChargeEvidence(detail: detail))
         )
     }
 

@@ -23,6 +23,7 @@ public struct RecurringChargeInsightDetail: Equatable, Sendable {
     public var observationCount: Int
     public var amountRange: RecurringChargeAmountRange
     public var supportingTransactionIDs: [UUID]
+    public var firstObservedDate: Date?
     public var lastObservedDate: Date
     public var nextExpectedDateWindow: DateInterval?
 
@@ -33,6 +34,7 @@ public struct RecurringChargeInsightDetail: Equatable, Sendable {
         observationCount: Int,
         amountRange: RecurringChargeAmountRange,
         supportingTransactionIDs: [UUID],
+        firstObservedDate: Date? = nil,
         lastObservedDate: Date,
         nextExpectedDateWindow: DateInterval?
     ) {
@@ -42,6 +44,7 @@ public struct RecurringChargeInsightDetail: Equatable, Sendable {
         self.observationCount = observationCount
         self.amountRange = amountRange
         self.supportingTransactionIDs = supportingTransactionIDs
+        self.firstObservedDate = firstObservedDate
         self.lastObservedDate = lastObservedDate
         self.nextExpectedDateWindow = nextExpectedDateWindow
     }
