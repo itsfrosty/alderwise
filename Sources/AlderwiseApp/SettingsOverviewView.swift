@@ -3,20 +3,22 @@ import AppKit
 import SwiftUI
 
 struct SettingsOverviewView: View {
+    static let resetSupportNote = "A backup is created first. If that backup fails, reset won't continue."
+
     @ObservedObject var model: WorkspaceShellModel
     let presentation: SettingsPresentation
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                Text(presentation.overview.title)
+                Text("Settings")
                     .font(.largeTitle.bold())
 
                 healthSection
                 primaryActionsSection
-                rulesSection
                 importAutomationSection
                 advancedDetailsSection
+                resetSection
 
                 Spacer(minLength: 0)
             }
@@ -65,23 +67,6 @@ struct SettingsOverviewView: View {
                     .buttonStyle(.bordered)
                 }
             }
-        }
-    }
-
-    private var rulesSection: some View {
-        let section = presentation.overview.rules
-
-        return SettingsSurface(
-            title: section.title,
-            helperText: section.helperText,
-            emphasis: section.emphasis
-        ) {
-            Button {
-                model.showLearnedRules()
-            } label: {
-                Label("Open Rules", systemImage: "slider.horizontal.3")
-            }
-            .buttonStyle(.borderedProminent)
         }
     }
 
@@ -170,6 +155,29 @@ struct SettingsOverviewView: View {
             }
             .buttonStyle(.bordered)
             .disabled(model.workspaceMetadata?.databaseURL == nil)
+        }
+    }
+
+    private var resetSection: some View {
+        let section = presentation.recovery.reset
+
+        return SettingsSurface(
+            title: section.title,
+            helperText: section.helperText,
+            emphasis: section.emphasis
+        ) {
+            Text(Self.resetSupportNote)
+                .foregroundStyle(.secondary)
+
+            if let resetAction = section.action(id: .resetWorkspace) {
+                Button(role: .destructive) {
+                    model.beginWorkspaceResetConfirmation()
+                } label: {
+                    Label(resetAction.title, systemImage: resetAction.systemImage)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.red)
+            }
         }
     }
 

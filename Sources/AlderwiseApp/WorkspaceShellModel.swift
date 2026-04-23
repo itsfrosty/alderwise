@@ -29,7 +29,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published var isPresentingTargetSheet = false
     @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
     @Published var selectedTargetID: UUID?
-    @Published private(set) var settingsDestination: SettingsDestination = SettingsShellState.directEntry().destination
+    @Published private(set) var settingsDestination: SettingsDestination = .overview
     @Published private(set) var learnedRuleManagerSnapshot: LearnedRuleManagerSnapshot?
     @Published private(set) var reviewCreatedLearnedRuleAction: ReviewCreatedLearnedRuleAction?
     @Published private(set) var pendingAppSectionNavigation: AppSection?
@@ -292,32 +292,31 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func directSettingsSidebarEntry() {
-        settingsDestination = SettingsShellState.directEntry().destination
+        settingsDestination = .overview
+    }
+
+    func directRulesSidebarEntry() {
+        settingsDestination = .learnedRulesRoute()
     }
 
     func prepareForSidebarSelection(_ section: AppSection) {
-        guard section == .settings else {
-            return
+        switch section {
+        case .settings:
+            directSettingsSidebarEntry()
+        case .rules:
+            directRulesSidebarEntry()
+        case .home, .transactions, .review, .targets, .accounts:
+            break
         }
-
-        directSettingsSidebarEntry()
     }
 
-    func selectSettingsDestination(_ destination: SettingsDestination) {
-        settingsDestination = SettingsShellState.deepLink(destination).destination
-    }
-
-    func selectSettingsSidebarDestination(_ destination: SettingsSidebarDestination) {
-        settingsDestination = SettingsShellState.sidebarSelection(destination).destination
-    }
-
-    func showSettingsDestination(_ destination: SettingsDestination) {
-        settingsDestination = SettingsShellState.deepLink(destination).destination
-        pendingAppSectionNavigation = .settings
+    func showRulesDestination(_ destination: SettingsDestination) {
+        settingsDestination = destination
+        pendingAppSectionNavigation = .rules
     }
 
     func showLearnedRules(selectedLearnedRuleID: UUID? = nil) {
-        showSettingsDestination(
+        showRulesDestination(
             .learnedRulesRoute(selectedLearnedRuleID: selectedLearnedRuleID)
         )
     }

@@ -13,7 +13,7 @@ struct AlderwiseApp: App {
     var body: some Scene {
         WindowGroup {
             WorkspaceRootView(model: model)
-                .frame(minWidth: 980, minHeight: 620)
+                .frame(minWidth: 1120, minHeight: 620)
         }
         .windowResizability(.contentSize)
     }

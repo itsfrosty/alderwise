@@ -5,36 +5,9 @@ import Testing
 @testable import AlderwiseApp
 
 @Test
-func directSettingsEntryResolvesToOverview() {
-    let state = SettingsShellState.directEntry()
-
-    #expect(state.destination == .overview)
-    #expect(state.sidebarDestination == .overview)
-}
-
-@Test
-func rulesDeepLinkResolvesToSettingsRules() {
-    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000433")!
-    let destination = SettingsDestination.rules(
-        LearnedRulesDestination(
-            mode: .learned,
-            selectedLearnedRuleID: learnedRuleID
-        )
-    )
-
-    let state = SettingsShellState.deepLink(destination)
-
-    #expect(state.destination == destination)
-    #expect(state.sidebarDestination == .rules)
-}
-
-@Test
-func sidebarRulesSelectionBuildsDefaultRulesRoute() {
-    let state = SettingsShellState.sidebarSelection(.rules)
-
-    #expect(state.sidebarDestination == .rules)
+func learnedRulesRouteBuildsDefaultRulesDestination() {
     #expect(
-        state.destination
+        SettingsDestination.learnedRulesRoute()
             == .rules(
                 LearnedRulesDestination(
                     mode: .learned,
@@ -45,8 +18,23 @@ func sidebarRulesSelectionBuildsDefaultRulesRoute() {
 }
 
 @Test
+func learnedRulesRoutePreservesSelectedRule() {
+    let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000433")!
+
+    #expect(
+        SettingsDestination.learnedRulesRoute(selectedLearnedRuleID: learnedRuleID)
+            == .rules(
+                LearnedRulesDestination(
+                    mode: .learned,
+                    selectedLearnedRuleID: learnedRuleID
+                )
+            )
+    )
+}
+
+@Test
 @MainActor
-func showLearnedRulesSetsSettingsRouteAndPendingSettingsNavigation() {
+func showLearnedRulesSetsRulesRouteAndPendingRulesNavigation() {
     let learnedRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000444")!
     let model = WorkspaceShellModel(store: nil, service: nil)
 
@@ -61,7 +49,7 @@ func showLearnedRulesSetsSettingsRouteAndPendingSettingsNavigation() {
                 )
             )
     )
-    #expect(model.pendingAppSectionNavigation == .settings)
+    #expect(model.pendingAppSectionNavigation == .rules)
 }
 
 @Test
@@ -74,4 +62,22 @@ func reEnteringSettingsFromSidebarResetsRulesDeepLinkToOverview() {
     model.directSettingsSidebarEntry()
 
     #expect(model.settingsDestination == .overview)
+}
+
+@Test
+@MainActor
+func selectingRulesFromSidebarBuildsDefaultRulesRoute() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+
+    model.prepareForSidebarSelection(.rules)
+
+    #expect(
+        model.settingsDestination
+            == .rules(
+                LearnedRulesDestination(
+                    mode: .learned,
+                    selectedLearnedRuleID: nil
+                )
+            )
+    )
 }

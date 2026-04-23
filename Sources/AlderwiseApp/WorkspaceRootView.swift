@@ -10,6 +10,10 @@ struct WorkspaceRootView: View {
 
     private static let sqliteWorkspaceType = UTType(filenameExtension: "sqlite") ?? .data
 
+    static func requiresDirectSidebarTapOverride(for section: AppSection) -> Bool {
+        section == .settings
+    }
+
     private var fileImporterContentTypes: [UTType] {
         switch model.fileImportRequest {
         case .csv:
@@ -223,14 +227,22 @@ struct WorkspaceRootView: View {
 
     @ViewBuilder
     private func sidebarRow(for section: AppSection) -> some View {
-        Label(section.title, systemImage: section.systemImage)
-            .tag(section)
-            .contentShape(Rectangle())
-            .simultaneousGesture(
+        let row = HStack {
+            Label(section.title, systemImage: section.systemImage)
+            Spacer(minLength: 0)
+        }
+        .tag(section)
+        .contentShape(Rectangle())
+
+        if Self.requiresDirectSidebarTapOverride(for: section) {
+            row.simultaneousGesture(
                 TapGesture().onEnded {
                     handleDirectSidebarTap(section)
                 }
             )
+        } else {
+            row
+        }
     }
 
     private func handleDirectSidebarTap(_ section: AppSection) {
@@ -271,6 +283,8 @@ struct WorkspaceRootView: View {
                 Label("Import CSV", systemImage: "square.and.arrow.down")
             }
             .keyboardShortcut("i", modifiers: [.command])
+        case .rules:
+            EmptyView()
         case .targets:
             Button {
                 model.beginTargetCreation()
@@ -339,6 +353,13 @@ struct WorkspaceRootView: View {
                 TransactionLedgerView(snapshot: snapshot, model: model)
             } else if WorkspaceDetailRoute.make(for: section) == .review {
                 ReviewQueueView(snapshot: snapshot, model: model)
+            } else if WorkspaceDetailRoute.make(for: section) == .rulesManager {
+                LearnedRulesManagerView(
+                    model: model,
+                    destination: rulesDestination,
+                    categories: snapshot.categories,
+                    snapshot: model.learnedRuleManagerSnapshot
+                )
             } else if WorkspaceDetailRoute.make(for: section) == .targetsManager {
                 TargetsManagementView(
                     targets: model.managedTargets,
@@ -390,6 +411,15 @@ struct WorkspaceRootView: View {
             } else {
                 SectionPlaceholderView(section: section, snapshot: snapshot)
             }
+        }
+    }
+
+    private var rulesDestination: LearnedRulesDestination {
+        switch model.settingsDestination {
+        case .rules(let destination):
+            destination
+        case .overview:
+            LearnedRulesDestination(mode: .learned)
         }
     }
 

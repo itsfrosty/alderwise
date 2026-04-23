@@ -12,27 +12,22 @@ public struct SettingsPresentation: Equatable, Sendable {
             healthStatus: healthStatus,
             primaryActions: ActionSection(
                 title: "Protect and recover your workspace",
-                helperText: "Create a backup file before bigger changes, or restore from a known-good backup if this Mac's workspace needs to recover.",
+                helperText: "Create a backup before major changes, or restore from a backup if you need to recover this workspace.",
                 emphasis: .primary,
                 actions: [
                     Action(id: .createBackup, title: "Create Backup", systemImage: "externaldrive.badge.plus"),
                     Action(id: .restoreBackup, title: "Restore Backup", systemImage: "externaldrive.badge.arrowtriangle.2.circlepath"),
                 ]
             ),
-            rules: Section(
-                title: "Rules",
-                helperText: "Review the rules Alderwise uses to keep categorization and import decisions predictable on this Mac.",
-                emphasis: .secondary
-            ),
             secondarySections: [
                 Section(
                     title: "Import Automation",
-                    helperText: "Tune local suggestions and review automation after backup and restore are set up.",
+                    helperText: "Control how Alderwise uses local suggestions during import and review.",
                     emphasis: .secondary
                 ),
                 Section(
                     title: "Advanced Details",
-                    helperText: "Inspect the workspace location and current health details when you need to troubleshoot this Mac.",
+                    helperText: "Check the workspace location and file details when you need to troubleshoot.",
                     emphasis: .secondary
                 ),
             ]
@@ -50,7 +45,7 @@ public struct SettingsPresentation: Equatable, Sendable {
             ),
             reset: ActionSection(
                 title: "Last Resort Reset",
-                helperText: "Reset removes workspace data from this Mac after Alderwise creates the required backup. Use it only when backup and restore are not enough.",
+                helperText: "Use reset only when restore is not enough to get this workspace back into a good state.",
                 emphasis: .caution,
                 actions: [
                     Action(id: .resetWorkspace, title: "Reset Workspace", systemImage: "trash"),
@@ -64,7 +59,6 @@ public struct SettingsPresentation: Equatable, Sendable {
         public let healthSectionTitle: String
         public let healthStatus: HealthStatus
         public let primaryActions: ActionSection
-        public let rules: Section
         public let secondarySections: [Section]
 
         public init(
@@ -72,14 +66,12 @@ public struct SettingsPresentation: Equatable, Sendable {
             healthSectionTitle: String,
             healthStatus: HealthStatus,
             primaryActions: ActionSection,
-            rules: Section,
             secondarySections: [Section]
         ) {
             self.title = title
             self.healthSectionTitle = healthSectionTitle
             self.healthStatus = healthStatus
             self.primaryActions = primaryActions
-            self.rules = rules
             self.secondarySections = secondarySections
         }
     }
@@ -121,14 +113,14 @@ public struct SettingsPresentation: Equatable, Sendable {
                 self.init(
                     state: .checking,
                     title: "Checking workspace health",
-                    detail: "Alderwise is reading the local workspace before it shows backup and recovery guidance.",
+                    detail: "Alderwise is checking the local workspace and preparing recovery options.",
                     systemImage: "clock.arrow.circlepath"
                 )
             case .failedToOpen:
                 self.init(
                     state: .recoveryNeeded,
                     title: "Workspace needs recovery",
-                    detail: "Restore from a known-good backup, or inspect the workspace details below before you try again.",
+                    detail: "Restore a backup or inspect the workspace details below before trying again.",
                     systemImage: "exclamationmark.triangle.fill"
                 )
             case .available(let metadata):
@@ -136,7 +128,7 @@ public struct SettingsPresentation: Equatable, Sendable {
                     self.init(
                         state: .checking,
                         title: "Checking workspace details",
-                        detail: "Alderwise opened the workspace, but diagnostics are still unavailable. Use backup and restore actions if you need a safe recovery path right now.",
+                        detail: "Alderwise opened the workspace, but some details are still loading. Backup and restore are available if you need a safe recovery path.",
                         systemImage: "clock.badge.exclamationmark"
                     )
                 } else if let metadata, metadata.databaseExists == false {
@@ -150,7 +142,7 @@ public struct SettingsPresentation: Equatable, Sendable {
                     self.init(
                         state: .healthy,
                         title: "Workspace looks healthy",
-                        detail: "Back up before major changes so you have a recovery path if this Mac's workspace ever needs repair.",
+                        detail: "Create a backup before major changes so you can recover this workspace if needed.",
                         systemImage: "checkmark.shield.fill"
                     )
                 }
@@ -193,7 +185,6 @@ public struct SettingsPresentation: Equatable, Sendable {
             case createBackup
             case restoreBackup
             case resetWorkspace
-            case openRules
             case revealInFinder
         }
 

@@ -113,27 +113,9 @@ public struct LearnedRulesDestination: Equatable, Sendable {
     }
 }
 
-public enum SettingsSidebarDestination: Hashable, Sendable {
-    case overview
-    case backupsAndRecovery
-    case rules
-}
-
 public enum SettingsDestination: Equatable, Sendable {
     case overview
-    case backupsAndRecovery
     case rules(LearnedRulesDestination)
-
-    public var sidebarDestination: SettingsSidebarDestination {
-        switch self {
-        case .overview:
-            .overview
-        case .backupsAndRecovery:
-            .backupsAndRecovery
-        case .rules:
-            .rules
-        }
-    }
 
     public static func learnedRulesRoute(selectedLearnedRuleID: UUID? = nil) -> SettingsDestination {
         .rules(

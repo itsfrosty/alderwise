@@ -29,6 +29,7 @@ public enum WorkspaceDetailRoute: Equatable, Sendable {
     case home
     case transactions
     case review
+    case rulesManager
     case targetsManager
     case accountsManager
     case settings
@@ -41,6 +42,8 @@ public enum WorkspaceDetailRoute: Equatable, Sendable {
             .transactions
         case .review:
             .review
+        case .rules:
+            .rulesManager
         case .targets:
             .targetsManager
         case .accounts:

@@ -2,6 +2,7 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
     case home
     case transactions
     case review
+    case rules
     case targets
     case accounts
     case settings
@@ -16,6 +17,8 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
             "Transactions"
         case .review:
             "Review"
+        case .rules:
+            "Rules"
         case .targets:
             "Targets"
         case .accounts:
@@ -33,6 +36,8 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
             "list.bullet.rectangle"
         case .review:
             "checklist"
+        case .rules:
+            "slider.horizontal.3"
         case .targets:
             "target"
         case .accounts:
@@ -50,6 +55,8 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
             "Import a bank CSV to build your local ledger"
         case .review:
             "Everything important has been reviewed"
+        case .rules:
+            "Inspect the rules Alderwise uses on this Mac"
         case .targets:
             "Set a monthly target for the categories you watch most"
         case .accounts:
@@ -67,6 +74,8 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
             "Transactions become your canonical ledger after import."
         case .review:
             "When an import needs your attention, it will appear here with a clear next step."
+        case .rules:
+            "Review learned rules alongside Alderwise's included deterministic rules and starter prefills."
         case .targets:
             "Targets compare visible spending this month against a simple monthly limit."
         case .accounts:

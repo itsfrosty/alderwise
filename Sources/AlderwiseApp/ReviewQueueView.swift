@@ -67,7 +67,7 @@ struct ReviewQueueView: View {
                     }
                 },
                 onManageLearnedRule: { action in
-                    model.showSettingsDestination(action.destination)
+                    model.showRulesDestination(action.destination)
                 }
             )
             .frame(idealWidth: 420, maxWidth: .infinity, maxHeight: .infinity)

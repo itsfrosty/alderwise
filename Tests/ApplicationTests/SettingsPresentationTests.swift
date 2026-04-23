@@ -32,6 +32,10 @@ func overviewPromotesBackupAndRestoreAsPrimaryActions() {
 
     #expect(presentation.overview.primaryActions.title == "Protect and recover your workspace")
     #expect(
+        presentation.overview.primaryActions.helperText
+            == "Create a backup before major changes, or restore from a backup if you need to recover this workspace."
+    )
+    #expect(
         presentation.overview.primaryActions.actions.map(\.title) == [
             "Create Backup",
             "Restore Backup",
@@ -45,11 +49,16 @@ func overviewKeepsAutomationAndDiagnosticsAsSecondarySections() {
         workspaceStatus: .available(makeWorkspaceMetadata())
     )
 
-    #expect(presentation.overview.rules.title == "Rules")
     #expect(
         presentation.overview.secondarySections.map(\.title) == [
             "Import Automation",
             "Advanced Details",
+        ]
+    )
+    #expect(
+        presentation.overview.secondarySections.map(\.helperText) == [
+            "Control how Alderwise uses local suggestions during import and review.",
+            "Check the workspace location and file details when you need to troubleshoot.",
         ]
     )
     #expect(presentation.overview.secondarySections.allSatisfy { $0.emphasis == .secondary })
@@ -68,6 +77,10 @@ func recoveryTreatsResetAsALastResortAction() {
         ]
     )
     #expect(presentation.recovery.reset.title == "Last Resort Reset")
+    #expect(
+        presentation.recovery.reset.helperText
+            == "Use reset only when restore is not enough to get this workspace back into a good state."
+    )
     #expect(presentation.recovery.reset.actions.map(\.title) == ["Reset Workspace"])
     #expect(presentation.recovery.reset.emphasis == .caution)
 }
@@ -80,7 +93,6 @@ func settingsCopyDoesNotImplyDurableBackupHistory() {
 
     let helperTexts = [
         presentation.overview.primaryActions.helperText,
-        presentation.overview.rules.helperText,
         presentation.overview.secondarySections[0].helperText,
         presentation.overview.secondarySections[1].helperText,
         presentation.recovery.primaryActions.helperText,
