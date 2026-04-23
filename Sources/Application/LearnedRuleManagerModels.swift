@@ -54,6 +54,19 @@ public struct ManagedLearnedRuleRow: Identifiable, Equatable, Sendable {
         )
     }
 
+    public init(rule: ManagedLearnedRule) {
+        self.init(
+            id: rule.id,
+            merchantPattern: rule.merchantPattern,
+            categoryID: rule.categoryID,
+            merchantName: rule.merchantName,
+            matchKind: rule.matchKind,
+            createdAt: rule.createdAt,
+            isDisabled: rule.isDisabled,
+            disabledAt: rule.disabledAt
+        )
+    }
+
     public static var sectionTitle: String {
         RuleDisplayText.yourRules
     }

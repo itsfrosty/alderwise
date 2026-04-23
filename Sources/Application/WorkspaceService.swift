@@ -165,6 +165,29 @@ public struct WorkspaceService: Sendable {
     }
 
     @discardableResult
+    public func createLearnedRule(
+        _ draft: LearnedRuleDraft,
+        createdAt: Date = .now
+    ) throws -> ManagedLearnedRule {
+        guard let learnedRuleWriter = store as? any LearnedRuleWriting else {
+            throw WorkspaceServiceError.learnedRuleManagementUnavailable
+        }
+
+        return try learnedRuleWriter.createLearnedRule(draft, createdAt: createdAt)
+    }
+
+    public func duplicateLearnedRuleAsDraft(id: UUID) throws -> LearnedRuleDraft? {
+        guard let learnedRuleReader = learnedRuleReader() else {
+            throw WorkspaceServiceError.learnedRuleManagementUnavailable
+        }
+
+        guard let detail = try learnedRuleReader.fetchLearnedRuleDetail(id: id) else {
+            return nil
+        }
+        return LearnedRuleDraft(rule: detail)
+    }
+
+    @discardableResult
     public func disableLearnedRule(id: UUID, disabledAt: Date = .now) throws -> ManagedLearnedRule {
         guard let learnedRuleWriter = store as? any LearnedRuleWriting else {
             throw WorkspaceServiceError.learnedRuleManagementUnavailable

@@ -94,6 +94,38 @@ public struct ManagedLearnedRule: Identifiable, Equatable, Sendable {
     }
 }
 
+public struct LearnedRuleDraft: Equatable, Sendable {
+    public var merchantPattern: String
+    public var categoryID: UUID?
+    public var merchantName: String?
+    public var matchKind: ClassificationRuleMatchKind
+
+    public init(
+        merchantPattern: String = "",
+        categoryID: UUID? = nil,
+        merchantName: String? = nil,
+        matchKind: ClassificationRuleMatchKind = .exactNormalizedMerchant
+    ) {
+        self.merchantPattern = merchantPattern
+        self.categoryID = categoryID
+        self.merchantName = merchantName
+        self.matchKind = matchKind
+    }
+
+    public init(rule: ManagedLearnedRule) {
+        self.init(
+            merchantPattern: rule.merchantPattern,
+            categoryID: rule.categoryID,
+            merchantName: rule.merchantName,
+            matchKind: rule.matchKind
+        )
+    }
+
+    public var normalizedMerchantPattern: String? {
+        LearnedRuleMatcher.normalizedPattern(merchantPattern)
+    }
+}
+
 public protocol LearnedRuleReading: Sendable {
     func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary]
     func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary?
@@ -128,6 +160,7 @@ public protocol LearnedRulePreviewReading: Sendable {
 }
 
 public protocol LearnedRuleWriting: Sendable {
+    func createLearnedRule(_ draft: LearnedRuleDraft, createdAt: Date) throws -> ManagedLearnedRule
     func disableLearnedRule(id: UUID, disabledAt: Date) throws -> ManagedLearnedRule
     func enableLearnedRule(id: UUID) throws -> ManagedLearnedRule
 }

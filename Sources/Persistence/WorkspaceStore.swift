@@ -1149,6 +1149,36 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
     }
 
+    public func createLearnedRule(_ draft: LearnedRuleDraft, createdAt: Date) throws -> ManagedLearnedRule {
+        try databaseQueue.write { db in
+            guard let merchantPattern = draft.normalizedMerchantPattern else {
+                throw WorkspaceStoreError.invalidLearnedRulePattern
+            }
+
+            let learnedRuleID = UUID()
+            try db.execute(
+                sql: """
+                INSERT INTO rules (id, pattern, category_id, merchant_name, match_kind, created_at, disabled_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    learnedRuleID.uuidString,
+                    merchantPattern,
+                    draft.categoryID?.uuidString,
+                    draft.merchantName?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty,
+                    draft.matchKind.rawValue,
+                    createdAt,
+                    nil,
+                ]
+            )
+
+            guard let createdRule = try learnedRuleDetail(id: learnedRuleID, db: db) else {
+                throw WorkspaceStoreError.learnedRuleNotFound(learnedRuleID)
+            }
+            return createdRule
+        }
+    }
+
     public func disableLearnedRule(id: UUID, disabledAt: Date) throws -> ManagedLearnedRule {
         try databaseQueue.write { db in
             try db.execute(
@@ -4021,6 +4051,7 @@ private func isAcceptedTransactionPromotableToUserOnEdit(
 private enum WorkspaceStoreError: Error {
     case insertedStagedSessionNotFound(Int64)
     case learnedRuleNotFound(UUID)
+    case invalidLearnedRulePattern
     case accountNotImportEligible(UUID)
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
@@ -4036,6 +4067,8 @@ extension WorkspaceStoreError: LocalizedError {
         switch self {
         case .accountNotImportEligible:
             "Archived accounts can't accept new imports."
+        case .invalidLearnedRulePattern:
+            "Learned rules require a non-empty merchant pattern."
         case .learnedRuleNotFound(let id):
             "Learned rule \(id.uuidString) was not found."
         default:

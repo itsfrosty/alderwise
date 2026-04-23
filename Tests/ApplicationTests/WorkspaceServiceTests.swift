@@ -149,7 +149,7 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleReading, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var categories: [BudgetCategory] = []
@@ -409,6 +409,43 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
             createdAt: summary.createdAt,
             lifecycle: summary.lifecycle
         )
+    }
+
+    func createLearnedRule(_ draft: LearnedRuleDraft, createdAt: Date) throws -> ManagedLearnedRule {
+        let rule = ManagedLearnedRule(
+            id: nextCreatedLearnedRuleID,
+            merchantPattern: draft.normalizedMerchantPattern ?? draft.merchantPattern,
+            categoryID: draft.categoryID,
+            merchantName: draft.merchantName,
+            matchKind: draft.matchKind,
+            createdAt: createdAt,
+            lifecycle: .active
+        )
+        learnedRuleSummaries.insert(
+            LearnedRuleSummary(
+                id: rule.id,
+                merchantPattern: rule.merchantPattern,
+                categoryID: rule.categoryID,
+                merchantName: rule.merchantName,
+                matchKind: rule.matchKind,
+                createdAt: rule.createdAt,
+                lifecycle: rule.lifecycle
+            ),
+            at: 0
+        )
+        return rule
+    }
+
+    func disableLearnedRule(id: UUID, disabledAt: Date) throws -> ManagedLearnedRule {
+        let existingIndex = try #require(learnedRuleSummaries.firstIndex { $0.id == id })
+        learnedRuleSummaries[existingIndex].lifecycle = .disabled(disabledAt: disabledAt)
+        return try #require(try fetchLearnedRuleDetail(id: id))
+    }
+
+    func enableLearnedRule(id: UUID) throws -> ManagedLearnedRule {
+        let existingIndex = try #require(learnedRuleSummaries.firstIndex { $0.id == id })
+        learnedRuleSummaries[existingIndex].lifecycle = .active
+        return try #require(try fetchLearnedRuleDetail(id: id))
     }
 
     func previewLearnedRuleImpact(
@@ -2170,6 +2207,72 @@ func approveClassificationReviewItemOmitsDeepLinkActionWhenRuleLearningIsDisable
     )
 
     #expect(result.createdLearnedRuleAction == nil)
+}
+
+@Test
+func learnedRuleDraftDefaultsToManualAuthoringValues() {
+    let draft = LearnedRuleDraft()
+
+    #expect(draft.merchantPattern == "")
+    #expect(draft.categoryID == nil)
+    #expect(draft.merchantName == nil)
+    #expect(draft.matchKind == .exactNormalizedMerchant)
+}
+
+@Test
+func createLearnedRulePersistsManualDraftAndReturnsManagedRule() throws {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000551")!
+    let createdAt = Date(timeIntervalSince1970: 1_776_355_340)
+    let store = MutableWorkspaceStore()
+    let service = WorkspaceService(store: store)
+
+    let createdRule = try service.createLearnedRule(
+        LearnedRuleDraft(
+            merchantPattern: "  COFFEE SHOP  ",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .contains
+        ),
+        createdAt: createdAt
+    )
+
+    #expect(createdRule.merchantPattern == "coffee shop")
+    #expect(createdRule.categoryID == categoryID)
+    #expect(createdRule.merchantName == "Coffee Shop")
+    #expect(createdRule.matchKind == .contains)
+    #expect(createdRule.createdAt == createdAt)
+    #expect(createdRule.isDisabled == false)
+    #expect(store.learnedRuleSummaries.map(\.merchantPattern) == ["coffee shop"])
+}
+
+@Test
+func duplicateLearnedRuleAsDraftCopiesOnlyEditableFields() throws {
+    let ruleID = UUID(uuidString: "00000000-0000-0000-0000-000000000552")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000553")!
+    let store = MutableWorkspaceStore()
+    store.learnedRuleSummaries = [
+        LearnedRuleSummary(
+            id: ruleID,
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .prefixNormalizedMerchant,
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            lifecycle: .disabled(disabledAt: Date(timeIntervalSince1970: 1_776_355_360))
+        )
+    ]
+    let service = WorkspaceService(store: store)
+
+    let draft = try #require(try service.duplicateLearnedRuleAsDraft(id: ruleID))
+
+    #expect(
+        draft == LearnedRuleDraft(
+            merchantPattern: "coffee shop",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .prefixNormalizedMerchant
+        )
+    )
 }
 
 @Test

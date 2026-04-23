@@ -3581,6 +3581,72 @@ func fetchLearnedRuleSummaryAndDetailResolveDisabledRulesByID() throws {
 }
 
 @Test
+func createLearnedRulePersistsManualRulesUsingReviewAlignedNormalizationAndOrdering() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000119")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee", kind: "expense")
+
+    _ = try store.createLearnedRule(
+        LearnedRuleDraft(
+            merchantPattern: "  coffee  ",
+            categoryID: categoryID,
+            merchantName: "Coffee",
+            matchKind: .contains
+        ),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+    _ = try store.createLearnedRule(
+        LearnedRuleDraft(
+            merchantPattern: " 99PLEDG ",
+            categoryID: categoryID,
+            merchantName: "99Pledg",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_320)
+    )
+    let exactRule = try store.createLearnedRule(
+        LearnedRuleDraft(
+            merchantPattern: "  COFFEE SHOP  ",
+            categoryID: categoryID,
+            merchantName: "Coffee Shop",
+            matchKind: .exactNormalizedMerchant
+        ),
+        createdAt: Date(timeIntervalSince1970: 1_775_171_380)
+    )
+
+    let classifierRules = try store.fetchClassificationRules()
+    let managedRules = try store.fetchLearnedRuleSummaries()
+
+    #expect(classifierRules.map(\.matchKind) == [
+        .exactNormalizedMerchant,
+        .prefixNormalizedMerchant,
+        .contains,
+    ])
+    #expect(classifierRules.map(\.merchantPattern) == [
+        "coffee shop",
+        "99pledg",
+        "coffee",
+    ])
+    #expect(managedRules.map(\.matchKind) == [
+        .exactNormalizedMerchant,
+        .prefixNormalizedMerchant,
+        .contains,
+    ])
+    #expect(managedRules.map(\.merchantPattern) == [
+        "coffee shop",
+        "99pledg",
+        "coffee",
+    ])
+    #expect(exactRule.merchantPattern == "coffee shop")
+    #expect(exactRule.matchKind == .exactNormalizedMerchant)
+    #expect(exactRule.createdAt == Date(timeIntervalSince1970: 1_775_171_380))
+    #expect(exactRule.disabledAt == nil)
+}
+
+@Test
 func disableAndEnableLearnedRuleRoundTripsClassifierVisibility() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
