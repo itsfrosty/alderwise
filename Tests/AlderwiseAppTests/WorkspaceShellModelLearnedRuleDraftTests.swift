@@ -54,6 +54,33 @@ func beginDuplicateLearnedRuleLoadsEditableDraftIntoSheet() {
 
 @Test
 @MainActor
+func beginDuplicateLearnedRuleRejectsContainsRulesUntilAdvancedAuthoringLands() {
+    let ruleID = UUID(uuidString: "abababab-abab-abab-abab-abababababab")!
+    let categoryID = UUID(uuidString: "cdcdcdcd-cdcd-cdcd-cdcd-cdcdcdcdcdcd")!
+    let store = LearnedRuleDraftWorkspaceStore()
+    store.learnedRuleSummaries = [
+        LearnedRuleSummary(
+            id: ruleID,
+            merchantPattern: "coffee",
+            categoryID: categoryID,
+            merchantName: "Coffee",
+            matchKind: .contains,
+            createdAt: Date(timeIntervalSince1970: 1_776_400_120),
+            lifecycle: .active
+        )
+    ]
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(store: nil, service: service)
+
+    let didBegin = model.beginDuplicateLearnedRule(id: ruleID)
+
+    #expect(didBegin == false)
+    #expect(model.learnedRuleDraftSheet == nil)
+    #expect(model.learnedRuleManagerActionErrorMessage == LearnedRuleDraftSheet.unsupportedMatchKindMessage)
+}
+
+@Test
+@MainActor
 func saveLearnedRuleDraftCreatesExactRuleThroughShellModel() {
     let createdRuleID = UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!
     let categoryID = UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
@@ -144,7 +171,7 @@ func saveLearnedRuleDraftRejectsContainsMatchKind() {
     #expect(didSave == false)
     #expect(store.createdDrafts.isEmpty)
     #expect(model.learnedRuleDraftSheet?.draft.matchKind == .contains)
-    #expect(model.learnedRuleManagerActionErrorMessage == "Contains rules are not available in manual authoring yet.")
+    #expect(model.learnedRuleManagerActionErrorMessage == LearnedRuleDraftSheet.unsupportedMatchKindMessage)
 }
 
 private final class LearnedRuleDraftWorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, LearnedRuleManaging, TargetManaging, WorkspacePreferencesManaging {

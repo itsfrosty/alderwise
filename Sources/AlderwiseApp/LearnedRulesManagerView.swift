@@ -551,6 +551,10 @@ private struct LearnedRuleDetailView: View {
     var onDisable: () -> Void
     var onEnable: () -> Void
 
+    private var supportsDuplicateDraft: Bool {
+        LearnedRuleDraftSheet.supportsBasicManualAuthoring(matchKind: row.matchKind)
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -582,12 +586,14 @@ private struct LearnedRuleDetailView: View {
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 12) {
-                    Button {
-                        onDuplicate()
-                    } label: {
-                        Label("Duplicate Rule", systemImage: "plus.square.on.square")
+                    if supportsDuplicateDraft {
+                        Button {
+                            onDuplicate()
+                        } label: {
+                            Label("Duplicate Rule", systemImage: "plus.square.on.square")
+                        }
+                        .buttonStyle(.bordered)
                     }
-                    .buttonStyle(.bordered)
 
                     if row.isDisabled {
                         Button {
@@ -605,6 +611,12 @@ private struct LearnedRuleDetailView: View {
                         .buttonStyle(.borderedProminent)
                         .tint(.red)
                     }
+                }
+
+                if supportsDuplicateDraft == false {
+                    Text("Contains authoring stays unavailable in this sheet until advanced rule authoring lands.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 Spacer(minLength: 0)

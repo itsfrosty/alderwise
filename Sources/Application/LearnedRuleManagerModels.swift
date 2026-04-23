@@ -130,6 +130,12 @@ public enum LearnedRuleDraftSheetMode: Equatable, Sendable {
 }
 
 public struct LearnedRuleDraftSheet: Identifiable, Equatable, Sendable {
+    public static let basicAllowedMatchKinds: [ClassificationRuleMatchKind] = [
+        .exactNormalizedMerchant,
+        .prefixNormalizedMerchant,
+    ]
+    public static let unsupportedMatchKindMessage = "Contains rules are not available in manual authoring yet."
+
     public var id: UUID
     public var mode: LearnedRuleDraftSheetMode
     public var draft: LearnedRuleDraft
@@ -182,7 +188,13 @@ public struct LearnedRuleDraftSheet: Identifiable, Equatable, Sendable {
     }
 
     public var allowedMatchKinds: [ClassificationRuleMatchKind] {
-        [.exactNormalizedMerchant, .prefixNormalizedMerchant]
+        Self.basicAllowedMatchKinds
+    }
+
+    public static func supportsBasicManualAuthoring(
+        matchKind: ClassificationRuleMatchKind
+    ) -> Bool {
+        basicAllowedMatchKinds.contains(matchKind)
     }
 
     public var canSave: Bool {

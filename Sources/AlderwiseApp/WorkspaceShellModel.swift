@@ -421,6 +421,10 @@ final class WorkspaceShellModel: ObservableObject {
                 learnedRuleManagerActionErrorMessage = "The selected learned rule is no longer available."
                 return false
             }
+            guard LearnedRuleDraftSheet.supportsBasicManualAuthoring(matchKind: draft.matchKind) else {
+                learnedRuleManagerActionErrorMessage = LearnedRuleDraftSheet.unsupportedMatchKindMessage
+                return false
+            }
             learnedRuleDraftSheet = .duplicateRule(sourceRuleID: id, draft: draft)
             learnedRuleManagerActionErrorMessage = nil
             return true
@@ -452,7 +456,7 @@ final class WorkspaceShellModel: ObservableObject {
             return false
         }
         guard learnedRuleDraftSheet.allowedMatchKinds.contains(learnedRuleDraftSheet.draft.matchKind) else {
-            learnedRuleManagerActionErrorMessage = "Contains rules are not available in manual authoring yet."
+            learnedRuleManagerActionErrorMessage = LearnedRuleDraftSheet.unsupportedMatchKindMessage
             return false
         }
 
