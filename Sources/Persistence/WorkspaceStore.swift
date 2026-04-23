@@ -5,7 +5,7 @@ import GRDB
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, WorkspaceInsightReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -1915,6 +1915,47 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
     }
 
+    public func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary {
+        let cappedReferenceDate = Calendar.alderwiseUTC.startOfDay(for: referenceDate)
+        return try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT
+                    id,
+                    account_id,
+                    raw_description,
+                    normalized_merchant_name,
+                    amount,
+                    transaction_date
+                FROM transactions
+                WHERE is_hidden = 0
+                    AND direction = ?
+                    AND amount < 0
+                    AND transaction_date <= ?
+                ORDER BY transaction_date ASC, id ASC
+                """,
+                arguments: [
+                    TransactionDirection.expense.rawValue,
+                    cappedReferenceDate,
+                ]
+            )
+            let observations = try rows.map(recurringInsightObservation(from:))
+            return WorkspaceInsightSummary(
+                insights: recurringInsightCandidates(from: observations, referenceDate: cappedReferenceDate)
+                    .enumerated()
+                    .map { index, candidate in
+                        WorkspaceInsight(
+                            kind: .recurringCharge(candidate.detail),
+                            confidence: candidate.confidence,
+                            rank: index + 1,
+                            score: candidate.score
+                        )
+                    }
+            )
+        }
+    }
+
     public func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget] {
         let interval = monthInterval(containing: referenceDate)
         let paceRatio = monthElapsedRatio(referenceDate: referenceDate, interval: interval)
@@ -2849,6 +2890,253 @@ private func classificationSource(from sourceText: String?) throws -> Classifica
         throw WorkspaceStoreError.invalidStoredReviewItem(field: "transactions.decision_source", value: sourceText)
     }
     return source
+}
+
+private func recurringInsightObservation(from row: Row) throws -> RecurringInsightObservation {
+    let idText: String = row["id"]
+    guard let id = UUID(uuidString: idText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "transactions.id", value: idText)
+    }
+
+    let accountIDText: String = row["account_id"]
+    guard let accountID = UUID(uuidString: accountIDText) else {
+        throw WorkspaceStoreError.invalidStoredReviewItem(field: "transactions.account_id", value: accountIDText)
+    }
+
+    let rawDescription: String = row["raw_description"]
+    let normalizedMerchantName = ((row["normalized_merchant_name"] as String?)?.nilIfEmpty)
+        ?? MerchantNormalizer().normalize(rawDescription)
+    let amount = Decimal(abs(row["amount"] as Double))
+
+    return RecurringInsightObservation(
+        transactionID: id,
+        accountID: accountID,
+        normalizedMerchantName: normalizedMerchantName,
+        rawDescription: rawDescription,
+        amount: amount,
+        transactionDate: row["transaction_date"]
+    )
+}
+
+private func recurringInsightCandidates(
+    from observations: [RecurringInsightObservation],
+    referenceDate: Date
+) -> [RecurringInsightCandidate] {
+    let groups = Dictionary(grouping: observations) { observation in
+        RecurringInsightGroupKey(
+            accountID: observation.accountID,
+            normalizedMerchantName: observation.normalizedMerchantName
+        )
+    }
+
+    return groups.values
+        .compactMap { recurringInsightCandidate(from: $0, referenceDate: referenceDate) }
+        .sorted(by: compareRecurringInsightCandidates)
+}
+
+private func recurringInsightCandidate(
+    from observations: [RecurringInsightObservation],
+    referenceDate: Date
+) -> RecurringInsightCandidate? {
+    let sortedObservations = observations.sorted {
+        if $0.transactionDate != $1.transactionDate {
+            return $0.transactionDate < $1.transactionDate
+        }
+        return $0.transactionID.uuidString < $1.transactionID.uuidString
+    }
+    guard sortedObservations.count >= 3 else {
+        return nil
+    }
+
+    let merchantName = sortedObservations[0].normalizedMerchantName
+    guard recurringMerchantLooksInstallmentLike(merchantName) == false else {
+        return nil
+    }
+
+    let intervals = zip(sortedObservations, sortedObservations.dropFirst()).map {
+        recurringDayDelta(from: $0.transactionDate, to: $1.transactionDate)
+    }
+    let cadenceMatches = intervals.compactMap(recurringChargeCadence(forIntervalDays:))
+    guard cadenceMatches.count >= 2 else {
+        return nil
+    }
+
+    let cadenceCounts = Dictionary(cadenceMatches.map { ($0, 1) }, uniquingKeysWith: +)
+    guard let dominantCadence = cadenceCounts.max(by: { lhs, rhs in
+        if lhs.value != rhs.value {
+            return lhs.value < rhs.value
+        }
+        return recurringCadenceSortOrder(lhs.key) > recurringCadenceSortOrder(rhs.key)
+    }) else {
+        return nil
+    }
+
+    let confidence = Double(dominantCadence.value) / Double(intervals.count)
+    guard confidence >= 2.0 / 3.0 else {
+        return nil
+    }
+
+    let lastObservedDate = sortedObservations.last?.transactionDate ?? referenceDate
+    let nextExpectedDateWindow = recurringNextExpectedDateWindow(
+        after: lastObservedDate,
+        cadence: dominantCadence.key
+    )
+    guard recurringInsightIsCurrent(
+        referenceDate: referenceDate,
+        nextExpectedDateWindow: nextExpectedDateWindow,
+        cadence: dominantCadence.key
+    ) else {
+        return nil
+    }
+
+    let amounts = sortedObservations.map(\.amount)
+    let detail = RecurringChargeInsightDetail(
+        accountID: sortedObservations[0].accountID,
+        normalizedMerchantName: merchantName,
+        cadence: dominantCadence.key,
+        observationCount: sortedObservations.count,
+        amountRange: RecurringChargeAmountRange(
+            minimum: amounts.min() ?? .zero,
+            maximum: amounts.max() ?? .zero
+        ),
+        supportingTransactionIDs: sortedObservations.map(\.transactionID),
+        lastObservedDate: lastObservedDate,
+        nextExpectedDateWindow: nextExpectedDateWindow
+    )
+
+    let amountVariancePenalty = recurringAmountVariancePenalty(
+        minimum: detail.amountRange.minimum,
+        maximum: detail.amountRange.maximum
+    )
+    let merchantNoisePenalty = recurringMerchantNoisePenalty(merchantName)
+    let score = max(0, confidence - amountVariancePenalty - merchantNoisePenalty)
+
+    return RecurringInsightCandidate(
+        detail: detail,
+        confidence: score,
+        score: score
+    )
+}
+
+private func compareRecurringInsightCandidates(
+    _ lhs: RecurringInsightCandidate,
+    _ rhs: RecurringInsightCandidate
+) -> Bool {
+    if lhs.score != rhs.score {
+        return lhs.score > rhs.score
+    }
+    if lhs.confidence != rhs.confidence {
+        return lhs.confidence > rhs.confidence
+    }
+    if lhs.detail.lastObservedDate != rhs.detail.lastObservedDate {
+        return lhs.detail.lastObservedDate > rhs.detail.lastObservedDate
+    }
+    if lhs.detail.observationCount != rhs.detail.observationCount {
+        return lhs.detail.observationCount > rhs.detail.observationCount
+    }
+    if lhs.detail.normalizedMerchantName != rhs.detail.normalizedMerchantName {
+        return lhs.detail.normalizedMerchantName < rhs.detail.normalizedMerchantName
+    }
+    return lhs.detail.accountID.uuidString < rhs.detail.accountID.uuidString
+}
+
+private func recurringChargeCadence(forIntervalDays days: Int) -> RecurringChargeCadence? {
+    switch days {
+    case 26 ... 38:
+        .monthly
+    case 80 ... 100:
+        .quarterly
+    case 330 ... 390:
+        .annual
+    default:
+        nil
+    }
+}
+
+private func recurringCadenceSortOrder(_ cadence: RecurringChargeCadence) -> Int {
+    switch cadence {
+    case .monthly:
+        0
+    case .quarterly:
+        1
+    case .annual:
+        2
+    }
+}
+
+private func recurringDayDelta(from start: Date, to end: Date) -> Int {
+    Calendar.alderwiseUTC.dateComponents(
+        [.day],
+        from: Calendar.alderwiseUTC.startOfDay(for: start),
+        to: Calendar.alderwiseUTC.startOfDay(for: end)
+    ).day ?? 0
+}
+
+private func recurringNextExpectedDateWindow(
+    after lastObservedDate: Date,
+    cadence: RecurringChargeCadence
+) -> DateInterval? {
+    let calendar = Calendar.alderwiseUTC
+    let (expectedDays, toleranceDays) = recurringCadenceTiming(cadence)
+    guard let start = calendar.date(byAdding: .day, value: expectedDays - toleranceDays, to: lastObservedDate),
+          let end = calendar.date(byAdding: .day, value: expectedDays + toleranceDays, to: lastObservedDate)
+    else {
+        return nil
+    }
+    return DateInterval(start: start, end: end)
+}
+
+private func recurringInsightIsCurrent(
+    referenceDate: Date,
+    nextExpectedDateWindow: DateInterval?,
+    cadence: RecurringChargeCadence
+) -> Bool {
+    guard let nextExpectedDateWindow else {
+        return false
+    }
+    let calendar = Calendar.alderwiseUTC
+    let graceDays = recurringCadenceTiming(cadence).expectedDays
+    guard let staleCutoff = calendar.date(byAdding: .day, value: graceDays, to: nextExpectedDateWindow.end) else {
+        return false
+    }
+    return referenceDate <= staleCutoff
+}
+
+private func recurringCadenceTiming(_ cadence: RecurringChargeCadence) -> (expectedDays: Int, toleranceDays: Int) {
+    switch cadence {
+    case .monthly:
+        (30, 7)
+    case .quarterly:
+        (91, 14)
+    case .annual:
+        (365, 30)
+    }
+}
+
+private func recurringMerchantLooksInstallmentLike(_ merchantName: String) -> Bool {
+    let keywords = ["affirm", "afterpay", "klarna", "sezzle", "zip pay", "quadpay", "installment"]
+    return keywords.contains { merchantName.contains($0) }
+}
+
+private func recurringMerchantNoisePenalty(_ merchantName: String) -> Double {
+    var penalty = 0.0
+    if merchantName.rangeOfCharacter(from: .decimalDigits) != nil {
+        penalty += 0.12
+    }
+    if merchantName.split(separator: " ").count >= 3 {
+        penalty += 0.03
+    }
+    return penalty
+}
+
+private func recurringAmountVariancePenalty(minimum: Decimal, maximum: Decimal) -> Double {
+    let spread = max(decimalDouble(maximum - minimum), 0)
+    let baseline = max(decimalDouble(maximum), 0.01)
+    return min(spread / baseline * 0.1, 0.08)
+}
+
+private func decimalDouble(_ value: Decimal) -> Double {
+    NSDecimalNumber(decimal: value).doubleValue
 }
 
 private func monthInterval(containing date: Date) -> DateInterval {
@@ -4191,6 +4479,26 @@ private extension Calendar {
         calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
         return calendar
     }
+}
+
+private struct RecurringInsightObservation {
+    let transactionID: UUID
+    let accountID: UUID
+    let normalizedMerchantName: String
+    let rawDescription: String
+    let amount: Decimal
+    let transactionDate: Date
+}
+
+private struct RecurringInsightGroupKey: Hashable {
+    let accountID: UUID
+    let normalizedMerchantName: String
+}
+
+private struct RecurringInsightCandidate {
+    let detail: RecurringChargeInsightDetail
+    let confidence: Double
+    let score: Double
 }
 
 private struct SpendingDriverRollup: Hashable {
