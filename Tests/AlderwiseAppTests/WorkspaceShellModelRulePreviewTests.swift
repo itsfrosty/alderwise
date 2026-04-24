@@ -272,17 +272,37 @@ func reviewQueueDoesNotRefreshPreviewForMerchantNameOnlyEdits() throws {
 }
 
 @Test
-func approvingRecommendedMerchantKeepsKeyboardFlowAndAdvancesSelection() throws {
-    let source = try sourceText(in: "Sources/AlderwiseApp/ReviewQueueView.swift")
-
-    #expect(
-        source.contains(
-            "recommendationEligibilityByReviewItemID: model.merchantRecommendationEligibilityByReviewItemID"
-        )
+func approvingRecommendedMerchantKeepsKeyboardFlowAndAdvancesSelection() {
+    let firstItem = makeReviewItem(
+        id: UUID(uuidString: "aaaaaaaa-1111-1111-1111-111111111111")!,
+        normalizedMerchantName: "coffee shop"
     )
-    #expect(source.contains(".keyboardShortcut(.return, modifiers: [.command])"))
-    #expect(source.contains("selectNextItem(after: item.id)"))
-    #expect(source.contains("items.contains(where: { $0.id == selectedReviewItemID })"))
+    let secondItem = makeReviewItem(
+        id: UUID(uuidString: "bbbbbbbb-2222-2222-2222-222222222222")!,
+        normalizedMerchantName: "grocery world"
+    )
+    let thirdItem = makeReviewItem(
+        id: UUID(uuidString: "cccccccc-3333-3333-3333-333333333333")!,
+        normalizedMerchantName: "book store"
+    )
+
+    let selectionAfterApproval = ReviewQueueSelection.selectionAfterApproving(
+        approvedItemID: firstItem.id,
+        items: [firstItem, secondItem, thirdItem]
+    )
+    #expect(selectionAfterApproval == secondItem.id)
+
+    let selectionAfterRefresh = ReviewQueueSelection.selectionAfterItemsChange(
+        currentSelectionID: selectionAfterApproval,
+        items: [secondItem, thirdItem]
+    )
+    #expect(selectionAfterRefresh == secondItem.id)
+
+    let wrappedSelection = ReviewQueueSelection.selectionAfterApproving(
+        approvedItemID: thirdItem.id,
+        items: [firstItem, secondItem, thirdItem]
+    )
+    #expect(wrappedSelection == firstItem.id)
 }
 
 @Test

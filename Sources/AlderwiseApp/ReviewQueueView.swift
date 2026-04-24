@@ -2,6 +2,64 @@ import Application
 import Domain
 import SwiftUI
 
+enum ReviewQueueSelection {
+    static func selectionAfterApproving(
+        approvedItemID: UUID,
+        items: [PendingReviewItem]
+    ) -> UUID? {
+        guard let index = items.firstIndex(where: { $0.id == approvedItemID }) else {
+            return items.first?.id
+        }
+        let nextIndex = items.index(after: index)
+        if nextIndex < items.endIndex {
+            return items[nextIndex].id
+        }
+        return items.first?.id
+    }
+
+    static func selectionAfterItemsChange(
+        currentSelectionID: UUID?,
+        items: [PendingReviewItem]
+    ) -> UUID? {
+        guard let currentSelectionID else {
+            return items.first?.id
+        }
+        guard items.contains(where: { $0.id == currentSelectionID }) else {
+            return items.first?.id
+        }
+        return currentSelectionID
+    }
+
+    static func selectionAfterMovingDown(
+        currentSelectionID: UUID?,
+        items: [PendingReviewItem]
+    ) -> UUID? {
+        guard let currentSelectionID,
+              let index = items.firstIndex(where: { $0.id == currentSelectionID }) else {
+            return items.first?.id
+        }
+        let nextIndex = items.index(after: index)
+        if nextIndex < items.endIndex {
+            return items[nextIndex].id
+        }
+        return items.first?.id
+    }
+
+    static func selectionAfterMovingUp(
+        currentSelectionID: UUID?,
+        items: [PendingReviewItem]
+    ) -> UUID? {
+        guard let currentSelectionID,
+              let index = items.firstIndex(where: { $0.id == currentSelectionID }) else {
+            return items.first?.id
+        }
+        if index > items.startIndex {
+            return items[items.index(before: index)].id
+        }
+        return items.last?.id
+    }
+}
+
 struct ReviewQueueView: View {
     let snapshot: WorkspaceSnapshot
     @ObservedObject var model: WorkspaceShellModel
@@ -62,12 +120,18 @@ struct ReviewQueueView: View {
                         ruleLearning: ruleLearning
                     )
                     if didResolve {
-                        selectNextItem(after: item.id)
+                        selectedReviewItemID = ReviewQueueSelection.selectionAfterApproving(
+                            approvedItemID: item.id,
+                            items: snapshot.pendingReviewItems
+                        )
                     }
                 },
                 onKeepBoth: { item in
                     if model.keepBothLikelyDuplicateReviewItem(id: item.id) {
-                        selectNextItem(after: item.id)
+                        selectedReviewItemID = ReviewQueueSelection.selectionAfterApproving(
+                            approvedItemID: item.id,
+                            items: snapshot.pendingReviewItems
+                        )
                     }
                 },
                 onManageLearnedRule: { action in
@@ -79,22 +143,30 @@ struct ReviewQueueView: View {
         .navigationTitle("Review")
         .onAppear {
             if selectedReviewItemID == nil {
-                selectedReviewItemID = snapshot.pendingReviewItems.first?.id
+                selectedReviewItemID = ReviewQueueSelection.selectionAfterItemsChange(
+                    currentSelectionID: selectedReviewItemID,
+                    items: snapshot.pendingReviewItems
+                )
             }
         }
         .onChange(of: snapshot.pendingReviewItems) { _, items in
-            if let selectedReviewItemID,
-               items.contains(where: { $0.id == selectedReviewItemID }) {
-                return
-            }
-            selectedReviewItemID = items.first?.id
+            selectedReviewItemID = ReviewQueueSelection.selectionAfterItemsChange(
+                currentSelectionID: selectedReviewItemID,
+                items: items
+            )
         }
         .onMoveCommand { direction in
             switch direction {
             case .down:
-                selectNextItem(after: selectedItem?.id)
+                selectedReviewItemID = ReviewQueueSelection.selectionAfterMovingDown(
+                    currentSelectionID: selectedItem?.id,
+                    items: snapshot.pendingReviewItems
+                )
             case .up:
-                selectPreviousItem(before: selectedItem?.id)
+                selectedReviewItemID = ReviewQueueSelection.selectionAfterMovingUp(
+                    currentSelectionID: selectedItem?.id,
+                    items: snapshot.pendingReviewItems
+                )
             default:
                 break
             }
@@ -106,33 +178,6 @@ struct ReviewQueueView: View {
             "Some transactions are still pending, but none have review details attached. Use Transactions to inspect and edit them."
         } else {
             "Visible transactions are already reflected in reporting and targets."
-        }
-    }
-
-    private func selectNextItem(after id: UUID?) {
-        guard let id,
-              let index = snapshot.pendingReviewItems.firstIndex(where: { $0.id == id }) else {
-            selectedReviewItemID = snapshot.pendingReviewItems.first?.id
-            return
-        }
-        let nextIndex = snapshot.pendingReviewItems.index(after: index)
-        if nextIndex < snapshot.pendingReviewItems.endIndex {
-            selectedReviewItemID = snapshot.pendingReviewItems[nextIndex].id
-        } else {
-            selectedReviewItemID = snapshot.pendingReviewItems.first?.id
-        }
-    }
-
-    private func selectPreviousItem(before id: UUID?) {
-        guard let id,
-              let index = snapshot.pendingReviewItems.firstIndex(where: { $0.id == id }) else {
-            selectedReviewItemID = snapshot.pendingReviewItems.first?.id
-            return
-        }
-        if index > snapshot.pendingReviewItems.startIndex {
-            selectedReviewItemID = snapshot.pendingReviewItems[snapshot.pendingReviewItems.index(before: index)].id
-        } else {
-            selectedReviewItemID = snapshot.pendingReviewItems.last?.id
         }
     }
 }

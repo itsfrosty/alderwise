@@ -195,7 +195,8 @@ public struct ReviewPresentation: Sendable {
     }
 
     private func merchantRecommendationLine(for item: PendingReviewItem) -> ConsequenceLine? {
-        guard let eligibility = recommendationEligibilityByReviewItemID[item.id] else {
+        guard isCuratedPrefill(item) == false,
+              let eligibility = recommendationEligibilityByReviewItemID[item.id] else {
             return nil
         }
 

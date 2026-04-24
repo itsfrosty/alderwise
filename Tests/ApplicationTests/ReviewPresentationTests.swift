@@ -372,6 +372,38 @@ func issuerCreditAndCuratedPrefillRowsRemainNonLearnableByDefault() {
 
     #expect(presentation.initialCreateRuleValue(for: issuerCreditItem) == false)
     #expect(presentation.initialCreateRuleValue(for: curatedPrefillItem) == false)
+    #expect(
+        presentation.staticConsequences(
+            for: issuerCreditItem,
+            createRule: false,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Built-In Review-First suggestions stay review-only until you approve them.",
+                emphasis: .neutral
+            ),
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving updates this transaction only. No learned rule will be created.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+    #expect(
+        presentation.staticConsequences(
+            for: curatedPrefillItem,
+            createRule: false,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Built-In Review-First suggestions stay review-only until you approve them.",
+                emphasis: .neutral
+            ),
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving updates this transaction only. No learned rule will be created.",
+                emphasis: .neutral
+            ),
+        ]
+    )
 }
 
 @Test
