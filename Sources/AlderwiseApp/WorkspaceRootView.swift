@@ -14,6 +14,33 @@ struct WorkspaceRootView: View {
         section == .settings
     }
 
+    static func generalAccountCreationSheetBinding(for model: WorkspaceShellModel) -> Binding<Bool> {
+        Binding(
+            get: { model.accountCreationRoute == .general },
+            set: { isPresented in
+                if isPresented == false, model.accountCreationRoute == .general {
+                    model.cancelAccountCreation()
+                }
+            }
+        )
+    }
+
+    static func batchImportAccountCreationSheetBinding(for model: WorkspaceShellModel) -> Binding<Bool> {
+        Binding(
+            get: {
+                if case .batchImport = model.accountCreationRoute {
+                    return true
+                }
+                return false
+            },
+            set: { isPresented in
+                if isPresented == false, case .batchImport = model.accountCreationRoute {
+                    model.cancelAccountCreation()
+                }
+            }
+        )
+    }
+
     private var fileImporterContentTypes: [UTType] {
         switch model.fileImportRequest {
         case .csv:
@@ -48,6 +75,28 @@ struct WorkspaceRootView: View {
         )
     }
 
+    private var isPresentingGeneralAccountCreationSheet: Binding<Bool> {
+        Self.generalAccountCreationSheetBinding(for: model)
+    }
+
+    private var isPresentingBatchImportAccountCreationSheet: Binding<Bool> {
+        Self.batchImportAccountCreationSheetBinding(for: model)
+    }
+
+    private var accountCreationSheet: some View {
+        AccountCreationSheet(
+            onCancel: {
+                model.cancelAccountCreation()
+            }
+        ) { name, kind, institutionName in
+            _ = try model.createAccount(
+                name: name,
+                kind: kind,
+                institutionName: institutionName
+            )
+        }
+    }
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -69,14 +118,8 @@ struct WorkspaceRootView: View {
                 toolbarActions
             }
         }
-        .sheet(isPresented: $model.isPresentingAccountSheet) {
-            AccountCreationSheet { name, kind, institutionName in
-                _ = try model.createAccount(
-                    name: name,
-                    kind: kind,
-                    institutionName: institutionName
-                )
-            }
+        .sheet(isPresented: isPresentingGeneralAccountCreationSheet) {
+            accountCreationSheet
         }
         .sheet(isPresented: $model.isPresentingTargetSheet) {
             TargetCreationSheet(
@@ -115,26 +158,44 @@ struct WorkspaceRootView: View {
         }
         .sheet(
             isPresented: Binding(
-                get: { model.isPresentingImportPreview },
+                get: { model.batchImportSession != nil },
                 set: { isPresented in
                     if !isPresented {
-                        model.dismissCSVImportPreview()
+                        model.dismissBatchImportSession()
                     }
                 }
             )
         ) {
-            if let preview = model.csvImportPreview {
-                CSVImportPreviewSheet(
-                    preview: preview,
-                    accounts: model.snapshot.importEligibleAccounts,
-                    originalFilename: model.pendingCSVImport?.originalFilename ?? "CSV file",
-                    onCancel: {
-                        model.dismissCSVImportPreview()
-                    },
-                    onImport: { preview, account in
-                        model.confirmCSVImport(preview: preview, account: account)
+            if let session = model.batchImportSession {
+                ZStack(alignment: .bottomTrailing) {
+                    BatchCSVImportPreflightSheet(
+                        session: session,
+                        accounts: model.snapshot.importEligibleAccounts,
+                        onCreateAccount: { itemID in
+                            model.beginBatchImportAccountCreation(itemID: itemID)
+                        },
+                        onCancel: {
+                            model.dismissBatchImportSession()
+                        },
+                        onImportAll: {
+                            model.confirmBatchCSVImport()
+                        }
+                    )
+                    .disabled(session.importPhase.isExecuting)
+
+                    if case .importing(let currentIndex, let totalCount) = session.importPhase {
+                        ProgressView("Importing \(currentIndex) of \(totalCount)")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(20)
+                            .allowsHitTesting(false)
                     }
-                )
+                }
+                .interactiveDismissDisabled(session.importPhase.isExecuting)
+                .sheet(isPresented: isPresentingBatchImportAccountCreationSheet) {
+                    accountCreationSheet
+                }
             }
         }
         .alert(

@@ -5,15 +5,6 @@ import SwiftUI
 
 @MainActor
 final class WorkspaceShellModel: ObservableObject {
-    struct PendingCSVImport {
-        var originalFilename: String
-        var csvText: String
-    }
-
-    struct QueuedCSVImportSelection {
-        var fileURL: URL
-    }
-
     enum State {
         case loading
         case loaded(WorkspaceSnapshot)
@@ -23,6 +14,22 @@ final class WorkspaceShellModel: ObservableObject {
     enum FileImportRequest {
         case csv
         case workspaceRestore
+    }
+
+    enum AccountCreationRoute: Equatable {
+        case general
+        case batchImport(itemID: UUID)
+    }
+
+    enum AccountCreationRouteError: LocalizedError, Equatable {
+        case missingBatchImportContext
+
+        var errorDescription: String? {
+            switch self {
+            case .missingBatchImportContext:
+                "The import item is no longer available for account assignment."
+            }
+        }
     }
 
     struct ReviewRulePreviewKey: Hashable, Sendable {
@@ -83,11 +90,11 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     @Published private(set) var state: State = .loading
-    @Published var isPresentingAccountSheet = false
+    @Published private(set) var accountCreationRoute: AccountCreationRoute?
     @Published var isPresentingFileImporter = false
     @Published var fileImportRequest: FileImportRequest?
-    @Published var isPresentingImportPreview = false
     @Published var isPresentingTargetSheet = false
+    @Published private(set) var batchImportSession: BatchCSVImportSession?
     @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
     @Published var selectedTargetID: UUID?
     @Published private(set) var settingsDestination: SettingsDestination = .overview
@@ -95,8 +102,6 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var reviewCreatedLearnedRuleAction: ReviewCreatedLearnedRuleAction?
     @Published private(set) var pendingAppSectionNavigation: AppSection?
     @Published var learnedRuleManagerActionErrorMessage: String?
-    @Published private(set) var csvImportPreview: CSVImportPreview?
-    @Published private(set) var pendingCSVImport: PendingCSVImport?
     @Published var importErrorMessage: String?
     @Published var importResultMessage: String?
     @Published var sampleDataMessage: String?
@@ -125,9 +130,6 @@ final class WorkspaceShellModel: ObservableObject {
     private var scheduledReviewRulePreview: ReviewRulePreviewScheduleToken?
     private var scheduledLearnedRuleDraftPreview: ReviewRulePreviewScheduleToken?
     private var preservesClearedTransactionSelectionOnNextReload = false
-    private var queuedCSVImportSelections: [QueuedCSVImportSelection] = []
-    private var queuedCSVImportSummary: StagedImportDecisionSummary?
-    private var queuedCSVImportOutcome: StagedCSVImportOutcome?
 
     private static let learnedRuleDraftPreviewItemID = UUID(
         uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff"
@@ -713,7 +715,55 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func beginAccountCreation() {
-        isPresentingAccountSheet = true
+        accountCreationRoute = .general
+    }
+
+    func beginBatchImportAccountCreation(itemID: UUID) {
+        guard let batchImportSession, batchImportSession.containsItem(id: itemID) else {
+            return
+        }
+
+        accountCreationRoute = .batchImport(itemID: itemID)
+    }
+
+    func cancelAccountCreation() {
+        accountCreationRoute = nil
+    }
+
+    func presentBatchImportSession(_ session: BatchCSVImportSession) {
+        batchImportSession = session
+        if case .batchImport = accountCreationRoute {
+            accountCreationRoute = nil
+        }
+    }
+
+    func dismissBatchImportSession() {
+        batchImportSession = nil
+        if case .batchImport = accountCreationRoute {
+            accountCreationRoute = nil
+        }
+    }
+
+    func selectBatchImportItem(id: UUID?) {
+        batchImportSession?.selectItem(id: id)
+    }
+
+    func selectBatchImportAccount(id accountID: UUID?, forItemID itemID: UUID) {
+        _ = batchImportSession?.setSelectedAccount(id: accountID, forItemID: itemID)
+    }
+
+    func updateBatchImportMapping(_ mapping: CSVColumnMapping, forItemID itemID: UUID) {
+        _ = batchImportSession?.updateMapping(mapping, forItemID: itemID)
+    }
+
+    func removeBatchImportItem(id itemID: UUID) {
+        guard batchImportSession?.removeItem(id: itemID) == true else {
+            return
+        }
+
+        if batchImportSession?.draft.items.isEmpty == true {
+            dismissBatchImportSession()
+        }
     }
 
     @discardableResult
@@ -722,11 +772,21 @@ final class WorkspaceShellModel: ObservableObject {
             throw WorkspaceServiceError.accountManagementUnavailable
         }
 
+        if case .batchImport(let itemID) = accountCreationRoute {
+            guard let batchImportSession, batchImportSession.containsItem(id: itemID) else {
+                throw AccountCreationRouteError.missingBatchImportContext
+            }
+        }
+
         let account = try service.createAccount(
             named: name,
             kind: kind,
             institutionName: institutionName
         )
+        if case .batchImport(let itemID) = accountCreationRoute {
+            _ = batchImportSession?.selectAccount(id: account.id, forItemID: itemID)
+        }
+        accountCreationRoute = nil
         reload()
         return account
     }
@@ -780,112 +840,82 @@ final class WorkspaceShellModel: ObservableObject {
     func importCSV(from result: Result<[URL], Error>) {
         do {
             let urls = try result.get()
-            guard let firstURL = urls.first else {
+            guard urls.isEmpty == false else {
                 throw CocoaError(.fileNoSuchFile)
             }
 
-            queuedCSVImportSummary = nil
-            queuedCSVImportOutcome = nil
-            queuedCSVImportSelections = urls.dropFirst().map(QueuedCSVImportSelection.init(fileURL:))
-            try loadCSVImportPreview(from: firstURL)
+            let session = BatchCSVImportSession(
+                selectedURLs: urls,
+                importEligibleAccounts: snapshot.importEligibleAccounts,
+                previewService: csvImportPreviewService
+            )
+            presentBatchImportSession(session)
         } catch {
-            queuedCSVImportSummary = nil
-            queuedCSVImportOutcome = nil
-            queuedCSVImportSelections = []
+            dismissBatchImportSession()
             importErrorMessage = error.localizedDescription
         }
     }
 
-    func confirmCSVImport(preview: CSVImportPreview, account: Account) {
-        guard let service, let pendingCSVImport else {
+    func confirmBatchCSVImport() {
+        guard let batchImportSession, let service else {
+            return
+        }
+        guard batchImportSession.importPhase.isExecuting == false else {
+            return
+        }
+        guard batchImportSession.draft.isReadyForImport else {
             return
         }
 
-        do {
-            let result = try service.stageCSVImport(
-                preview: preview,
-                account: account,
-                originalFilename: pendingCSVImport.originalFilename,
-                csvText: pendingCSVImport.csvText
-            )
-            recordQueuedCSVImport(result)
-            reload()
+        importErrorMessage = nil
+        importResultMessage = nil
+        batchImportSession.setImportPhase(.staging)
+        let accounts = snapshot.accounts
 
-            if advanceQueuedCSVImportPreviewAfterStaging() == false {
-                let summary = queuedCSVImportSummary ?? result.summary
-                let outcome = queuedCSVImportOutcome ?? result.outcome
-                dismissCSVImportPreview()
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, self.batchImportSession === batchImportSession else {
+                return
+            }
+
+            let result = await batchImportSession.confirmBatchCSVImport(
+                service: service,
+                accounts: accounts
+            )
+            guard self.batchImportSession === batchImportSession else {
+                return
+            }
+
+            switch result {
+            case .success(let summary, let outcome):
+                dismissBatchImportSession()
+                reload()
                 importResultMessage = ImportResultMessage.make(for: outcome, summary: summary)
-            }
-        } catch {
-            dismissCSVImportPreview()
-            importErrorMessage = error.localizedDescription
-        }
-    }
-
-    func dismissCSVImportPreview() {
-        isPresentingImportPreview = false
-        csvImportPreview = nil
-        pendingCSVImport = nil
-        queuedCSVImportSelections = []
-        queuedCSVImportSummary = nil
-        queuedCSVImportOutcome = nil
-    }
-
-    private func advanceQueuedCSVImportPreviewAfterStaging() -> Bool {
-        guard let nextSelection = queuedCSVImportSelections.first else {
-            return false
-        }
-
-        queuedCSVImportSelections.removeFirst()
-
-        do {
-            try loadCSVImportPreview(from: nextSelection.fileURL)
-            return true
-        } catch {
-            dismissCSVImportPreview()
-            importErrorMessage = error.localizedDescription
-            return true
-        }
-    }
-
-    private func loadCSVImportPreview(from url: URL) throws {
-        let didAccessScopedResource = url.startAccessingSecurityScopedResource()
-        defer {
-            if didAccessScopedResource {
-                url.stopAccessingSecurityScopedResource()
+            case .partialFailure(let failure):
+                if failure.outcome == .staged {
+                    reload()
+                }
+                importErrorMessage = batchImportFailureMessage(for: failure)
             }
         }
-
-        let csvText = try String(contentsOf: url, encoding: .utf8)
-        csvImportPreview = try csvImportPreviewService.makePreview(from: csvText)
-        pendingCSVImport = PendingCSVImport(
-            originalFilename: url.lastPathComponent,
-            csvText: csvText
-        )
-        isPresentingImportPreview = true
     }
 
-    private func recordQueuedCSVImport(_ result: StagedCSVImportResult) {
-        if let existingSummary = queuedCSVImportSummary {
-            queuedCSVImportSummary = StagedImportDecisionSummary(
-                importedRowCount: existingSummary.importedRowCount + result.summary.importedRowCount,
-                skippedRowCount: existingSummary.skippedRowCount + result.summary.skippedRowCount,
-                pendingClassificationReviewRowCount: existingSummary.pendingClassificationReviewRowCount + result.summary.pendingClassificationReviewRowCount,
-                flaggedDuplicateRowCount: existingSummary.flaggedDuplicateRowCount + result.summary.flaggedDuplicateRowCount
-            )
+    private func batchImportFailureMessage(
+        for failure: BatchCSVImportFailureContext
+    ) -> String {
+        let prefix = "Import failed on \(failure.failedFilename)."
+        guard failure.stagedFileCount > 0 else {
+            return "\(prefix) No files were staged before the failure. \(failure.errorDescription)"
+        }
+
+        let stagedContext: String
+        if failure.stagedFileCount == 1 {
+            stagedContext = "1 file was staged before the failure."
         } else {
-            queuedCSVImportSummary = result.summary
+            stagedContext = "\(failure.stagedFileCount) files were staged before the failure."
         }
 
-        switch (queuedCSVImportOutcome, result.outcome) {
-        case (.staged, _), (_, .staged):
-            queuedCSVImportOutcome = .staged
-        case (.exactReimportNoOp, .exactReimportNoOp):
-            queuedCSVImportOutcome = .exactReimportNoOp
-        case (nil, let outcome):
-            queuedCSVImportOutcome = outcome
-        }
+        return "\(prefix) \(stagedContext) Earlier staged files remain available. \(failure.errorDescription)"
     }
 
     private func resetWorkspace() {
