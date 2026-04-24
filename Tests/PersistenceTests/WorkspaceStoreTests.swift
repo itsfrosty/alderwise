@@ -52,6 +52,7 @@ func bootstrapSeedsDefaultBudgetCategories() throws {
         "Housing & Utilities",
         "Food & Drink",
         "Auto & Transit",
+        "Travel",
         "Lifestyle & Discretionary",
         "Health & Wellness",
         "Family & Household",
@@ -96,6 +97,10 @@ func bootstrapSeedsDefaultBudgetCategories() throws {
             "Fun Money",
             "Donations",
         ],
+        "Travel": [
+            "Flights",
+            "Hotels",
+        ],
     ])
     #expect(categories.filter { $0.kind == .income }.map(\.name) == [
         "Income",
@@ -106,6 +111,134 @@ func bootstrapSeedsDefaultBudgetCategories() throws {
     #expect(categories.first { $0.name == "Taxes" }?.kind == .expense)
     #expect(categories.first { $0.name == "Fees & Bank Charges" }?.kind == .expense)
     #expect(categories.first { $0.name == "Donations" }?.kind == .expense)
+}
+
+@Test
+func defaultBudgetTaxonomyIncludesTravelGroupAndCategories() throws {
+    let groupNames = DefaultBudgetTaxonomy.categoryGroups.map(\.name)
+    let categoriesByName = Dictionary(
+        uniqueKeysWithValues: DefaultBudgetTaxonomy.categories.map { ($0.name, $0) }
+    )
+
+    #expect(groupNames.contains("Travel"))
+    #expect(DefaultBudgetTaxonomy.categoryGroups.first { $0.name == "Travel" }?.id == travelCategoryGroupID)
+    #expect(categoriesByName["Flights"]?.id == flightsCategoryID)
+    #expect(categoriesByName["Flights"]?.kind == .expense)
+    #expect(categoriesByName["Flights"]?.groupID == travelCategoryGroupID)
+    #expect(categoriesByName["Hotels"]?.id == hotelsCategoryID)
+    #expect(categoriesByName["Hotels"]?.kind == .expense)
+    #expect(categoriesByName["Hotels"]?.groupID == travelCategoryGroupID)
+}
+
+@Test
+func workspaceStoreBootstrapPreservesExpectedDefaultTaxonomyOrderWithTravel() throws {
+    let store = try WorkspaceStore.inMemory()
+
+    try store.bootstrap()
+    try store.bootstrap()
+
+    let categories = try store.fetchCategories()
+    let groups = try store.fetchCategoryGroups()
+
+    #expect(groups.map(\.name) == [
+        "Housing & Utilities",
+        "Food & Drink",
+        "Auto & Transit",
+        "Travel",
+        "Lifestyle & Discretionary",
+        "Health & Wellness",
+        "Family & Household",
+        "Financial",
+    ])
+    #expect(categoryNamesByGroup(categories: categories, groups: groups) == [
+        "Auto & Transit": [
+            "Gas & Charging",
+            "Public Transit & Ride Share",
+            "Auto Maintenance & Insurance",
+        ],
+        "Family & Household": [
+            "Childcare & Kids' Activities",
+            "Education & Student Loans",
+        ],
+        "Financial": [
+            "Income",
+            "Transfers",
+            "Taxes",
+            "Fees & Bank Charges",
+        ],
+        "Food & Drink": [
+            "Groceries",
+            "Restaurants & Bars",
+            "Coffee Shops",
+        ],
+        "Health & Wellness": [
+            "Medical & Pharmacy",
+            "Fitness & Gym",
+        ],
+        "Housing & Utilities": [
+            "Rent & Mortgage",
+            "Utilities",
+            "Internet & Phone",
+            "Home Maintenance & Supplies",
+        ],
+        "Lifestyle & Discretionary": [
+            "Shopping & Clothing",
+            "Subscriptions & Entertainment",
+            "Personal Care",
+            "Pets",
+            "Fun Money",
+            "Donations",
+        ],
+        "Travel": [
+            "Flights",
+            "Hotels",
+        ],
+    ])
+}
+
+@Test
+func workspaceStoreSeedsTravelCategoriesIntoFreshWorkspace() throws {
+    let store = try WorkspaceStore.inMemory()
+
+    try store.bootstrap()
+
+    let categories = try store.fetchCategories()
+    let groups = try store.fetchCategoryGroups()
+    let travelGroup = try #require(groups.first { $0.name == "Travel" })
+    let flights = try #require(categories.first { $0.name == "Flights" })
+    let hotels = try #require(categories.first { $0.name == "Hotels" })
+
+    #expect(travelGroup.id == travelCategoryGroupID)
+    #expect(flights.id == flightsCategoryID)
+    #expect(flights.kind == .expense)
+    #expect(flights.groupID == travelGroup.id)
+    #expect(hotels.id == hotelsCategoryID)
+    #expect(hotels.kind == .expense)
+    #expect(hotels.groupID == travelGroup.id)
+}
+
+@Test
+func workspaceStoreUpsertsTravelCategoriesIntoExistingWorkspace() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    try insertLegacyDefaultTaxonomyWithoutTravel(databaseURL: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    let categories = try store.fetchCategories()
+    let groups = try store.fetchCategoryGroups()
+    let travelGroup = try #require(groups.first { $0.name == "Travel" })
+    let flights = try #require(categories.first { $0.name == "Flights" })
+    let hotels = try #require(categories.first { $0.name == "Hotels" })
+
+    #expect(groups.count == 8)
+    #expect(categories.count == 26)
+    #expect(travelGroup.id == travelCategoryGroupID)
+    #expect(flights.id == flightsCategoryID)
+    #expect(flights.groupID == travelGroup.id)
+    #expect(hotels.id == hotelsCategoryID)
+    #expect(hotels.groupID == travelGroup.id)
 }
 
 @Test
@@ -124,7 +257,7 @@ func bootstrapPreservesCustomCategoriesWhileMaintainingDefaultTaxonomy() throws 
 
     #expect(categories.contains { $0.name == "Custom Food" && $0.kind == .expense })
     #expect(categories.contains { $0.name == "Housing & Utilities" } == false)
-    #expect(categories.filter { $0.name != "Custom Food" }.count == 24)
+    #expect(categories.filter { $0.name != "Custom Food" }.count == 26)
     #expect(Set(categories.filter { $0.name != "Custom Food" }.map(\.name)) == preservedDefaultNames)
     #expect(categories.filter { $0.kind == .income }.map(\.name) == ["Income"])
     #expect(categories.filter { $0.kind == .transfer }.map(\.name) == ["Transfers"])
@@ -572,6 +705,27 @@ func bootstrapDoesNotCreateTargetOverlapWhenSeedingDefaultCategoryMembership() t
     #expect(managedTargets.map(\.scope) == [
         .categoryGroup(DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink),
         .category(DefaultBudgetTaxonomy.CategoryID.groceries),
+    ])
+}
+
+@Test
+func travelTaxonomyDoesNotCreateTargetOverlapRegression() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    try insertLegacyTravelTargetsForBootstrapOverlapRegression(databaseURL: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    let categories = try store.fetchCategories()
+    let managedTargets = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
+    let flights = try #require(categories.first { $0.name == "Flights" })
+
+    #expect(flights.groupID == nil)
+    #expect(managedTargets.map(\.name) == ["Flights", "Travel"])
+    #expect(managedTargets.map(\.scope) == [
+        .category(flightsCategoryID),
+        .categoryGroup(travelCategoryGroupID),
     ])
 }
 
@@ -4453,6 +4607,39 @@ private func insertLegacyTargetsForBootstrapOverlapRegression(databaseURL: URL) 
     }
 }
 
+private func insertLegacyTravelTargetsForBootstrapOverlapRegression(databaseURL: URL) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(
+            sql: "INSERT INTO categories (id, name, kind, category_group_id) VALUES (?, ?, ?, ?)",
+            arguments: [
+                flightsCategoryID.uuidString,
+                "Flights",
+                "expense",
+                nil as String?,
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO targets (id, category_id, category_group_id, monthly_limit, created_at)
+            VALUES (?, ?, ?, ?, ?), (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                UUID(uuidString: "00000000-0000-0000-0000-000000009031")!.uuidString,
+                flightsCategoryID.uuidString,
+                nil as String?,
+                400.0,
+                Date(timeIntervalSince1970: 1_775_171_200),
+                UUID(uuidString: "00000000-0000-0000-0000-000000009032")!.uuidString,
+                nil as String?,
+                travelCategoryGroupID.uuidString,
+                750.0,
+                Date(timeIntervalSince1970: 1_775_171_201),
+            ]
+        )
+    }
+}
+
 private func insertAmbiguousLegacyTargetForReadRegression(databaseURL: URL) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
@@ -5171,6 +5358,37 @@ private func categoryNamesByGroup(
         pairs.map(\.1)
     }
 }
+
+private func insertLegacyDefaultTaxonomyWithoutTravel(databaseURL: URL) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        for group in DefaultBudgetTaxonomy.categoryGroups where group.name != "Travel" {
+            try db.execute(
+                sql: "INSERT INTO category_groups (id, name) VALUES (?, ?)",
+                arguments: [group.id.uuidString, group.name]
+            )
+        }
+
+        for category in DefaultBudgetTaxonomy.categories where category.name != "Flights" && category.name != "Hotels" {
+            try db.execute(
+                sql: """
+                INSERT INTO categories (id, name, kind, category_group_id)
+                VALUES (?, ?, ?, ?)
+                """,
+                arguments: [
+                    category.id.uuidString,
+                    category.name,
+                    category.kind.rawValue,
+                    category.groupID.uuidString,
+                ]
+            )
+        }
+    }
+}
+
+private let travelCategoryGroupID = UUID(uuidString: "10000000-0000-0000-0000-000000000005")!
+private let flightsCategoryID = UUID(uuidString: "20000000-0000-0000-0000-000000000014")!
+private let hotelsCategoryID = UUID(uuidString: "20000000-0000-0000-0000-000000000016")!
 
 private func updateReviewItemStatus(
     databaseURL: URL,

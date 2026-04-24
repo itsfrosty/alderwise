@@ -29,6 +29,7 @@ public enum DefaultBudgetTaxonomy {
         public static let housingAndUtilities = UUID(uuidString: "10000000-0000-0000-0000-000000000002")!
         public static let foodAndDrink = UUID(uuidString: "10000000-0000-0000-0000-000000000003")!
         public static let autoAndTransit = UUID(uuidString: "10000000-0000-0000-0000-000000000004")!
+        public static let travel = UUID(uuidString: "10000000-0000-0000-0000-000000000005")!
         public static let lifestyleAndDiscretionary = UUID(uuidString: "10000000-0000-0000-0000-000000000006")!
         public static let healthAndWellness = UUID(uuidString: "10000000-0000-0000-0000-000000000007")!
         public static let familyAndHousehold = UUID(uuidString: "10000000-0000-0000-0000-000000000010")!
@@ -45,7 +46,9 @@ public enum DefaultBudgetTaxonomy {
         public static let coffeeShops = UUID(uuidString: "20000000-0000-0000-0000-000000000011")!
         public static let gasAndCharging = UUID(uuidString: "20000000-0000-0000-0000-000000000012")!
         public static let publicTransitAndRideShare = UUID(uuidString: "20000000-0000-0000-0000-000000000013")!
+        public static let flights = UUID(uuidString: "20000000-0000-0000-0000-000000000014")!
         public static let autoMaintenanceAndInsurance = UUID(uuidString: "20000000-0000-0000-0000-000000000015")!
+        public static let hotels = UUID(uuidString: "20000000-0000-0000-0000-000000000016")!
         public static let shoppingAndClothing = UUID(uuidString: "20000000-0000-0000-0000-000000000023")!
         public static let subscriptionsAndEntertainment = UUID(uuidString: "20000000-0000-0000-0000-000000000022")!
         public static let personalCare = UUID(uuidString: "20000000-0000-0000-0000-000000000039")!
@@ -66,6 +69,7 @@ public enum DefaultBudgetTaxonomy {
         DefaultCategoryGroupDefinition(id: CategoryGroupID.housingAndUtilities, name: "Housing & Utilities"),
         DefaultCategoryGroupDefinition(id: CategoryGroupID.foodAndDrink, name: "Food & Drink"),
         DefaultCategoryGroupDefinition(id: CategoryGroupID.autoAndTransit, name: "Auto & Transit"),
+        DefaultCategoryGroupDefinition(id: CategoryGroupID.travel, name: "Travel"),
         DefaultCategoryGroupDefinition(id: CategoryGroupID.lifestyleAndDiscretionary, name: "Lifestyle & Discretionary"),
         DefaultCategoryGroupDefinition(id: CategoryGroupID.healthAndWellness, name: "Health & Wellness"),
         DefaultCategoryGroupDefinition(id: CategoryGroupID.familyAndHousehold, name: "Family & Household"),
@@ -82,6 +86,8 @@ public enum DefaultBudgetTaxonomy {
         DefaultBudgetCategoryDefinition(id: CategoryID.coffeeShops, name: "Coffee Shops", kind: .expense, groupID: CategoryGroupID.foodAndDrink),
         DefaultBudgetCategoryDefinition(id: CategoryID.gasAndCharging, name: "Gas & Charging", kind: .expense, groupID: CategoryGroupID.autoAndTransit),
         DefaultBudgetCategoryDefinition(id: CategoryID.publicTransitAndRideShare, name: "Public Transit & Ride Share", kind: .expense, groupID: CategoryGroupID.autoAndTransit),
+        DefaultBudgetCategoryDefinition(id: CategoryID.flights, name: "Flights", kind: .expense, groupID: CategoryGroupID.travel),
+        DefaultBudgetCategoryDefinition(id: CategoryID.hotels, name: "Hotels", kind: .expense, groupID: CategoryGroupID.travel),
         DefaultBudgetCategoryDefinition(id: CategoryID.autoMaintenanceAndInsurance, name: "Auto Maintenance & Insurance", kind: .expense, groupID: CategoryGroupID.autoAndTransit),
         DefaultBudgetCategoryDefinition(id: CategoryID.shoppingAndClothing, name: "Shopping & Clothing", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
         DefaultBudgetCategoryDefinition(id: CategoryID.subscriptionsAndEntertainment, name: "Subscriptions & Entertainment", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
