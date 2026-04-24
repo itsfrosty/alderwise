@@ -624,7 +624,9 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 return
             }
 
-            for group in defaultCategoryGroups {
+            let taxonomy = currentDefaultBudgetTaxonomy()
+
+            for group in taxonomy.groups {
                 try db.execute(
                     sql: """
                     INSERT INTO category_groups (id, name)
@@ -635,7 +637,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 )
             }
 
-            for category in defaultBudgetCategories {
+            for category in taxonomy.categories {
                 let groupID = try seededCategoryGroupIDPreservingTargetDisjointness(
                     for: category,
                     db: db
@@ -658,7 +660,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 )
             }
 
-            try pruneObsoleteDefaultTaxonomy(db: db)
+            try pruneObsoleteDefaultTaxonomy(taxonomy: taxonomy, db: db)
         }
     }
 
@@ -3836,9 +3838,17 @@ private let backupFilenameDateFormatter: DateFormatter = {
     return formatter
 }()
 
-private let defaultCategoryGroups = DefaultBudgetTaxonomy.categoryGroups
+private struct DefaultBudgetTaxonomySnapshot {
+    var groups: [DefaultCategoryGroupDefinition]
+    var categories: [DefaultBudgetCategoryDefinition]
+}
 
-private let defaultBudgetCategories = DefaultBudgetTaxonomy.categories
+private func currentDefaultBudgetTaxonomy() -> DefaultBudgetTaxonomySnapshot {
+    DefaultBudgetTaxonomySnapshot(
+        groups: DefaultBudgetTaxonomy.categoryGroups,
+        categories: DefaultBudgetTaxonomy.categories
+    )
+}
 
 private func withBootstrappedReplacementWorkspaceStore<R>(
     fileManager: FileManager = .default,
@@ -3857,9 +3867,12 @@ private func withBootstrappedReplacementWorkspaceStore<R>(
     return try body(store)
 }
 
-private func pruneObsoleteDefaultTaxonomy(db: Database) throws {
-    let currentCategoryIDs = Set(defaultBudgetCategories.map(\.id.uuidString))
-    let currentGroupIDs = Set(defaultCategoryGroups.map(\.id.uuidString))
+private func pruneObsoleteDefaultTaxonomy(
+    taxonomy: DefaultBudgetTaxonomySnapshot = currentDefaultBudgetTaxonomy(),
+    db: Database
+) throws {
+    let currentCategoryIDs = Set(taxonomy.categories.map(\.id.uuidString))
+    let currentGroupIDs = Set(taxonomy.groups.map(\.id.uuidString))
 
     try pruneObsoleteDefaultCategories(currentCategoryIDs: currentCategoryIDs, db: db)
     try pruneObsoleteDefaultGroups(currentGroupIDs: currentGroupIDs, db: db)
@@ -3920,11 +3933,11 @@ private func pruneObsoleteDefaultGroups(currentGroupIDs: Set<String>, db: Databa
 }
 
 private func defaultCategoryGroupOrderSQL(column: String) -> String {
-    defaultOrderSQL(ids: defaultCategoryGroups.map(\.id), column: column)
+    defaultOrderSQL(ids: currentDefaultBudgetTaxonomy().groups.map(\.id), column: column)
 }
 
 private func defaultBudgetCategoryOrderSQL(column: String) -> String {
-    defaultOrderSQL(ids: defaultBudgetCategories.map(\.id), column: column)
+    defaultOrderSQL(ids: currentDefaultBudgetTaxonomy().categories.map(\.id), column: column)
 }
 
 private func defaultOrderSQL(ids: [UUID], column: String) -> String {
