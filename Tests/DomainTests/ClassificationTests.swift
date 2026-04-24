@@ -845,6 +845,21 @@ func seededClassifierMatchesRepresentativeSampleMerchants() {
         ("PAMF 2441 MISSION CO M SANTA CLARA CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy, true),
         ("CHAVEZ SUPERMARKET SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.groceries, true),
         ("FRANCHISE TAX BO PAYMENTS   129035404    PM WEB ID: 1282532045", DefaultBudgetTaxonomy.CategoryID.taxes, true),
+        ("INTEREST PAID 03-31-2026", DefaultBudgetTaxonomy.CategoryID.income, true),
+        ("AUTOMATIC PAYMENT THANK YOU", DefaultBudgetTaxonomy.CategoryID.transfers, true),
+        ("META DIRECT DEP", DefaultBudgetTaxonomy.CategoryID.income, true),
+        ("DISNEYPLUS", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, true),
+        ("GOOGLE *YOUTUBEPREMIUM MOUNTAIN VIEW CA", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, true),
+        ("BLUE BOTTLE COFFEE PALO ALTO CA", DefaultBudgetTaxonomy.CategoryID.coffeeShops, true),
+        ("T J MAXX #0712 SUNNYVALE CA", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, true),
+        ("MARSHALLS #0567 SAN JOSE CA", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, true),
+        ("PROGRESSIVE INS 4407", DefaultBudgetTaxonomy.CategoryID.autoMaintenanceAndInsurance, true),
+        ("BB TUITION MGMT ACH", DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans, true),
+        ("BEAST ACADEMY ONLINE", DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans, true),
+        ("AIRBORNE GYMNASTICS CAMP", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, true),
+        ("WATERWORKS SWIM SCHOOL", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, true),
+        ("TUTU SCHOOL LOS ALTOS", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, true),
+        ("FIRST POSITION DANCE CO", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, true),
         ("BITES* CHAAT BHAVAN EX WWW.DELIVERYCCA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, false),
     ]
 
@@ -868,28 +883,66 @@ func seededClassifierMatchesRepresentativeSampleMerchants() {
 @Test
 func seededClassifierRoutesRepresentativeCuratedPrefillThroughReview() {
     let classifier = SeededClassification.liveClassifier()
+    let cases: [(description: String, categoryID: UUID, merchantName: String, sourceReference: String)] = [
+        ("99PLEDG*ONIR BAWEJA", DefaultBudgetTaxonomy.CategoryID.donations, "99PLEDG", "starter.99pledg.family"),
+        ("CHOICELUNCH ORDER 12345", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, "Choicelunch", "starter.school-family.choicelunch"),
+        ("LINELEADER TUITION", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, "LineLeader", "starter.school-family.lineleader"),
+    ]
 
-    let decision = classifier.classify(
+    for (index, testCase) in cases.enumerated() {
+        let decision = classifier.classify(
+            candidate: NormalizedImportCandidate(
+                rowHash: "starter-\(index)",
+                sourceLineNumber: index + 2,
+                transactionDate: Date(timeIntervalSince1970: 1_775_171_200 + Double(index)),
+                rawDescription: testCase.description,
+                normalizedMerchantName: MerchantNormalizer().normalize(testCase.description),
+                amount: Decimal(-25)
+            )
+        )
+
+        #expect(decision == .reviewRequired(
+            prefill: ClassificationAssignment(
+                categoryID: testCase.categoryID,
+                merchantName: testCase.merchantName
+            ),
+            source: .curatedPrefill,
+            sourceReference: testCase.sourceReference,
+            confidence: nil,
+            reason: "Curated starter match requires review before acceptance."
+        ))
+    }
+}
+
+@Test
+func seededClassifierUsesSaferPrefixMatchingForFirstPositionDance() {
+    let classifier = SeededClassification.liveClassifier()
+
+    let prefixedDecision = classifier.classify(
         candidate: NormalizedImportCandidate(
-            rowHash: "starter-99pledg",
+            rowHash: "first-position-prefix",
             sourceLineNumber: 2,
-            transactionDate: Date(timeIntervalSince1970: 1_775_171_200),
-            rawDescription: "99PLEDG*ONIR BAWEJA",
-            normalizedMerchantName: MerchantNormalizer().normalize("99PLEDG*ONIR BAWEJA"),
-            amount: Decimal(-25)
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_600),
+            rawDescription: "FIRST POSITION DANCE CO",
+            normalizedMerchantName: MerchantNormalizer().normalize("FIRST POSITION DANCE CO"),
+            amount: Decimal(-75)
+        )
+    )
+    let embeddedDecision = classifier.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "first-position-embedded",
+            sourceLineNumber: 3,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_601),
+            rawDescription: "MY FIRST POSITION DANCE RECITAL",
+            normalizedMerchantName: MerchantNormalizer().normalize("MY FIRST POSITION DANCE RECITAL"),
+            amount: Decimal(-75)
         )
     )
 
-    #expect(decision == .reviewRequired(
-        prefill: ClassificationAssignment(
-            categoryID: DefaultBudgetTaxonomy.CategoryID.donations,
-            merchantName: "99PLEDG"
-        ),
-        source: .curatedPrefill,
-        sourceReference: "starter.99pledg.family",
-        confidence: nil,
-        reason: "Curated starter match requires review before acceptance."
-    ))
+    #expect(prefixedDecision.isAutoAccepted)
+    #expect(prefixedDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities)
+    #expect(embeddedDecision.assignment?.categoryID != DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities)
+    #expect(embeddedDecision.assignment?.merchantName != "First Position Dance")
 }
 
 @Test

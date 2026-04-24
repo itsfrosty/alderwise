@@ -68,22 +68,44 @@ public enum SeededClassification {
         rule("temu", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, merchantName: "Temu"),
         rule("ross stores", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, merchantName: "Ross"),
         rule("burlington stores", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, merchantName: "Burlington"),
+        rule("t j maxx", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, merchantName: "T.J. Maxx"),
+        rule("marshalls", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, merchantName: "Marshalls"),
         rule("netflix", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Netflix"),
         rule("spotify", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Spotify"),
         rule("hulu", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Hulu"),
         rule("disney plus", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Disney Plus"),
+        rule("disneyplus", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Disney Plus"),
         rule("amazon prime", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Amazon Prime"),
         rule("google google one", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Google One"),
+        rule("youtube", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "YouTube"),
         rule("openai", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "OpenAI"),
         rule("apple com", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Apple"),
         rule("meta payroll", DefaultBudgetTaxonomy.CategoryID.income, merchantName: "Meta Payroll"),
+        rule(
+            "meta direct dep",
+            DefaultBudgetTaxonomy.CategoryID.income,
+            merchantName: "Meta Direct Deposit",
+            matchKind: .prefixNormalizedMerchant
+        ),
         rule("interest payment", DefaultBudgetTaxonomy.CategoryID.income, merchantName: "Interest Payment"),
+        rule(
+            "interest paid",
+            DefaultBudgetTaxonomy.CategoryID.income,
+            merchantName: "Interest Paid",
+            matchKind: .prefixNormalizedMerchant
+        ),
         rule("rocket mortgage", DefaultBudgetTaxonomy.CategoryID.rentAndMortgage, merchantName: "Rocket Mortgage"),
         rule("flagstar bank", DefaultBudgetTaxonomy.CategoryID.rentAndMortgage, merchantName: "Flagstar Bank"),
         rule("cim 37 degrees n", DefaultBudgetTaxonomy.CategoryID.homeMaintenanceAndSupplies, merchantName: "CIM-37 Degrees N"),
         rule("citi autopay", DefaultBudgetTaxonomy.CategoryID.transfers, merchantName: "Citi Autopay"),
         rule("chase credit crd", DefaultBudgetTaxonomy.CategoryID.transfers, merchantName: "Chase Credit Card"),
         rule("tjx rewards payment", DefaultBudgetTaxonomy.CategoryID.transfers, merchantName: "TJX Rewards Payment"),
+        rule(
+            "automatic payment thank",
+            DefaultBudgetTaxonomy.CategoryID.transfers,
+            merchantName: "Automatic Payment Thank You",
+            matchKind: .prefixNormalizedMerchant
+        ),
         rule("ally bank p2p", DefaultBudgetTaxonomy.CategoryID.transfers, merchantName: "Ally Bank P2P"),
         rule("autopay", DefaultBudgetTaxonomy.CategoryID.transfers, merchantName: "Autopay"),
         rule("venmo", DefaultBudgetTaxonomy.CategoryID.transfers, merchantName: "Venmo"),
@@ -97,12 +119,50 @@ public enum SeededClassification {
         rule("t mobile", DefaultBudgetTaxonomy.CategoryID.internetAndPhone, merchantName: "T-Mobile"),
         rule("mindbody", DefaultBudgetTaxonomy.CategoryID.fitnessAndGym, merchantName: "Mindbody"),
         rule("usaa", DefaultBudgetTaxonomy.CategoryID.autoMaintenanceAndInsurance, merchantName: "USAA"),
+        rule(
+            "progressive ins",
+            DefaultBudgetTaxonomy.CategoryID.autoMaintenanceAndInsurance,
+            merchantName: "Progressive",
+            matchKind: .prefixNormalizedMerchant
+        ),
         rule("dmv", DefaultBudgetTaxonomy.CategoryID.autoMaintenanceAndInsurance, merchantName: "DMV"),
         rule("yell madison camp", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, merchantName: "Yell Madison Camp"),
         rule("bright horizons", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, merchantName: "Bright Horizons"),
+        rule(
+            "airborne gymnastics",
+            DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities,
+            merchantName: "Airborne Gymnastics",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule(
+            "waterworks swim",
+            DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities,
+            merchantName: "Waterworks Swim",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule(
+            "tutu school",
+            DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities,
+            merchantName: "Tutu School",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule(
+            "first position dance",
+            DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities,
+            merchantName: "First Position Dance",
+            matchKind: .prefixNormalizedMerchant
+        ),
         rule("facts", DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans, merchantName: "FACTS"),
+        rule(
+            "bb tuition mgmt",
+            DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans,
+            merchantName: "BB Tuition Mgmt",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule("beast academy", DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans, merchantName: "Beast Academy"),
         rule("king s academy", DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans, merchantName: "The King's Academy"),
         rule("joe the juice", DefaultBudgetTaxonomy.CategoryID.coffeeShops, merchantName: "Joe & The Juice"),
+        rule("blue bottle coffee", DefaultBudgetTaxonomy.CategoryID.coffeeShops, merchantName: "Blue Bottle Coffee"),
         rule("tesla", DefaultBudgetTaxonomy.CategoryID.gasAndCharging, merchantName: "Tesla"),
         rule("waymo", DefaultBudgetTaxonomy.CategoryID.publicTransitAndRideShare, merchantName: "Waymo"),
         rule("uber", DefaultBudgetTaxonomy.CategoryID.publicTransitAndRideShare, merchantName: "Uber"),
@@ -210,6 +270,20 @@ public enum SeededClassification {
             merchantPattern: "99pledg",
             categoryID: DefaultBudgetTaxonomy.CategoryID.donations,
             merchantName: "99PLEDG",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        curatedReviewPrefill(
+            id: "starter.school-family.choicelunch",
+            merchantPattern: "choicelunch",
+            categoryID: DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities,
+            merchantName: "Choicelunch",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        curatedReviewPrefill(
+            id: "starter.school-family.lineleader",
+            merchantPattern: "lineleader",
+            categoryID: DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities,
+            merchantName: "LineLeader",
             matchKind: .prefixNormalizedMerchant
         ),
     ]
