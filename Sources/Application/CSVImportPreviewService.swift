@@ -159,9 +159,10 @@ public struct CSVImportPreviewService: Sendable {
     public func makePreview(from csvText: String, rowLimit: Int = 10) throws -> CSVImportPreview {
         let document = try parser.parse(csvText)
         let mapping = mappingInference.inferMapping(for: document)
+        let filteredRows = filteredRows(document.rows, mapping: mapping)
         return .make(
             headers: document.headers,
-            rows: document.rows,
+            rows: filteredRows,
             mapping: mapping,
             rowLimit: rowLimit
         )
@@ -195,7 +196,43 @@ private struct CSVImportRowInterpreter {
             return nil
         }
 
-        return Decimal(string: trimmedValue, locale: Locale(identifier: "en_US_POSIX"))
+        return CSVImportValueParser.decimal(from: trimmedValue)
+    }
+}
+
+private extension CSVImportPreviewService {
+    func filteredRows(_ rows: [CSVRow], mapping: CSVColumnMapping) -> [CSVRow] {
+        let relevantColumnIndexes = relevantColumnIndexes(for: mapping)
+        guard relevantColumnIndexes.isEmpty == false else {
+            return rows
+        }
+
+        return rows.filter { row in
+            relevantColumnIndexes.contains { row.isBlank(columnIndex: $0) == false }
+        }
+    }
+
+    func relevantColumnIndexes(for mapping: CSVColumnMapping) -> [Int] {
+        var indexes: [Int] = []
+
+        if let dateColumnIndex = mapping.dateColumnIndex {
+            indexes.append(dateColumnIndex)
+        }
+        if let descriptionColumnIndex = mapping.descriptionColumnIndex {
+            indexes.append(descriptionColumnIndex)
+        }
+
+        switch mapping.amount {
+        case .singleSignedAmount(let columnIndex):
+            indexes.append(columnIndex)
+        case .debitCredit(let debitColumnIndex, let creditColumnIndex):
+            indexes.append(debitColumnIndex)
+            indexes.append(creditColumnIndex)
+        case nil:
+            break
+        }
+
+        return indexes
     }
 }
 

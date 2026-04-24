@@ -856,19 +856,14 @@ public struct WorkspaceService: Sendable {
             return nil
         }
 
-        for formatter in Self.dateFormatters {
-            if let date = formatter.date(from: value) {
-                return date
-            }
-        }
-        return nil
+        return CSVImportValueParser.date(from: value)
     }
 
     private func decimalValue(in row: CSVRow, at columnIndex: Int) -> Decimal? {
         guard let value = stringValue(in: row, at: columnIndex) else {
             return nil
         }
-        return Decimal(string: value, locale: Locale(identifier: "en_US_POSIX"))
+        return CSVImportValueParser.decimal(from: value)
     }
 
     private func stringValue(in row: CSVRow, at columnIndex: Int?) -> String? {
@@ -881,21 +876,6 @@ public struct WorkspaceService: Sendable {
 
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedValue.isEmpty ? nil : trimmedValue
-    }
-
-    private static let dateFormatters: [DateFormatter] = [
-        makeDateFormatter("yyyy-MM-dd"),
-        makeDateFormatter("MM/dd/yyyy"),
-        makeDateFormatter("M/d/yyyy"),
-    ]
-
-    private static func makeDateFormatter(_ format: String) -> DateFormatter {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = format
-        return formatter
     }
 }
 

@@ -26,7 +26,7 @@ public struct CSVMappingInference: Sendable {
 
     public func inferMapping(for document: CSVDocument) -> CSVColumnMapping {
         let indexedHeaders = document.headers.map { header in
-            IndexedHeader(index: header.columnIndex, normalizedName: normalize(header.name))
+            IndexedHeader(index: header.columnIndex, normalizedName: CSVImportValueParser.normalizedHeaderName(header.name))
         }
 
         let dateIndex = firstIndex(
@@ -37,6 +37,7 @@ public struct CSVMappingInference: Sendable {
                 "posting date",
                 "transaction date",
                 "trans date",
+                "datetime",
             ]
         )
 
@@ -48,6 +49,7 @@ public struct CSVMappingInference: Sendable {
                 "payee",
                 "name",
                 "memo",
+                "note",
             ]
         )
 
@@ -55,6 +57,7 @@ public struct CSVMappingInference: Sendable {
             in: indexedHeaders,
             matching: [
                 "amount",
+                "amount total",
                 "transaction amount",
                 "signed amount",
             ]
@@ -96,16 +99,6 @@ public struct CSVMappingInference: Sendable {
 
     private func firstIndex(in headers: [IndexedHeader], matching candidates: Set<String>) -> Int? {
         headers.first { candidates.contains($0.normalizedName) }?.index
-    }
-
-    private func normalize(_ header: String) -> String {
-        header
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-            .split { character in
-                character.isWhitespace || character == "_" || character == "-"
-            }
-            .joined(separator: " ")
     }
 }
 

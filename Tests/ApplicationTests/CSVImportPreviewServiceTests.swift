@@ -83,3 +83,43 @@ func previewValidationReportsMissingMappingAndInvalidRows() throws {
     #expect(restoredPreview.validation.invalidRowCount == 2)
     #expect(restoredPreview.validation.rowIssues.map(\.sourceLineNumber) == [3, 4])
 }
+
+@Test
+func previewServiceHandlesVenmoStatementExports() throws {
+    let csv = """
+    Account Statement - (@alex-example),,,,,,,,,,,,,,,,,,,,,
+    Account Activity,,,,,,,,,,,,,,,,,,,,,
+    ,ID,Datetime,Type,Status,Note,From,To,Amount (total),Amount (tip),Amount (tax),Amount (fee),Tax Rate,Tax Exempt,Funding Source,Destination,Beginning Balance,Ending Balance,Statement Period Venmo Fees,Terminal Location,Year to Date Venmo Fees,Disclaimer
+    ,,,,,,,,,,,,,,,,$7.94,,,,,
+    ,4303787187085607348,2025-04-05T02:16:52,Payment,Complete,Groceries,Alex Example,Jordan Example,- $135.00,,0,,0,,Bank Checking *1234,,,,,Venmo,,
+    ,4306652244709872490,2025-04-09T01:09:14,Payment,Complete,Rent,Alex Example,Casey Example,- $200.00,,0,,0,,Bank Checking *1234,,,,,Venmo,,
+    ,,,,,,,,,,,,,,,,,$6.94,$0.00,,$0.00,"Disclaimer text"
+    """
+
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+
+    #expect(headerName(in: preview, at: preview.mapping.dateColumnIndex) == "Datetime")
+    #expect(headerName(in: preview, at: preview.mapping.descriptionColumnIndex) == "Note")
+    #expect(amountHeaderName(in: preview) == "Amount (total)")
+    #expect(preview.previewRows.map(\.sourceLineNumber) == [5, 6])
+    #expect(preview.previewRows.map(\.interpretedAmount) == [-135.00, -200.00])
+    #expect(preview.validation.validRowCount == 2)
+    #expect(preview.validation.invalidRowCount == 0)
+    #expect(preview.validation.isReadyForImport)
+}
+
+private func headerName(in preview: CSVImportPreview, at columnIndex: Int?) -> String? {
+    guard let columnIndex else {
+        return nil
+    }
+
+    return preview.headers.first { $0.columnIndex == columnIndex }?.name
+}
+
+private func amountHeaderName(in preview: CSVImportPreview) -> String? {
+    guard case .singleSignedAmount(let columnIndex) = preview.mapping.amount else {
+        return nil
+    }
+
+    return headerName(in: preview, at: columnIndex)
+}

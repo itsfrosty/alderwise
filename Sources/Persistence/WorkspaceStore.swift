@@ -4028,19 +4028,14 @@ private func legacyDateValue(in values: [String], at columnIndex: Int?) -> Date?
         return nil
     }
 
-    for formatter in legacyDateFormatters {
-        if let date = formatter.date(from: value) {
-            return date
-        }
-    }
-    return nil
+    return CSVImportValueParser.date(from: value)
 }
 
 private func legacyDecimalValue(in values: [String], at columnIndex: Int) -> Decimal? {
     guard let value = legacyStringValue(in: values, at: columnIndex) else {
         return nil
     }
-    return Decimal(string: value, locale: Locale(identifier: "en_US_POSIX"))
+    return CSVImportValueParser.decimal(from: value)
 }
 
 private func legacyStringValue(in values: [String], at columnIndex: Int?) -> String? {
@@ -4055,20 +4050,6 @@ private func legacyStringValue(in values: [String], at columnIndex: Int?) -> Str
     return trimmedValue.isEmpty ? nil : trimmedValue
 }
 
-private let legacyDateFormatters: [DateFormatter] = [
-    makeLegacyDateFormatter("yyyy-MM-dd"),
-    makeLegacyDateFormatter("MM/dd/yyyy"),
-    makeLegacyDateFormatter("M/d/yyyy"),
-]
-
-private func makeLegacyDateFormatter(_ format: String) -> DateFormatter {
-    let formatter = DateFormatter()
-    formatter.calendar = Calendar(identifier: .gregorian)
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(secondsFromGMT: 0)
-    formatter.dateFormat = format
-    return formatter
-}
 
 private func requireString(_ value: String?, field: String) throws -> String {
     if let value {

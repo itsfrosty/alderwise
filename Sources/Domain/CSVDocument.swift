@@ -67,15 +67,16 @@ public struct CSVParser: Sendable {
 
     public func parse(_ text: String) throws -> CSVDocument {
         let records = try records(from: text)
-        guard let headerRecord = records.first else {
+        guard let headerRecordIndex = headerRecordIndex(in: records) else {
             throw CSVParsingError.emptyDocument
         }
+        let headerRecord = records[headerRecordIndex]
 
         let headers = headerRecord.fields.enumerated().map { index, name in
             CSVColumn(name: name, columnIndex: index)
         }
 
-        let rows = try records.dropFirst().map { record in
+        let rows = try records.dropFirst(headerRecordIndex + 1).map { record in
             let fields = record.fields.trimmingEmptySuffix(toCount: headers.count)
             guard fields.count == headers.count else {
                 throw CSVParsingError.wrongColumnCount(
@@ -94,6 +95,18 @@ public struct CSVParser: Sendable {
         }
 
         return CSVDocument(headers: headers, rows: rows)
+    }
+
+    private func headerRecordIndex(in records: [CSVRecord]) -> Int? {
+        guard records.isEmpty == false else {
+            return nil
+        }
+
+        if let detectedIndex = records.firstIndex(where: isLikelyHeaderRecord) {
+            return detectedIndex
+        }
+
+        return records.startIndex
     }
 
     private func records(from text: String) throws -> [CSVRecord] {
@@ -193,12 +206,43 @@ public struct CSVParser: Sendable {
         appendRecordIfNeeded()
         return records
     }
+
+    private func isLikelyHeaderRecord(_ record: CSVRecord) -> Bool {
+        let score = Set(
+            record.fields.map(CSVImportValueParser.normalizedHeaderName)
+        )
+        .intersection(likelyHeaderNames)
+        .count
+
+        return score >= 2
+    }
 }
 
 private struct CSVRecord {
     var lineNumber: Int
     var fields: [String]
 }
+
+private let likelyHeaderNames: Set<String> = [
+    "date",
+    "posted date",
+    "posting date",
+    "transaction date",
+    "trans date",
+    "datetime",
+    "description",
+    "merchant",
+    "payee",
+    "name",
+    "memo",
+    "note",
+    "amount",
+    "amount total",
+    "transaction amount",
+    "signed amount",
+    "debit",
+    "credit",
+]
 
 private extension Array where Element == String {
     func trimmingEmptySuffix(toCount count: Int) -> [String] {
