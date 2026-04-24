@@ -1,25 +1,59 @@
 import Domain
 import SwiftUI
 
+struct AccountCreationSheetState: Equatable {
+    var name = ""
+    var institutionName = ""
+    var kind = AccountKind.checking
+    var errorMessage: String?
+
+    var isSubmitDisabled: Bool {
+        name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    mutating func submit(
+        onCreate: (String, AccountKind, String?) throws -> Void
+    ) -> Bool {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            errorMessage = "Enter an account name."
+            return false
+        }
+
+        do {
+            try onCreate(trimmedName, kind, optionalTrimmedInstitutionName)
+            errorMessage = nil
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    private var optionalTrimmedInstitutionName: String? {
+        let trimmed = institutionName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
 struct AccountCreationSheet: View {
     @Environment(\.dismiss) private var dismiss
 
-    @State private var name = ""
-    @State private var institutionName = ""
-    @State private var kind = AccountKind.checking
-    @State private var errorMessage: String?
+    @State private var draft = AccountCreationSheetState()
 
+    let onCancel: () -> Void
     let onCreate: (String, AccountKind, String?) throws -> Void
 
     var body: some View {
         AccountDraftEditorForm(
-            name: $name,
-            institutionName: $institutionName,
-            kind: $kind,
+            name: $draft.name,
+            institutionName: $draft.institutionName,
+            kind: $draft.kind,
             title: "Create Account",
             submitTitle: "Create",
-            errorMessage: errorMessage,
+            errorMessage: draft.errorMessage,
             onCancel: {
+                onCancel()
                 dismiss()
             },
             onSubmit: submit
@@ -27,27 +61,9 @@ struct AccountCreationSheet: View {
     }
 
     private func submit() {
-        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else {
-            errorMessage = "Enter an account name."
-            return
-        }
-
-        do {
-            try onCreate(
-                trimmedName,
-                kind,
-                optionalTrimmedInstitutionName
-            )
+        if draft.submit(onCreate: onCreate) {
             dismiss()
-        } catch {
-            errorMessage = error.localizedDescription
         }
-    }
-
-    private var optionalTrimmedInstitutionName: String? {
-        let trimmed = institutionName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
     }
 }
 
@@ -111,6 +127,7 @@ struct AccountDraftEditorForm: View {
                     Button("Cancel") {
                         onCancel()
                     }
+                    .keyboardShortcut(.cancelAction)
 
                     Button(submitTitle) {
                         onSubmit()

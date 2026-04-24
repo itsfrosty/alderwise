@@ -48,6 +48,17 @@ struct WorkspaceRootView: View {
         )
     }
 
+    private var isPresentingAccountCreationSheet: Binding<Bool> {
+        Binding(
+            get: { model.accountCreationRoute != nil },
+            set: { isPresented in
+                if isPresented == false {
+                    model.cancelAccountCreation()
+                }
+            }
+        )
+    }
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -69,8 +80,12 @@ struct WorkspaceRootView: View {
                 toolbarActions
             }
         }
-        .sheet(isPresented: $model.isPresentingAccountSheet) {
-            AccountCreationSheet { name, kind, institutionName in
+        .sheet(isPresented: isPresentingAccountCreationSheet) {
+            AccountCreationSheet(
+                onCancel: {
+                    model.cancelAccountCreation()
+                }
+            ) { name, kind, institutionName in
                 _ = try model.createAccount(
                     name: name,
                     kind: kind,

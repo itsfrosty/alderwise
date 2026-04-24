@@ -35,6 +35,24 @@ final class BatchCSVImportSession: ObservableObject {
         )
     }
 
+    func selectItem(id: UUID?) {
+        draft.selectedItemID = id
+    }
+
+    func containsItem(id itemID: UUID) -> Bool {
+        draft.items.contains { $0.id == itemID }
+    }
+
+    @discardableResult
+    func selectAccount(id accountID: UUID, forItemID itemID: UUID) -> Bool {
+        guard let index = draft.items.firstIndex(where: { $0.id == itemID }) else {
+            return false
+        }
+
+        draft.items[index].selectedAccountID = accountID
+        return true
+    }
+
     private static func initialSelectionID(in items: [BatchCSVImportItemDraft]) -> UUID? {
         items.first(where: { $0.isReadyForImport == false })?.id ?? items.first?.id
     }

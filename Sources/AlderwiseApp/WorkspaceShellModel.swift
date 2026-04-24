@@ -25,6 +25,22 @@ final class WorkspaceShellModel: ObservableObject {
         case workspaceRestore
     }
 
+    enum AccountCreationRoute: Equatable {
+        case general
+        case batchImport(itemID: UUID)
+    }
+
+    enum AccountCreationRouteError: LocalizedError, Equatable {
+        case missingBatchImportContext
+
+        var errorDescription: String? {
+            switch self {
+            case .missingBatchImportContext:
+                "The import item is no longer available for account assignment."
+            }
+        }
+    }
+
     struct ReviewRulePreviewKey: Hashable, Sendable {
         var reviewItemID: UUID
         var createRuleEnabled: Bool
@@ -83,11 +99,12 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     @Published private(set) var state: State = .loading
-    @Published var isPresentingAccountSheet = false
+    @Published private(set) var accountCreationRoute: AccountCreationRoute?
     @Published var isPresentingFileImporter = false
     @Published var fileImportRequest: FileImportRequest?
     @Published var isPresentingImportPreview = false
     @Published var isPresentingTargetSheet = false
+    @Published private(set) var batchImportSession: BatchCSVImportSession?
     @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
     @Published var selectedTargetID: UUID?
     @Published private(set) var settingsDestination: SettingsDestination = .overview
@@ -701,7 +718,23 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func beginAccountCreation() {
-        isPresentingAccountSheet = true
+        accountCreationRoute = .general
+    }
+
+    func beginBatchImportAccountCreation(itemID: UUID) {
+        guard let batchImportSession, batchImportSession.containsItem(id: itemID) else {
+            return
+        }
+
+        accountCreationRoute = .batchImport(itemID: itemID)
+    }
+
+    func cancelAccountCreation() {
+        accountCreationRoute = nil
+    }
+
+    func presentBatchImportSession(_ session: BatchCSVImportSession) {
+        batchImportSession = session
     }
 
     @discardableResult
@@ -710,11 +743,21 @@ final class WorkspaceShellModel: ObservableObject {
             throw WorkspaceServiceError.accountManagementUnavailable
         }
 
+        if case .batchImport(let itemID) = accountCreationRoute {
+            guard let batchImportSession, batchImportSession.containsItem(id: itemID) else {
+                throw AccountCreationRouteError.missingBatchImportContext
+            }
+        }
+
         let account = try service.createAccount(
             named: name,
             kind: kind,
             institutionName: institutionName
         )
+        if case .batchImport(let itemID) = accountCreationRoute {
+            _ = batchImportSession?.selectAccount(id: account.id, forItemID: itemID)
+        }
+        accountCreationRoute = nil
         reload()
         return account
     }
