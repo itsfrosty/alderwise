@@ -1669,6 +1669,48 @@ func stageCSVImportCarriesCuratedReviewPrefillForLive99PLEDGFamily() throws {
 }
 
 @Test
+func stageCSVImportCountsTravelAggregatorsAsPendingReviewPrefills() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store, classifier: SeededClassification.liveClassifier())
+    let csv = """
+    Date,Description,Amount
+    2026-04-02,BOOKING.COM AMSTERDAM NL,-325.00
+    2026-04-03,AMEX TRAVEL 800-297-2977 CA,-480.00
+    """
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "checking-travel-review.csv",
+        csvText: csv
+    )
+
+    #expect(result.classifications.count == 2)
+    #expect(result.summary.importedRowCount == 2)
+    #expect(result.summary.pendingClassificationReviewRowCount == 2)
+    #expect(result.classifications.allSatisfy { $0.decision.isAutoAccepted == false })
+    #expect(result.classifications.allSatisfy { $0.decision.source == .curatedPrefill })
+    #expect(
+        result.classifications.map(\.decision.assignment?.categoryID) == [
+            DefaultBudgetTaxonomy.CategoryID.flights,
+            DefaultBudgetTaxonomy.CategoryID.flights,
+        ]
+    )
+
+    let stagedDraft = try #require(store.stagedImportDrafts.first)
+    #expect(stagedDraft.rows.count == 2)
+    #expect(stagedDraft.rows.allSatisfy { $0.importDecision == .imported(reason: "New source row.") })
+    #expect(stagedDraft.rows.allSatisfy { $0.classification?.source == .curatedPrefill })
+}
+
+@Test
 func stageCSVImportAppliesHeuristicPreferenceWithoutChangingCuratedReviewPrefillBehavior() throws {
     let account = Account(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,

@@ -2,6 +2,48 @@ import Foundation
 
 public enum SeededClassification {
     public static let deterministicRules: [ClassificationRule] = [
+        rule(
+            "air india",
+            DefaultBudgetTaxonomy.CategoryID.flights,
+            merchantName: "Air India",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule(
+            "emirates",
+            DefaultBudgetTaxonomy.CategoryID.flights,
+            merchantName: "Emirates",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule(
+            "united airlines",
+            DefaultBudgetTaxonomy.CategoryID.flights,
+            merchantName: "United Airlines",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule(
+            "turkish airlines",
+            DefaultBudgetTaxonomy.CategoryID.flights,
+            merchantName: "Turkish Airlines",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule(
+            "grand hyatt",
+            DefaultBudgetTaxonomy.CategoryID.hotels,
+            merchantName: "Grand Hyatt",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule(
+            "marriott marquis",
+            DefaultBudgetTaxonomy.CategoryID.hotels,
+            merchantName: "Marriott Marquis",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        rule(
+            "westin st francis",
+            DefaultBudgetTaxonomy.CategoryID.hotels,
+            merchantName: "Westin St. Francis",
+            matchKind: .prefixNormalizedMerchant
+        ),
         rule("costco rx", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy, merchantName: "Costco RX"),
         rule("costco annual", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Costco Annual"),
         rule("costco cash reward", DefaultBudgetTaxonomy.CategoryID.income, merchantName: "Costco Cash Reward"),
@@ -129,6 +171,20 @@ public enum SeededClassification {
 
     public static let curatedReviewPrefills: [CuratedReviewPrefill] = [
         curatedReviewPrefill(
+            id: "starter.travel.booking-com",
+            merchantPattern: "booking com",
+            categoryID: DefaultBudgetTaxonomy.CategoryID.flights,
+            merchantName: "Booking.com",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        curatedReviewPrefill(
+            id: "starter.travel.amex-travel",
+            merchantPattern: "amex travel",
+            categoryID: DefaultBudgetTaxonomy.CategoryID.flights,
+            merchantName: "Amex Travel",
+            matchKind: .prefixNormalizedMerchant
+        ),
+        curatedReviewPrefill(
             id: "starter.99pledg.family",
             merchantPattern: "99pledg",
             categoryID: DefaultBudgetTaxonomy.CategoryID.donations,
@@ -149,13 +205,14 @@ public enum SeededClassification {
     private static func rule(
         _ pattern: String,
         _ categoryID: UUID,
-        merchantName: String? = nil
+        merchantName: String? = nil,
+        matchKind: ClassificationRuleMatchKind = .contains
     ) -> ClassificationRule {
         ClassificationRule(
             merchantPattern: pattern,
             categoryID: categoryID,
             merchantName: merchantName,
-            matchKind: .contains,
+            matchKind: matchKind,
             sourceReferenceKind: .seededSourceID
         )
     }

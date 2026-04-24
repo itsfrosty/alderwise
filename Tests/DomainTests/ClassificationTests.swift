@@ -893,6 +893,101 @@ func seededClassifierRoutesRepresentativeCuratedPrefillThroughReview() {
 }
 
 @Test
+func seededClassifierRoutesAirlinesToFlights() {
+    let classifier = SeededClassification.liveClassifier()
+
+    let cases: [(description: String, merchantName: String)] = [
+        ("AIR INDIA DELHI IN", "Air India"),
+        ("EMIRATES 800-777-3999 AE", "Emirates"),
+        ("UNITED AIRLINES HOUSTON TX", "United Airlines"),
+        ("TURKISH AIRLINES SAN FRANCISCO CA", "Turkish Airlines"),
+    ]
+
+    for (index, testCase) in cases.enumerated() {
+        let decision = classifier.classify(
+            candidate: NormalizedImportCandidate(
+                rowHash: "flight-\(index)",
+                sourceLineNumber: index + 2,
+                transactionDate: Date(timeIntervalSince1970: 1_775_171_200 + Double(index)),
+                rawDescription: testCase.description,
+                normalizedMerchantName: MerchantNormalizer().normalize(testCase.description),
+                amount: Decimal(-250)
+            )
+        )
+
+        #expect(decision.isAutoAccepted)
+        #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.flights)
+        #expect(decision.assignment?.merchantName == testCase.merchantName)
+        #expect(decision.source == .rule)
+        #expect(decision.reason == "Matched explicit merchant rule.")
+    }
+}
+
+@Test
+func seededClassifierRoutesClearHotelDescriptorsToHotels() {
+    let classifier = SeededClassification.liveClassifier()
+
+    let cases: [(description: String, merchantName: String)] = [
+        ("GRAND HYATT SFO SAN FRANCISCO CA", "Grand Hyatt"),
+        ("MARRIOTT MARQUIS SAN DIEGO CA", "Marriott Marquis"),
+        ("WESTIN ST FRANCIS SAN FRANCISCO CA", "Westin St. Francis"),
+    ]
+
+    for (index, testCase) in cases.enumerated() {
+        let decision = classifier.classify(
+            candidate: NormalizedImportCandidate(
+                rowHash: "hotel-\(index)",
+                sourceLineNumber: index + 2,
+                transactionDate: Date(timeIntervalSince1970: 1_775_171_300 + Double(index)),
+                rawDescription: testCase.description,
+                normalizedMerchantName: MerchantNormalizer().normalize(testCase.description),
+                amount: Decimal(-400)
+            )
+        )
+
+        #expect(decision.isAutoAccepted)
+        #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.hotels)
+        #expect(decision.assignment?.merchantName == testCase.merchantName)
+        #expect(decision.source == .rule)
+        #expect(decision.reason == "Matched explicit merchant rule.")
+    }
+}
+
+@Test
+func seededClassifierRoutesTravelAggregatorsThroughReviewFirst() {
+    let classifier = SeededClassification.liveClassifier()
+
+    let cases: [(description: String, merchantName: String, sourceReference: String)] = [
+        ("BOOKING.COM AMSTERDAM NL", "Booking.com", "starter.travel.booking-com"),
+        ("AMEX TRAVEL 800-297-2977 CA", "Amex Travel", "starter.travel.amex-travel"),
+    ]
+
+    for (index, testCase) in cases.enumerated() {
+        let decision = classifier.classify(
+            candidate: NormalizedImportCandidate(
+                rowHash: "aggregator-\(index)",
+                sourceLineNumber: index + 2,
+                transactionDate: Date(timeIntervalSince1970: 1_775_171_400 + Double(index)),
+                rawDescription: testCase.description,
+                normalizedMerchantName: MerchantNormalizer().normalize(testCase.description),
+                amount: Decimal(-325)
+            )
+        )
+
+        #expect(decision == .reviewRequired(
+            prefill: ClassificationAssignment(
+                categoryID: DefaultBudgetTaxonomy.CategoryID.flights,
+                merchantName: testCase.merchantName
+            ),
+            source: .curatedPrefill,
+            sourceReference: testCase.sourceReference,
+            confidence: nil,
+            reason: "Curated starter match requires review before acceptance."
+        ))
+    }
+}
+
+@Test
 func specificSeededRulesBeatBroaderMerchantRules() {
     let classifier = SeededClassification.liveClassifier()
 
