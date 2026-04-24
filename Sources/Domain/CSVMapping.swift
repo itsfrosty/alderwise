@@ -97,6 +97,10 @@ public struct CSVMappingInference: Sendable {
         )
     }
 
+    public func inferProfile(for document: CSVDocument) -> CSVImportProfile {
+        CSVImportProfile.infer(from: document.headers)
+    }
+
     private func firstIndex(in headers: [IndexedHeader], matching candidates: Set<String>) -> Int? {
         headers.first { candidates.contains($0.normalizedName) }?.index
     }

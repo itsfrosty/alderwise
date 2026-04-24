@@ -494,7 +494,14 @@ public struct WorkspaceService: Sendable {
                 remainingExistingRowHashCounts[rowIdentity.rowHash] = existingCount - 1
                 skippedRows[rowIdentity.rowHash, default: 0] += 1
             } else {
-                normalizedRows.append(try normalizedRow(for: rowIdentity, mapping: preview.mapping))
+                normalizedRows.append(
+                    try normalizedRow(
+                        for: rowIdentity,
+                        headers: preview.headers,
+                        mapping: preview.mapping,
+                        profile: preview.profile
+                    )
+                )
             }
         }
 
@@ -607,13 +614,20 @@ public struct WorkspaceService: Sendable {
 
     private func normalizedRow(
         for rowIdentity: StagedImportRowIdentity,
-        mapping: CSVColumnMapping
+        headers: [CSVColumn],
+        mapping: CSVColumnMapping,
+        profile: CSVImportProfile
     ) throws -> NormalizedImportCandidateWithPayload {
         guard
             let transactionDate = dateValue(in: rowIdentity.row, at: mapping.dateColumnIndex),
-            let description = stringValue(in: rowIdentity.row, at: mapping.descriptionColumnIndex),
             let amount = amountValue(in: rowIdentity.row, mapping: mapping)
         else {
+            throw WorkspaceServiceError.importPreviewCouldNotNormalizeRow(line: rowIdentity.sourceLineNumber)
+        }
+        let semantics = profile.semantics(for: rowIdentity.row, headers: headers, mapping: mapping)
+        let rawDescription = semantics.rawDescription.isEmpty ? semantics.derivedMerchant : semantics.rawDescription
+        let merchantText = semantics.derivedMerchant.isEmpty ? rawDescription : semantics.derivedMerchant
+        guard rawDescription.isEmpty == false, merchantText.isEmpty == false else {
             throw WorkspaceServiceError.importPreviewCouldNotNormalizeRow(line: rowIdentity.sourceLineNumber)
         }
 
@@ -621,8 +635,8 @@ public struct WorkspaceService: Sendable {
             rowHash: rowIdentity.rowHash,
             sourceLineNumber: rowIdentity.sourceLineNumber,
             transactionDate: transactionDate,
-            rawDescription: description,
-            normalizedMerchantName: merchantNormalizer.normalize(description),
+            rawDescription: rawDescription,
+            normalizedMerchantName: merchantNormalizer.normalize(merchantText),
             amount: amount,
             rawPayload: rowIdentity.rawPayload
         )

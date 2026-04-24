@@ -2,6 +2,11 @@ import Application
 import Domain
 import SwiftUI
 
+private enum CSVImportPreviewSheetCopy {
+    static let venmoNoteGuidance = "Venmo imports keep the Note column as the raw description."
+    static let categorizationPrefix = "Used for categorization:"
+}
+
 struct CSVImportPreviewSheet: View {
     private let originalPreview: CSVImportPreview
     private let accounts: [Account]
@@ -106,10 +111,18 @@ struct CSVImportPreviewSheet: View {
     }
 
     private var mappingSummary: some View {
-        HStack(spacing: 12) {
-            MappingBadge(title: "Date", value: columnName(at: workingPreview.mapping.dateColumnIndex))
-            MappingBadge(title: "Description", value: columnName(at: workingPreview.mapping.descriptionColumnIndex))
-            MappingBadge(title: "Amount", value: amountMappingDescription)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                MappingBadge(title: "Date", value: columnName(at: workingPreview.mapping.dateColumnIndex))
+                MappingBadge(title: "Description", value: columnName(at: workingPreview.mapping.descriptionColumnIndex))
+                MappingBadge(title: "Amount", value: amountMappingDescription)
+            }
+
+            if let descriptionSemanticsHint {
+                Text(descriptionSemanticsHint)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
@@ -269,6 +282,25 @@ struct CSVImportPreviewSheet: View {
         case nil:
             "Not detected"
         }
+    }
+
+    private var descriptionSemanticsHint: String? {
+        var lines: [String] = []
+
+        if workingPreview.profile == .venmoStatement {
+            lines.append(CSVImportPreviewSheetCopy.venmoNoteGuidance)
+        }
+        if let derivedMerchant = workingPreview.previewRows.first(where: {
+            $0.derivedMerchant.isEmpty == false
+        })?.derivedMerchant {
+            lines.append("\(CSVImportPreviewSheetCopy.categorizationPrefix) \(derivedMerchant)")
+        }
+
+        guard lines.isEmpty == false else {
+            return nil
+        }
+
+        return lines.joined(separator: " ")
     }
 
     private var missingFieldsDescription: String {

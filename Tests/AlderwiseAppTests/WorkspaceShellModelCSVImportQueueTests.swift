@@ -76,6 +76,14 @@ func confirmingTheLastQueuedCSVImportShowsAnAggregateCompletionMessage() throws 
     #expect(model.importErrorMessage == nil)
 }
 
+@Test
+func csvImportPreviewSheetExplainsVenmoDerivedCategorization() throws {
+    let source = try sourceText(in: "Sources/AlderwiseApp/CSVImportPreviewSheet.swift")
+
+    #expect(source.contains("Used for categorization:"))
+    #expect(source.contains("Venmo imports keep the Note column as the raw description."))
+}
+
 private struct CSVImportQueueTestFiles {
     let directoryURL: URL
     let urls: [URL]
@@ -256,4 +264,13 @@ private extension WorkspaceShellModel {
         importCSV(from: .success(urls))
         return csvImportPreview
     }
+}
+
+private func sourceText(in relativePath: String) throws -> String {
+    let repoRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let sourceURL = repoRoot.appendingPathComponent(relativePath)
+    return try String(contentsOf: sourceURL, encoding: .utf8)
 }

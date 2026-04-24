@@ -86,15 +86,7 @@ func previewValidationReportsMissingMappingAndInvalidRows() throws {
 
 @Test
 func previewServiceHandlesVenmoStatementExports() throws {
-    let csv = """
-    Account Statement - (@alex-example),,,,,,,,,,,,,,,,,,,,,
-    Account Activity,,,,,,,,,,,,,,,,,,,,,
-    ,ID,Datetime,Type,Status,Note,From,To,Amount (total),Amount (tip),Amount (tax),Amount (fee),Tax Rate,Tax Exempt,Funding Source,Destination,Beginning Balance,Ending Balance,Statement Period Venmo Fees,Terminal Location,Year to Date Venmo Fees,Disclaimer
-    ,,,,,,,,,,,,,,,,$7.94,,,,,
-    ,4303787187085607348,2025-04-05T02:16:52,Payment,Complete,Groceries,Alex Example,Jordan Example,- $135.00,,0,,0,,Bank Checking *1234,,,,,Venmo,,
-    ,4306652244709872490,2025-04-09T01:09:14,Payment,Complete,Rent,Alex Example,Casey Example,- $200.00,,0,,0,,Bank Checking *1234,,,,,Venmo,,
-    ,,,,,,,,,,,,,,,,,$6.94,$0.00,,$0.00,"Disclaimer text"
-    """
+    let csv = venmoStatementCSV()
 
     let preview = try CSVImportPreviewService().makePreview(from: csv)
 
@@ -102,10 +94,40 @@ func previewServiceHandlesVenmoStatementExports() throws {
     #expect(headerName(in: preview, at: preview.mapping.descriptionColumnIndex) == "Note")
     #expect(amountHeaderName(in: preview) == "Amount (total)")
     #expect(preview.previewRows.map(\.sourceLineNumber) == [5, 6])
-    #expect(preview.previewRows.map(\.interpretedAmount) == [-135.00, -200.00])
+    #expect(preview.previewRows.map(\.interpretedAmount) == [-135.00, 42.50])
     #expect(preview.validation.validRowCount == 2)
     #expect(preview.validation.invalidRowCount == 0)
     #expect(preview.validation.isReadyForImport)
+}
+
+@Test
+func previewServiceDetectsVenmoImportProfileAndShowsDerivedMerchant() throws {
+    let preview = try CSVImportPreviewService().makePreview(from: venmoStatementCSV())
+
+    #expect(preview.profile == .venmoStatement)
+    #expect(preview.mapping.descriptionColumnIndex == 5)
+    #expect(preview.previewRows.map(\.rawDescription) == ["Groceries", "Birthday dinner"])
+    #expect(preview.previewRows.map(\.derivedMerchant) == ["Jordan Example", "Taylor Example"])
+    #expect(preview.previewRows.map(\.categorizationExplanation) == [
+        "Used for categorization: Jordan Example",
+        "Used for categorization: Taylor Example",
+    ])
+}
+
+@Test
+func genericCSVImportsStillUseDescriptionColumnDirectly() throws {
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,Coffee Shop,-4.75
+    2026-04-02,Payroll,1250.00
+    """
+
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+
+    #expect(preview.profile == .generic)
+    #expect(preview.previewRows.map(\.rawDescription) == ["Coffee Shop", "Payroll"])
+    #expect(preview.previewRows.map(\.derivedMerchant) == ["Coffee Shop", "Payroll"])
+    #expect(preview.previewRows.map(\.categorizationExplanation) == [String?.none, String?.none])
 }
 
 private func headerName(in preview: CSVImportPreview, at columnIndex: Int?) -> String? {
@@ -122,4 +144,16 @@ private func amountHeaderName(in preview: CSVImportPreview) -> String? {
     }
 
     return headerName(in: preview, at: columnIndex)
+}
+
+private func venmoStatementCSV() -> String {
+    """
+    Account Statement - (@alex-example),,,,,,,,,,,,,,,,,,,,,
+    Account Activity,,,,,,,,,,,,,,,,,,,,,
+    ,ID,Datetime,Type,Status,Note,From,To,Amount (total),Amount (tip),Amount (tax),Amount (fee),Tax Rate,Tax Exempt,Funding Source,Destination,Beginning Balance,Ending Balance,Statement Period Venmo Fees,Terminal Location,Year to Date Venmo Fees,Disclaimer
+    ,,,,,,,,,,,,,,,,$7.94,,,,,
+    ,4303787187085607348,2025-04-05T02:16:52,Payment,Complete,Groceries,Alex Example,Jordan Example,- $135.00,,0,,0,,Bank Checking *1234,,,,,Venmo,,
+    ,4306652244709872490,2025-04-09T01:09:14,Payment,Complete,Birthday dinner,Taylor Example,Alex Example,$42.50,,0,,0,,Venmo balance,,,,,Venmo,,
+    ,,,,,,,,,,,,,,,,,$6.94,$0.00,,$0.00,"Disclaimer text"
+    """
 }

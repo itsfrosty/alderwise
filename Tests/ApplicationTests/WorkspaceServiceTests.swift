@@ -1315,6 +1315,73 @@ func stageCSVImportAcceptsVenmoStatementExports() throws {
 }
 
 @Test
+func stageCSVImportUsesVenmoCounterpartyForNormalizedMerchantAndPreservesNoteAsRawDescription() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let diningCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let incomeCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000222")!
+    let jordanRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000333")!
+    let taylorRuleID = UUID(uuidString: "00000000-0000-0000-0000-000000000444")!
+    let classifier = ClassificationEngine(
+        explicitRules: [
+            ClassificationRule(
+                id: jordanRuleID,
+                merchantPattern: "jordan example",
+                categoryID: diningCategoryID,
+                merchantName: "Jordan Example"
+            ),
+            ClassificationRule(
+                id: taylorRuleID,
+                merchantPattern: "taylor example",
+                categoryID: incomeCategoryID,
+                merchantName: "Taylor Example"
+            ),
+        ]
+    )
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store, classifier: classifier)
+    let preview = try CSVImportPreviewService().makePreview(from: venmoStatementCSVForTests())
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "venmo-april.csv",
+        csvText: venmoStatementCSVForTests()
+    )
+
+    let draft = try #require(store.stagedImportDrafts.first)
+    #expect(result.classifications.map(\.decision) == [
+        .autoAccepted(
+            assignment: ClassificationAssignment(
+                categoryID: diningCategoryID,
+                merchantName: "Jordan Example"
+            ),
+            source: .rule,
+            sourceReference: jordanRuleID.uuidString,
+            confidence: 1.0,
+            reason: "Matched explicit merchant rule."
+        ),
+        .autoAccepted(
+            assignment: ClassificationAssignment(
+                categoryID: incomeCategoryID,
+                merchantName: "Taylor Example"
+            ),
+            source: .rule,
+            sourceReference: taylorRuleID.uuidString,
+            confidence: 1.0,
+            reason: "Matched explicit merchant rule."
+        ),
+    ])
+    #expect(draft.rows.map(\.normalizedMerchantName) == ["jordan example", "taylor example"])
+    #expect(draft.rows.compactMap(\.transaction).map(\.rawDescription) == ["Groceries", "Birthday dinner"])
+    #expect(draft.rows.compactMap(\.transaction).map(\.normalizedMerchantName) == ["jordan example", "taylor example"])
+}
+
+@Test
 func stageCSVImportReturnsClassificationResultsForImportedRows() throws {
     let account = Account(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
@@ -1365,6 +1432,18 @@ func stageCSVImportReturnsClassificationResultsForImportedRows() throws {
             )
         ),
     ])
+}
+
+private func venmoStatementCSVForTests() -> String {
+    """
+    Account Statement - (@alex-example),,,,,,,,,,,,,,,,,,,,,
+    Account Activity,,,,,,,,,,,,,,,,,,,,,
+    ,ID,Datetime,Type,Status,Note,From,To,Amount (total),Amount (tip),Amount (tax),Amount (fee),Tax Rate,Tax Exempt,Funding Source,Destination,Beginning Balance,Ending Balance,Statement Period Venmo Fees,Terminal Location,Year to Date Venmo Fees,Disclaimer
+    ,,,,,,,,,,,,,,,,$7.94,,,,,
+    ,4303787187085607348,2025-04-05T02:16:52,Payment,Complete,Groceries,Alex Example,Jordan Example,- $135.00,,0,,0,,Bank Checking *1234,,,,,Venmo,,
+    ,4306652244709872490,2025-04-09T01:09:14,Payment,Complete,Birthday dinner,Taylor Example,Alex Example,$42.50,,0,,0,,Venmo balance,,,,,Venmo,,
+    ,,,,,,,,,,,,,,,,,$6.94,$0.00,,$0.00,"Disclaimer text"
+    """
 }
 
 @Test

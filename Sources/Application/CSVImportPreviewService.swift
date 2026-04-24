@@ -3,6 +3,7 @@ import Foundation
 
 public struct CSVImportPreview: Equatable, Sendable {
     public var headers: [CSVColumn]
+    public var profile: CSVImportProfile
     public var mapping: CSVColumnMapping
     public var previewRows: [CSVImportPreviewRow]
     public var validation: CSVImportValidationSummary
@@ -12,6 +13,7 @@ public struct CSVImportPreview: Equatable, Sendable {
 
     public init(
         headers: [CSVColumn],
+        profile: CSVImportProfile = .generic,
         mapping: CSVColumnMapping,
         previewRows: [CSVImportPreviewRow],
         validation: CSVImportValidationSummary,
@@ -19,6 +21,7 @@ public struct CSVImportPreview: Equatable, Sendable {
         rowLimit: Int = 10
     ) {
         self.headers = headers
+        self.profile = profile
         self.mapping = mapping
         self.previewRows = previewRows
         self.validation = validation
@@ -29,6 +32,7 @@ public struct CSVImportPreview: Equatable, Sendable {
     public func applying(mapping newMapping: CSVColumnMapping) -> CSVImportPreview {
         CSVImportPreview.make(
             headers: headers,
+            profile: profile,
             rows: sourceRows,
             mapping: newMapping,
             rowLimit: rowLimit
@@ -37,21 +41,27 @@ public struct CSVImportPreview: Equatable, Sendable {
 
     fileprivate static func make(
         headers: [CSVColumn],
+        profile: CSVImportProfile,
         rows: [CSVRow],
         mapping: CSVColumnMapping,
         rowLimit: Int
     ) -> CSVImportPreview {
         let interpreter = CSVImportRowInterpreter()
         let previewRows = rows.prefix(max(rowLimit, 0)).map { row in
-            CSVImportPreviewRow(
+            let semantics = profile.semantics(for: row, headers: headers, mapping: mapping)
+            return CSVImportPreviewRow(
                 sourceLineNumber: row.sourceLineNumber,
                 cells: row.cells,
-                interpretedAmount: interpreter.interpretedAmount(for: row, mapping: mapping)
+                interpretedAmount: interpreter.interpretedAmount(for: row, mapping: mapping),
+                rawDescription: semantics.rawDescription,
+                derivedMerchant: semantics.derivedMerchant,
+                categorizationExplanation: semantics.categorizationExplanation
             )
         }
 
         return CSVImportPreview(
             headers: headers,
+            profile: profile,
             mapping: mapping,
             previewRows: Array(previewRows),
             validation: CSVImportValidationSummary.make(rows: rows, mapping: mapping),
@@ -65,11 +75,24 @@ public struct CSVImportPreviewRow: Equatable, Sendable {
     public var sourceLineNumber: Int
     public var cells: [CSVCell]
     public var interpretedAmount: Decimal?
+    public var rawDescription: String
+    public var derivedMerchant: String
+    public var categorizationExplanation: String?
 
-    public init(sourceLineNumber: Int, cells: [CSVCell], interpretedAmount: Decimal?) {
+    public init(
+        sourceLineNumber: Int,
+        cells: [CSVCell],
+        interpretedAmount: Decimal?,
+        rawDescription: String = "",
+        derivedMerchant: String = "",
+        categorizationExplanation: String? = nil
+    ) {
         self.sourceLineNumber = sourceLineNumber
         self.cells = cells
         self.interpretedAmount = interpretedAmount
+        self.rawDescription = rawDescription
+        self.derivedMerchant = derivedMerchant
+        self.categorizationExplanation = categorizationExplanation
     }
 }
 
@@ -159,9 +182,11 @@ public struct CSVImportPreviewService: Sendable {
     public func makePreview(from csvText: String, rowLimit: Int = 10) throws -> CSVImportPreview {
         let document = try parser.parse(csvText)
         let mapping = mappingInference.inferMapping(for: document)
+        let profile = mappingInference.inferProfile(for: document)
         let filteredRows = filteredRows(document.rows, mapping: mapping)
         return .make(
             headers: document.headers,
+            profile: profile,
             rows: filteredRows,
             mapping: mapping,
             rowLimit: rowLimit
