@@ -139,19 +139,32 @@ struct WorkspaceRootView: View {
             )
         ) {
             if let session = model.batchImportSession {
-                BatchCSVImportPreflightSheet(
-                    session: session,
-                    accounts: model.snapshot.importEligibleAccounts,
-                    onCreateAccount: { itemID in
-                        model.beginBatchImportAccountCreation(itemID: itemID)
-                    },
-                    onCancel: {
-                        model.dismissBatchImportSession()
-                    },
-                    onImportAll: {
-                        model.confirmBatchCSVImport()
+                ZStack(alignment: .bottomTrailing) {
+                    BatchCSVImportPreflightSheet(
+                        session: session,
+                        accounts: model.snapshot.importEligibleAccounts,
+                        onCreateAccount: { itemID in
+                            model.beginBatchImportAccountCreation(itemID: itemID)
+                        },
+                        onCancel: {
+                            model.dismissBatchImportSession()
+                        },
+                        onImportAll: {
+                            model.confirmBatchCSVImport()
+                        }
+                    )
+                    .disabled(session.importPhase.isExecuting)
+
+                    if case .importing(let currentIndex, let totalCount) = session.importPhase {
+                        ProgressView("Importing \(currentIndex) of \(totalCount)")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(.regularMaterial, in: Capsule())
+                            .padding(20)
+                            .allowsHitTesting(false)
                     }
-                )
+                }
+                .interactiveDismissDisabled(session.importPhase.isExecuting)
             }
         }
         .alert(

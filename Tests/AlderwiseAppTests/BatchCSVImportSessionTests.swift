@@ -227,6 +227,92 @@ func removingABlockedFileUpdatesReadinessAndSelectionAndKeepsImportAllDisabledUn
     #expect(session.draft.isReadyForImport)
 }
 
+@Test
+@MainActor
+func confirmBatchImportStagesFilesSequentiallyAndAggregatesMixedStagedAndExactReimportResults() async throws {
+    let account = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000601",
+        name: "Checking"
+    )
+    let files = try BatchCSVImportSessionTestFiles.make(
+        [
+            ("april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+            ("april-renamed.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+            ("may.csv", "Date,Description,Amount\n2026-05-01,Payroll,1250.00\n"),
+        ]
+    )
+    let session = BatchCSVImportSession(
+        selectedURLs: files.urls,
+        importEligibleAccounts: [account]
+    )
+    let store = BatchCSVImportSessionExecutionStore(accounts: [account])
+    let service = WorkspaceService(store: store)
+
+    let result = await session.confirmBatchCSVImport(service: service, accounts: [account])
+
+    #expect(
+        result == .success(
+            summary: StagedImportDecisionSummary(
+                importedRowCount: 2,
+                skippedRowCount: 1,
+                pendingClassificationReviewRowCount: 2,
+                flaggedDuplicateRowCount: 0
+            ),
+            outcome: .staged
+        )
+    )
+    #expect(store.createdSessions.map(\.originalFilename) == ["april.csv", "may.csv"])
+    #expect(session.importPhase == .editing)
+}
+
+@Test
+@MainActor
+func confirmBatchImportStopsOnFirstUnexpectedFailureAndDoesNotAttemptLaterFiles() async throws {
+    let account = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000602",
+        name: "Checking"
+    )
+    let files = try BatchCSVImportSessionTestFiles.make(
+        [
+            ("april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+            ("broken.csv", "Date,Description,Amount\nnot-a-date,Payroll,1250.00\n"),
+            ("june.csv", "Date,Description,Amount\n2026-06-01,Rent,-800.00\n"),
+        ]
+    )
+    let session = BatchCSVImportSession(
+        selectedURLs: files.urls,
+        importEligibleAccounts: [account]
+    )
+    let store = BatchCSVImportSessionExecutionStore(accounts: [account])
+    let service = WorkspaceService(store: store)
+    let failedItemID = try #require(
+        session.draft.items.first(where: { $0.originalFilename == "broken.csv" })?.id
+    )
+
+    let result = await session.confirmBatchCSVImport(service: service, accounts: [account])
+
+    #expect(
+        result == .partialFailure(
+            BatchCSVImportFailureContext(
+                failedItemID: failedItemID,
+                failedFilename: "broken.csv",
+                stagedFileCount: 1,
+                errorDescription: WorkspaceServiceError.importPreviewCouldNotNormalizeRow(line: 2).localizedDescription,
+                summary: StagedImportDecisionSummary(
+                    importedRowCount: 1,
+                    skippedRowCount: 0,
+                    pendingClassificationReviewRowCount: 1,
+                    flaggedDuplicateRowCount: 0
+                ),
+                outcome: .staged
+            )
+        )
+    )
+    #expect(store.createdSessions.map(\.originalFilename) == ["april.csv"])
+    #expect(session.draft.selectedItemID == failedItemID)
+    #expect(session.importPhase == .editing)
+}
+
 @MainActor
 private func preview(forItemID itemID: UUID, in session: BatchCSVImportSession) -> CSVImportPreview? {
     guard let item = session.draft.items.first(where: { $0.id == itemID }) else {
@@ -275,4 +361,115 @@ private func batchCSVImportAccount(id: String, name: String) -> Account {
 
 private func batchCSVImportAccountID(_ rawValue: String) -> UUID {
     UUID(uuidString: rawValue)!
+}
+
+private final class BatchCSVImportSessionExecutionStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading {
+    let accounts: [Account]
+    private(set) var createdSessions: [StagedImportSessionDraft] = []
+
+    init(accounts: [Account]) {
+        self.accounts = accounts
+    }
+
+    func fetchSummary() throws -> WorkspaceSummary {
+        .empty
+    }
+
+    func fetchAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchManagementAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchImportEligibleAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchLedgerFilterAccounts() throws -> [Account] {
+        accounts
+    }
+
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> {
+        []
+    }
+
+    func fetchCategories() throws -> [BudgetCategory] {
+        []
+    }
+
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] {
+        []
+    }
+
+    func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(name: named, kind: kind, institutionName: institutionName)
+    }
+
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(id: id, name: named, kind: kind, institutionName: institutionName)
+    }
+
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        try #require(accounts.first(where: { $0.id == id }))
+    }
+
+    func restoreAccount(id: UUID) throws -> Account {
+        try #require(accounts.first(where: { $0.id == id }))
+    }
+
+    func deleteAccountPermanently(id: UUID) throws {}
+
+    func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
+        createdSessions.append(draft)
+
+        let sourceFile = StagedSourceFile(
+            id: Int64(createdSessions.count),
+            accountID: draft.accountID,
+            originalFilename: draft.originalFilename,
+            contentHash: draft.contentHash,
+            importedAt: draft.importedAt,
+            rowCount: draft.rows.count
+        )
+        let rows = draft.rows.enumerated().map { index, row in
+            StagedSourceRow(
+                id: Int64(index + 1),
+                sourceFileID: sourceFile.id,
+                sourceLineNumber: row.sourceLineNumber,
+                rawPayload: row.rawPayload,
+                rowHash: row.rowHash,
+                validationStatus: row.validationStatus,
+                importDecision: row.importDecision
+            )
+        }
+
+        return StagedImportSession(
+            id: sourceFile.id,
+            sourceFile: sourceFile,
+            mapping: draft.mapping,
+            validRowCount: draft.validRowCount,
+            invalidRowCount: draft.invalidRowCount,
+            status: draft.status,
+            rows: rows
+        )
+    }
+
+    func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
+        []
+    }
+
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        let existingHashes = Set(
+            createdSessions.flatMap(\.rows).map(\.rowHash).filter { rowHashes.contains($0) }
+        )
+        return Dictionary(uniqueKeysWithValues: existingHashes.map { ($0, 1) })
+    }
+
+    func fetchLikelyDuplicateTransactions(
+        accountID: UUID,
+        candidates: [NormalizedImportCandidate]
+    ) throws -> [LikelyDuplicateCandidate] {
+        []
+    }
 }

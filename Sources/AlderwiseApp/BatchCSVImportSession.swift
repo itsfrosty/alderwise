@@ -6,6 +6,30 @@ import SwiftUI
 enum BatchCSVImportPhase: Equatable {
     case editing
     case staging
+    case importing(currentIndex: Int, totalCount: Int)
+
+    var isExecuting: Bool {
+        switch self {
+        case .editing:
+            false
+        case .staging, .importing:
+            true
+        }
+    }
+}
+
+struct BatchCSVImportFailureContext: Equatable {
+    var failedItemID: UUID
+    var failedFilename: String
+    var stagedFileCount: Int
+    var errorDescription: String
+    var summary: StagedImportDecisionSummary
+    var outcome: StagedCSVImportOutcome?
+}
+
+enum BatchCSVImportRunResult: Equatable {
+    case success(summary: StagedImportDecisionSummary, outcome: StagedCSVImportOutcome)
+    case partialFailure(BatchCSVImportFailureContext)
 }
 
 @MainActor
@@ -37,6 +61,9 @@ final class BatchCSVImportSession: ObservableObject {
     }
 
     func selectItem(id: UUID?) {
+        guard importPhase.isExecuting == false else {
+            return
+        }
         draft.selectedItemID = id
     }
 
@@ -50,6 +77,9 @@ final class BatchCSVImportSession: ObservableObject {
 
     @discardableResult
     func setSelectedAccount(id accountID: UUID?, forItemID itemID: UUID) -> Bool {
+        guard importPhase.isExecuting == false else {
+            return false
+        }
         guard let index = draft.items.firstIndex(where: { $0.id == itemID }) else {
             return false
         }
@@ -65,6 +95,9 @@ final class BatchCSVImportSession: ObservableObject {
 
     @discardableResult
     func updateMapping(_ mapping: CSVColumnMapping, forItemID itemID: UUID) -> Bool {
+        guard importPhase.isExecuting == false else {
+            return false
+        }
         guard let index = draft.items.firstIndex(where: { $0.id == itemID }) else {
             return false
         }
@@ -81,6 +114,9 @@ final class BatchCSVImportSession: ObservableObject {
 
     @discardableResult
     func removeItem(id itemID: UUID) -> Bool {
+        guard importPhase.isExecuting == false else {
+            return false
+        }
         guard let index = draft.items.firstIndex(where: { $0.id == itemID }) else {
             return false
         }
@@ -94,6 +130,105 @@ final class BatchCSVImportSession: ObservableObject {
         }
 
         return true
+    }
+
+    func confirmBatchCSVImport(
+        service: WorkspaceService,
+        accounts: [Account]
+    ) async -> BatchCSVImportRunResult {
+        let summary = Self.emptySummary
+        guard draft.items.isEmpty == false else {
+            importPhase = .editing
+            return .partialFailure(
+                BatchCSVImportFailureContext(
+                    failedItemID: UUID(),
+                    failedFilename: "Unknown File",
+                    stagedFileCount: 0,
+                    errorDescription: WorkspaceServiceError.importPreviewNotReady.localizedDescription,
+                    summary: summary,
+                    outcome: nil
+                )
+            )
+        }
+
+        if let firstBlockedItem = draft.items.first(where: { $0.isReadyForImport == false }) {
+            draft.selectedItemID = firstBlockedItem.id
+            importPhase = .editing
+            return .partialFailure(
+                BatchCSVImportFailureContext(
+                    failedItemID: firstBlockedItem.id,
+                    failedFilename: firstBlockedItem.originalFilename,
+                    stagedFileCount: 0,
+                    errorDescription: WorkspaceServiceError.importPreviewNotReady.localizedDescription,
+                    summary: summary,
+                    outcome: nil
+                )
+            )
+        }
+
+        let accountsByID = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+        let totalCount = draft.items.count
+        var aggregateSummary = Self.emptySummary
+        var aggregateOutcome: StagedCSVImportOutcome?
+        var stagedFileCount = 0
+
+        for (index, item) in draft.items.enumerated() {
+            importPhase = .importing(currentIndex: index + 1, totalCount: totalCount)
+            await Task.yield()
+
+            guard
+                let preview = item.preview,
+                let csvText = item.csvText,
+                let accountID = item.selectedAccountID,
+                let account = accountsByID[accountID]
+            else {
+                draft.selectedItemID = item.id
+                importPhase = .editing
+                return .partialFailure(
+                    BatchCSVImportFailureContext(
+                        failedItemID: item.id,
+                        failedFilename: item.originalFilename,
+                        stagedFileCount: stagedFileCount,
+                        errorDescription: WorkspaceServiceError.importPreviewNotReady.localizedDescription,
+                        summary: aggregateSummary,
+                        outcome: aggregateOutcome
+                    )
+                )
+            }
+
+            do {
+                let result = try service.stageCSVImport(
+                    preview: preview,
+                    account: account,
+                    originalFilename: item.originalFilename,
+                    csvText: csvText
+                )
+                if result.outcome == .staged {
+                    stagedFileCount += 1
+                }
+                aggregateSummary = Self.accumulate(summary: aggregateSummary, with: result.summary)
+                aggregateOutcome = Self.accumulate(outcome: aggregateOutcome, with: result.outcome)
+            } catch {
+                draft.selectedItemID = item.id
+                importPhase = .editing
+                return .partialFailure(
+                    BatchCSVImportFailureContext(
+                        failedItemID: item.id,
+                        failedFilename: item.originalFilename,
+                        stagedFileCount: stagedFileCount,
+                        errorDescription: error.localizedDescription,
+                        summary: aggregateSummary,
+                        outcome: aggregateOutcome
+                    )
+                )
+            }
+        }
+
+        importPhase = .editing
+        return .success(
+            summary: aggregateSummary,
+            outcome: aggregateOutcome ?? .exactReimportNoOp
+        )
     }
 
     private static func initialSelectionID(in items: [BatchCSVImportItemDraft]) -> UUID? {
@@ -128,6 +263,41 @@ final class BatchCSVImportSession: ObservableObject {
             return .loaded(csvText: csvText, preview: preview)
         } catch {
             return .loadFailed(message: error.localizedDescription)
+        }
+    }
+
+    private static var emptySummary: StagedImportDecisionSummary {
+        StagedImportDecisionSummary(
+            importedRowCount: 0,
+            skippedRowCount: 0,
+            pendingClassificationReviewRowCount: 0,
+            flaggedDuplicateRowCount: 0
+        )
+    }
+
+    private static func accumulate(
+        summary: StagedImportDecisionSummary,
+        with next: StagedImportDecisionSummary
+    ) -> StagedImportDecisionSummary {
+        StagedImportDecisionSummary(
+            importedRowCount: summary.importedRowCount + next.importedRowCount,
+            skippedRowCount: summary.skippedRowCount + next.skippedRowCount,
+            pendingClassificationReviewRowCount: summary.pendingClassificationReviewRowCount + next.pendingClassificationReviewRowCount,
+            flaggedDuplicateRowCount: summary.flaggedDuplicateRowCount + next.flaggedDuplicateRowCount
+        )
+    }
+
+    private static func accumulate(
+        outcome: StagedCSVImportOutcome?,
+        with next: StagedCSVImportOutcome
+    ) -> StagedCSVImportOutcome {
+        switch (outcome, next) {
+        case (.staged, _), (_, .staged):
+            .staged
+        case (.exactReimportNoOp, .exactReimportNoOp):
+            .exactReimportNoOp
+        case (nil, let outcome):
+            outcome
         }
     }
 }

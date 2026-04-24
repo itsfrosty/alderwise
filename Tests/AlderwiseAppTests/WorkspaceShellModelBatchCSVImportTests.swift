@@ -208,6 +208,85 @@ struct WorkspaceShellModelBatchCSVImportTests {
         #expect(model.importErrorMessage == nil)
     }
 
+    @Test
+    @MainActor
+    func confirmingBatchImportAggregatesMixedStagedAndExactReimportResultsIntoOneSuccessMessage() async throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [
+                ("april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+                ("april-renamed.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+                ("may.csv", "Date,Description,Amount\n2026-05-01,Payroll,1250.00\n"),
+            ]
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore()
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+        model.confirmBatchCSVImport()
+        #expect(model.batchImportSession?.importPhase == .staging)
+
+        await waitForBatchImportCompletion(in: model)
+
+        #expect(model.batchImportSession == nil)
+        #expect(model.importErrorMessage == nil)
+        #expect(
+            model.importResultMessage
+                == "2 imported to Transactions, 1 skipped, 2 sent to Review, 0 likely duplicates waiting in Review."
+        )
+        #expect(store.createdSessions.map(\.originalFilename) == ["april.csv", "may.csv"])
+    }
+
+    @Test
+    @MainActor
+    func confirmingBatchImportKeepsBatchOpenOnFirstUnexpectedFailureAndSelectsTheFailingItem() async throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [
+                ("broken.csv", "Date,Description,Amount\nnot-a-date,Coffee,-4.75\n"),
+                ("later.csv", "Date,Description,Amount\n2026-05-01,Payroll,1250.00\n"),
+            ]
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore()
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+        model.confirmBatchCSVImport()
+        #expect(model.batchImportSession?.importPhase == .staging)
+
+        await waitForBatchImportCompletion(in: model)
+
+        #expect(model.batchImportSession?.draft.selectedItem?.originalFilename == "broken.csv")
+        #expect(model.importResultMessage == nil)
+        #expect(model.importErrorMessage?.contains("broken.csv") == true)
+        #expect(model.importErrorMessage?.contains("No files were staged") == true)
+        #expect(store.createdSessions.isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func confirmingBatchImportStopsAfterLaterFailurePreservesEarlierStagesAndDoesNotAttemptRemainingFiles() async throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [
+                ("april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+                ("broken.csv", "Date,Description,Amount\nnot-a-date,Payroll,1250.00\n"),
+                ("june.csv", "Date,Description,Amount\n2026-06-01,Rent,-800.00\n"),
+            ]
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore()
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+        model.confirmBatchCSVImport()
+        #expect(model.batchImportSession?.importPhase == .staging)
+
+        await waitForBatchImportCompletion(in: model)
+
+        #expect(model.batchImportSession?.draft.selectedItem?.originalFilename == "broken.csv")
+        #expect(model.importResultMessage == nil)
+        #expect(model.importErrorMessage?.contains("broken.csv") == true)
+        #expect(model.importErrorMessage?.contains("1 file was staged") == true)
+        #expect(store.createdSessions.map(\.originalFilename) == ["april.csv"])
+    }
+
     @MainActor
     private func makeModel(
         store: WorkspaceShellModelBatchCSVImportStore = WorkspaceShellModelBatchCSVImportStore()
@@ -235,6 +314,21 @@ struct WorkspaceShellModelBatchCSVImportTests {
     @MainActor
     private func accountID(for itemID: UUID, in model: WorkspaceShellModel) -> UUID? {
         model.batchImportSession?.draft.items.first(where: { $0.id == itemID })?.selectedAccountID
+    }
+
+    @MainActor
+    private func waitForBatchImportCompletion(
+        in model: WorkspaceShellModel,
+        maxYields: Int = 20
+    ) async {
+        for _ in 0..<maxYields {
+            if model.batchImportSession == nil || model.importErrorMessage != nil || model.importResultMessage != nil {
+                return
+            }
+            await Task.yield()
+        }
+
+        Issue.record("Timed out waiting for batch import completion.")
     }
 }
 
@@ -271,6 +365,7 @@ private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable,
     )
 
     var createAccountError: BatchCSVImportTestError?
+    private(set) var createdSessions: [StagedImportSessionDraft] = []
 
     private var accounts: [Account]
 
@@ -335,7 +430,37 @@ private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable,
     func deleteAccountPermanently(id: UUID) throws {}
 
     func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
-        fatalError("Not used in this test")
+        createdSessions.append(draft)
+
+        let sourceFile = StagedSourceFile(
+            id: Int64(createdSessions.count),
+            accountID: draft.accountID,
+            originalFilename: draft.originalFilename,
+            contentHash: draft.contentHash,
+            importedAt: draft.importedAt,
+            rowCount: draft.rows.count
+        )
+        let rows = draft.rows.enumerated().map { index, row in
+            StagedSourceRow(
+                id: Int64(index + 1),
+                sourceFileID: sourceFile.id,
+                sourceLineNumber: row.sourceLineNumber,
+                rawPayload: row.rawPayload,
+                rowHash: row.rowHash,
+                validationStatus: row.validationStatus,
+                importDecision: row.importDecision
+            )
+        }
+
+        return StagedImportSession(
+            id: sourceFile.id,
+            sourceFile: sourceFile,
+            mapping: draft.mapping,
+            validRowCount: draft.validRowCount,
+            invalidRowCount: draft.invalidRowCount,
+            status: draft.status,
+            rows: rows
+        )
     }
 
     func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
@@ -343,7 +468,10 @@ private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable,
     }
 
     func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
-        [:]
+        let existingHashes = Set(
+            createdSessions.flatMap(\.rows).map(\.rowHash).filter { rowHashes.contains($0) }
+        )
+        return Dictionary(uniqueKeysWithValues: existingHashes.map { ($0, 1) })
     }
 
     func fetchLikelyDuplicateTransactions(

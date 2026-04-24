@@ -1977,6 +1977,63 @@ func stageCSVImportRejectsInvalidPreviewBeforeWriting() throws {
 }
 
 @Test
+func stageCSVImportCanStillFailNormalizationAfterPreviewValidationReportsReady() throws {
+    let account = Account(name: "Checking", kind: .checking, institutionName: "Local Bank")
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store)
+    let preview = CSVImportPreview(
+        headers: [
+            CSVColumn(name: "Date", columnIndex: 0),
+            CSVColumn(name: "Description", columnIndex: 1),
+            CSVColumn(name: "Amount", columnIndex: 2),
+        ],
+        mapping: CSVColumnMapping(
+            dateColumnIndex: 0,
+            descriptionColumnIndex: 1,
+            amount: .singleSignedAmount(columnIndex: 2)
+        ),
+        previewRows: [
+            CSVImportPreviewRow(
+                sourceLineNumber: 2,
+                cells: [
+                    CSVCell(value: "2026-04-01", columnIndex: 0),
+                    CSVCell(value: "Coffee Shop", columnIndex: 1),
+                    CSVCell(value: "-4.75", columnIndex: 2),
+                ],
+                interpretedAmount: -4.75
+            ),
+        ],
+        validation: CSVImportValidationSummary(
+            missingRequiredFields: [],
+            validRowCount: 1,
+            invalidRowCount: 0,
+            rowIssues: []
+        ),
+        sourceRows: [
+            CSVRow(
+                sourceLineNumber: 2,
+                cells: [
+                    CSVCell(value: "not-a-date", columnIndex: 0),
+                    CSVCell(value: "Coffee Shop", columnIndex: 1),
+                    CSVCell(value: "-4.75", columnIndex: 2),
+                ]
+            ),
+        ]
+    )
+
+    #expect(preview.validation.isReadyForImport)
+    #expect(throws: WorkspaceServiceError.importPreviewCouldNotNormalizeRow(line: 2)) {
+        try service.stageCSVImport(
+            preview: preview,
+            account: account,
+            originalFilename: "still-ready.csv",
+            csvText: "Date,Description,Amount\nnot-a-date,Coffee Shop,-4.75"
+        )
+    }
+    #expect(store.stagedImportDrafts.isEmpty)
+}
+
+@Test
 func stageCSVImportRejectsPreviewWithMissingSourceRowsBeforeWriting() throws {
     let account = Account(name: "Checking", kind: .checking, institutionName: "Local Bank")
     let store = MutableWorkspaceStore(accounts: [account])

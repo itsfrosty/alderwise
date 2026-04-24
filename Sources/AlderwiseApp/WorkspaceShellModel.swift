@@ -873,14 +873,47 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func confirmBatchCSVImport() {
-        guard let batchImportSession else {
+        guard let batchImportSession, let service else {
+            return
+        }
+        guard batchImportSession.importPhase.isExecuting == false else {
             return
         }
         guard batchImportSession.draft.isReadyForImport else {
             return
         }
 
-        importErrorMessage = "Batch import execution lands in the next diff."
+        importErrorMessage = nil
+        importResultMessage = nil
+        batchImportSession.setImportPhase(.staging)
+        let accounts = snapshot.accounts
+
+        Task { @MainActor [weak self] in
+            await Task.yield()
+            guard let self, self.batchImportSession === batchImportSession else {
+                return
+            }
+
+            let result = await batchImportSession.confirmBatchCSVImport(
+                service: service,
+                accounts: accounts
+            )
+            guard self.batchImportSession === batchImportSession else {
+                return
+            }
+
+            switch result {
+            case .success(let summary, let outcome):
+                dismissBatchImportSession()
+                reload()
+                importResultMessage = ImportResultMessage.make(for: outcome, summary: summary)
+            case .partialFailure(let failure):
+                if failure.outcome == .staged {
+                    reload()
+                }
+                importErrorMessage = batchImportFailureMessage(for: failure)
+            }
+        }
     }
 
     func confirmCSVImport(preview: CSVImportPreview, account: Account) {
@@ -973,6 +1006,24 @@ final class WorkspaceShellModel: ObservableObject {
         case (nil, let outcome):
             queuedCSVImportOutcome = outcome
         }
+    }
+
+    private func batchImportFailureMessage(
+        for failure: BatchCSVImportFailureContext
+    ) -> String {
+        let prefix = "Import failed on \(failure.failedFilename)."
+        guard failure.stagedFileCount > 0 else {
+            return "\(prefix) No files were staged before the failure. \(failure.errorDescription)"
+        }
+
+        let stagedContext: String
+        if failure.stagedFileCount == 1 {
+            stagedContext = "1 file was staged before the failure."
+        } else {
+            stagedContext = "\(failure.stagedFileCount) files were staged before the failure."
+        }
+
+        return "\(prefix) \(stagedContext) Earlier staged files remain available. \(failure.errorDescription)"
     }
 
     private func resetWorkspace() {
