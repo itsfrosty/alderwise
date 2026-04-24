@@ -1517,9 +1517,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         let rows = try Row.fetchAll(
             db,
             sql: """
-            SELECT pattern, match_kind
+            SELECT rules.pattern, rules.match_kind
             FROM rules
-            WHERE disabled_at IS NULL
+            JOIN categories ON categories.id = rules.category_id
+            WHERE rules.disabled_at IS NULL
             """
         )
 

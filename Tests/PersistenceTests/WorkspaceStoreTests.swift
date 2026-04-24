@@ -3891,6 +3891,32 @@ func merchantHistoryDerivedFromAcceptedUserDecisionsBecomesEligibleForRecommenda
 }
 
 @Test
+func twoDistinctAcceptedUserApprovalsRemainBelowRecommendationThreshold() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee Shops", kind: "expense")
+
+    _ = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: categoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Downtown",
+            "Coffee Shop Uptown",
+        ]
+    )
+
+    let eligibility = try store.fetchMerchantRecommendationEligibility(normalizedMerchantName: "coffee shop")
+
+    #expect(eligibility == nil)
+}
+
+@Test
 func conflictingUserHistorySuppressesMerchantRecommendationEligibility() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -4099,6 +4125,55 @@ func existingLearnedRuleSuppressesMerchantRecommendationEligibility() throws {
     let eligibility = try store.fetchMerchantRecommendationEligibility(normalizedMerchantName: "coffee shop")
 
     #expect(eligibility == nil)
+}
+
+@Test
+func classifierInvisibleLearnedRulesDoNotSuppressMerchantRecommendationEligibility() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee Shops", kind: "expense")
+
+    _ = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: categoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Downtown",
+            "Coffee Shop Uptown",
+            "Coffee Shop Midtown",
+        ]
+    )
+    try insertRule(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000223")!,
+        pattern: "coffee shop",
+        categoryID: nil,
+        merchantName: "Coffee Shop",
+        matchKind: .exactNormalizedMerchant,
+        createdAt: Date(timeIntervalSince1970: 1_776_700_961)
+    )
+    try insertOrphanedRule(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000224")!,
+        pattern: "coffee shop",
+        missingCategoryID: UUID(uuidString: "00000000-0000-0000-0000-000000000999")!,
+        merchantName: "Coffee Shop",
+        matchKind: .exactNormalizedMerchant,
+        createdAt: Date(timeIntervalSince1970: 1_776_700_962)
+    )
+
+    let eligibility = try store.fetchMerchantRecommendationEligibility(normalizedMerchantName: "coffee shop")
+
+    #expect(eligibility == MerchantRecommendationEligibility(
+        normalizedMerchantName: "coffee shop",
+        categoryID: categoryID,
+        approvedDecisionCount: 3
+    ))
 }
 
 @Test
@@ -5606,6 +5681,37 @@ private func insertLegacyRuleWithoutDisabledAt(
                 categoryID?.uuidString,
                 merchantName,
                 createdAt,
+            ]
+        )
+    }
+}
+
+private func insertOrphanedRule(
+    databaseURL: URL,
+    id: UUID,
+    pattern: String,
+    missingCategoryID: UUID,
+    merchantName: String?,
+    matchKind: ClassificationRuleMatchKind = .contains,
+    createdAt: Date
+) throws {
+    var configuration = Configuration()
+    configuration.foreignKeysEnabled = false
+    let queue = try DatabaseQueue(path: databaseURL.path, configuration: configuration)
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO rules (id, pattern, category_id, merchant_name, match_kind, created_at, disabled_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                id.uuidString,
+                pattern,
+                missingCategoryID.uuidString,
+                merchantName,
+                matchKind.rawValue,
+                createdAt,
+                nil,
             ]
         )
     }
