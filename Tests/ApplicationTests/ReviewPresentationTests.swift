@@ -269,6 +269,112 @@ func issuerCreditReviewItemsDoNotDefaultToRuleLearning() {
 }
 
 @Test
+func recommendedMerchantHistoryShowsExplicitRecommendationCopy() {
+    let groceriesID = UUID(uuidString: "00000000-0000-0000-0000-000000000114")!
+    let item = makeReviewItem(
+        source: .heuristic,
+        reason: "Low confidence category suggestion.",
+        categoryID: groceriesID
+    )
+    let presentation = ReviewPresentation(
+        categories: [
+            BudgetCategory(id: groceriesID, name: "Groceries", kind: .expense),
+        ],
+        recommendationEligibilityByReviewItemID: [
+            item.id: MerchantRecommendationEligibility(
+                normalizedMerchantName: "coffee shop",
+                categoryID: groceriesID,
+                approvedDecisionCount: 3
+            ),
+        ]
+    )
+
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: true,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Recommendation: You already approved coffee shop as Groceries 3 times. Enable Learn this merchant rule to save it in Your Rules.",
+                emphasis: .neutral
+            ),
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving saves an Exact merchant rule in Your Rules for coffee shop.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+}
+
+@Test
+func ineligibleMerchantHistoryKeepsGenericRuleLearningCopy() {
+    let groceriesID = UUID(uuidString: "00000000-0000-0000-0000-000000000115")!
+    let item = makeReviewItem(
+        source: .heuristic,
+        reason: "Low confidence category suggestion.",
+        categoryID: groceriesID
+    )
+    let presentation = ReviewPresentation(
+        categories: [
+            BudgetCategory(id: groceriesID, name: "Groceries", kind: .expense),
+        ]
+    )
+
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: true,
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving saves an Exact merchant rule in Your Rules for coffee shop.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+}
+
+@Test
+func issuerCreditAndCuratedPrefillRowsRemainNonLearnableByDefault() {
+    let flightsID = UUID(uuidString: "00000000-0000-0000-0000-000000000116")!
+    let groceriesID = UUID(uuidString: "00000000-0000-0000-0000-000000000117")!
+    let issuerCreditItem = makeReviewItem(
+        source: .curatedPrefill,
+        reason: "Curated starter match requires review before acceptance.",
+        categoryID: flightsID,
+        normalizedMerchantName: "amex airline fee reimbursement"
+    )
+    let curatedPrefillItem = makeReviewItem(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000556")!,
+        source: .curatedPrefill,
+        reason: "Curated starter match requires review before acceptance.",
+        categoryID: groceriesID
+    )
+    let presentation = ReviewPresentation(
+        categories: [
+            BudgetCategory(id: flightsID, name: "Flights", kind: .expense),
+            BudgetCategory(id: groceriesID, name: "Groceries", kind: .expense),
+        ],
+        recommendationEligibilityByReviewItemID: [
+            issuerCreditItem.id: MerchantRecommendationEligibility(
+                normalizedMerchantName: "amex airline fee reimbursement",
+                categoryID: flightsID,
+                approvedDecisionCount: 2
+            ),
+            curatedPrefillItem.id: MerchantRecommendationEligibility(
+                normalizedMerchantName: "coffee shop",
+                categoryID: groceriesID,
+                approvedDecisionCount: 3
+            ),
+        ]
+    )
+
+    #expect(presentation.initialCreateRuleValue(for: issuerCreditItem) == false)
+    #expect(presentation.initialCreateRuleValue(for: curatedPrefillItem) == false)
+}
+
+@Test
 func resolvedRuleLearningSelectionPreservesExplicitUserChoice() {
     let donationsID = UUID(uuidString: "00000000-0000-0000-0000-000000000112")!
     let item = makeReviewItem(
@@ -292,13 +398,14 @@ func resolvedRuleLearningSelectionPreservesExplicitUserChoice() {
 }
 
 private func makeReviewItem(
+    id: UUID = UUID(uuidString: "00000000-0000-0000-0000-000000000555")!,
     source: ClassificationDecisionSource?,
     reason: String?,
     categoryID: UUID? = nil,
     normalizedMerchantName: String = "coffee shop"
 ) -> PendingReviewItem {
     PendingReviewItem(
-        id: UUID(uuidString: "00000000-0000-0000-0000-000000000555")!,
+        id: id,
         type: .lowConfidenceCategory,
         status: .pending,
         reason: reason,

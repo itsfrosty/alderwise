@@ -18,9 +18,14 @@ public struct ReviewPresentation: Sendable {
     }
 
     private let categoryNamesByID: [UUID: String]
+    private let recommendationEligibilityByReviewItemID: [UUID: MerchantRecommendationEligibility]
 
-    public init(categories: [BudgetCategory]) {
+    public init(
+        categories: [BudgetCategory],
+        recommendationEligibilityByReviewItemID: [UUID: MerchantRecommendationEligibility] = [:]
+    ) {
         categoryNamesByID = Dictionary(uniqueKeysWithValues: categories.map { ($0.id, $0.name) })
+        self.recommendationEligibilityByReviewItemID = recommendationEligibilityByReviewItemID
     }
 
     public func queueSubtitle(for item: PendingReviewItem) -> String {
@@ -62,6 +67,10 @@ public struct ReviewPresentation: Sendable {
         selectedRuleLearning: ReviewRuleLearningOption?
     ) -> [ConsequenceLine] {
         var lines: [ConsequenceLine] = []
+
+        if let recommendationLine = merchantRecommendationLine(for: item) {
+            lines.append(recommendationLine)
+        }
 
         if isCuratedPrefill(item) {
             lines.append(
@@ -183,5 +192,25 @@ public struct ReviewPresentation: Sendable {
                 emphasis: .neutral
             )
         }
+    }
+
+    private func merchantRecommendationLine(for item: PendingReviewItem) -> ConsequenceLine? {
+        guard let eligibility = recommendationEligibilityByReviewItemID[item.id] else {
+            return nil
+        }
+
+        let categoryLabel: String
+        if let trimmedCategoryLabel = categoryNamesByID[eligibility.categoryID]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           trimmedCategoryLabel.isEmpty == false {
+            categoryLabel = trimmedCategoryLabel
+        } else {
+            categoryLabel = "the same category"
+        }
+
+        return ConsequenceLine(
+            text: "Recommendation: You already approved \(eligibility.normalizedMerchantName) as \(categoryLabel) \(eligibility.approvedDecisionCount) time\(eligibility.approvedDecisionCount == 1 ? "" : "s"). Enable Learn this merchant rule to save it in \(RuleDisplayText.yourRules).",
+            emphasis: .neutral
+        )
     }
 }

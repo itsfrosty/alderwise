@@ -22,7 +22,10 @@ struct ReviewQueueView: View {
     }
 
     var body: some View {
-        let presentation = ReviewPresentation(categories: snapshot.categories)
+        let presentation = ReviewPresentation(
+            categories: snapshot.categories,
+            recommendationEligibilityByReviewItemID: model.merchantRecommendationEligibilityByReviewItemID
+        )
 
         HSplitView {
             VStack(spacing: 0) {

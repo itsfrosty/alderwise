@@ -113,6 +113,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var reviewRulePreviewState: ReviewRulePreviewState?
     @Published private(set) var learnedRuleDraftPreviewState: ReviewRulePreviewState?
     @Published private(set) var learnedRuleDraftSheet: LearnedRuleDraftSheet?
+    @Published private(set) var merchantRecommendationEligibilityByReviewItemID: [UUID: MerchantRecommendationEligibility] = [:]
 
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
@@ -923,12 +924,17 @@ final class WorkspaceShellModel: ObservableObject {
         let metadata = try? service.loadWorkspaceMetadata()
         let preferences = (try? service.loadWorkspacePreferences()) ?? .default
         let learnedRuleManagerSnapshot = try? service.loadLearnedRuleManagerSnapshot()
+        let merchantRecommendationEligibilityByReviewItemID = loadMerchantRecommendationEligibility(
+            for: snapshot.pendingReviewItems,
+            service: service
+        )
 
         state = .loaded(snapshot)
         self.managedTargets = managedTargets
         workspaceStatus = .available(metadata)
         workspacePreferences = preferences
         self.learnedRuleManagerSnapshot = learnedRuleManagerSnapshot
+        self.merchantRecommendationEligibilityByReviewItemID = merchantRecommendationEligibilityByReviewItemID
 
         if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
             self.selectedTargetID = nil
@@ -963,8 +969,24 @@ final class WorkspaceShellModel: ObservableObject {
         learnedRuleManagerSnapshot = nil
         reviewCreatedLearnedRuleAction = nil
         pendingAppSectionNavigation = nil
+        merchantRecommendationEligibilityByReviewItemID = [:]
         state = .failed(message)
         workspaceStatus = .failedToOpen(message)
+    }
+
+    private func loadMerchantRecommendationEligibility(
+        for items: [PendingReviewItem],
+        service: WorkspaceService
+    ) -> [UUID: MerchantRecommendationEligibility] {
+        Dictionary(uniqueKeysWithValues: items.compactMap { item in
+            guard let eligibility = try? service.fetchMerchantRecommendationEligibility(
+                reviewItemID: item.id
+            ) else {
+                return nil
+            }
+
+            return (item.id, eligibility)
+        })
     }
 
     private func refreshWorkspaceMetadata() {

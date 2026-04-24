@@ -272,6 +272,20 @@ func reviewQueueDoesNotRefreshPreviewForMerchantNameOnlyEdits() throws {
 }
 
 @Test
+func approvingRecommendedMerchantKeepsKeyboardFlowAndAdvancesSelection() throws {
+    let source = try sourceText(in: "Sources/AlderwiseApp/ReviewQueueView.swift")
+
+    #expect(
+        source.contains(
+            "recommendationEligibilityByReviewItemID: model.merchantRecommendationEligibilityByReviewItemID"
+        )
+    )
+    #expect(source.contains(".keyboardShortcut(.return, modifiers: [.command])"))
+    #expect(source.contains("selectNextItem(after: item.id)"))
+    #expect(source.contains("items.contains(where: { $0.id == selectedReviewItemID })"))
+}
+
+@Test
 @MainActor
 func reviewRulePreviewShowsNoEligiblePreviewWhenRuleCreationIsDisabled() async throws {
     let item = makeReviewItem(
