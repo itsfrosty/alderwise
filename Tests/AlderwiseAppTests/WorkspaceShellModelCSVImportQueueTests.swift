@@ -76,6 +76,39 @@ func confirmingTheLastQueuedCSVImportShowsAnAggregateCompletionMessage() throws 
     #expect(model.importErrorMessage == nil)
 }
 
+@Test
+func csvImportPreviewEditorSelectionKeepsAmountModesConsistentAndSyncsIncomingMappings() {
+    var selection = CSVImportPreviewEditorSelection(
+        mapping: CSVColumnMapping(
+            dateColumnIndex: 0,
+            descriptionColumnIndex: 1,
+            amount: .singleSignedAmount(columnIndex: 2)
+        )
+    )
+
+    selection.signedAmountColumnIndex = 3
+    #expect(selection.mapping.amount == .singleSignedAmount(columnIndex: 3))
+
+    selection.debitColumnIndex = 4
+    selection.creditColumnIndex = 5
+    #expect(selection.mapping.amount == .debitCredit(debitColumnIndex: 4, creditColumnIndex: 5))
+    #expect(selection.signedAmountColumnIndex == nil)
+
+    selection.sync(
+        from: CSVColumnMapping(
+            dateColumnIndex: 6,
+            descriptionColumnIndex: 7,
+            amount: .singleSignedAmount(columnIndex: 8)
+        )
+    )
+    #expect(selection.dateColumnIndex == 6)
+    #expect(selection.descriptionColumnIndex == 7)
+    #expect(selection.signedAmountColumnIndex == 8)
+    #expect(selection.debitColumnIndex == nil)
+    #expect(selection.creditColumnIndex == nil)
+    #expect(selection.mapping.amount == .singleSignedAmount(columnIndex: 8))
+}
+
 private struct CSVImportQueueTestFiles {
     let directoryURL: URL
     let urls: [URL]
