@@ -149,12 +149,13 @@ private struct StubWorkspaceStore: WorkspaceStoring, StagedImportWriting, Import
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, MerchantRecommendationEligibilityReading, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var categories: [BudgetCategory] = []
     var categoryGroups: [BudgetCategoryGroup] = []
     var pendingReviewItems: [PendingReviewItem] = []
+    var merchantRecommendationEligibilityByMerchant: [String: MerchantRecommendationEligibility] = [:]
     var transactionDetailsByID: [UUID: TransactionDetail] = [:]
     var learnedRuleSummaries: [LearnedRuleSummary] = []
     var stagedImportDrafts: [StagedImportSessionDraft] = []
@@ -223,6 +224,12 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
 
     func fetchPendingReviewItems() throws -> [PendingReviewItem] {
         pendingReviewItems
+    }
+
+    func fetchMerchantRecommendationEligibility(
+        normalizedMerchantName: String
+    ) throws -> MerchantRecommendationEligibility? {
+        merchantRecommendationEligibilityByMerchant[normalizedMerchantName]
     }
 
     func keepBothForLikelyDuplicateReviewItem(id: UUID, resolvedAt: Date) throws -> ReviewDecisionEvent {
@@ -2913,6 +2920,65 @@ func previewLearnedRuleImpactReturnsUnavailableWithoutPreviewReader() throws {
     )
 
     #expect(preview == .unavailable)
+}
+
+@Test
+func fetchMerchantRecommendationEligibilityReturnsDerivedStoreResultForReviewItem() throws {
+    let reviewItemID = UUID(uuidString: "00000000-0000-0000-0000-000000000570")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000571")!
+    let store = MutableWorkspaceStore()
+    store.pendingReviewItems = [
+        PendingReviewItem(
+            id: reviewItemID,
+            type: .lowConfidenceCategory,
+            status: .pending,
+            reason: nil,
+            createdAt: Date(timeIntervalSince1970: 1_776_355_520),
+            sourceFile: PendingReviewSourceFile(
+                accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000572")!,
+                originalFilename: "checking.csv"
+            ),
+            sourceRow: PendingReviewSourceRow(
+                id: 1,
+                sourceLineNumber: 2,
+                rowHash: "row-merchant-history",
+                rawPayload: #"["2026-04-03","Coffee Shop","-4.75"]"#
+            ),
+            duplicateTransactionID: nil,
+            classification: PendingReviewClassification(
+                normalizedMerchantName: "  Coffee Shop  ",
+                prefill: nil,
+                source: nil,
+                sourceReference: nil,
+                confidence: nil
+            )
+        )
+    ]
+    store.merchantRecommendationEligibilityByMerchant["coffee shop"] = MerchantRecommendationEligibility(
+        normalizedMerchantName: "coffee shop",
+        categoryID: categoryID,
+        approvedDecisionCount: 3
+    )
+    let service = WorkspaceService(store: store)
+
+    let eligibility = try service.fetchMerchantRecommendationEligibility(reviewItemID: reviewItemID)
+
+    #expect(eligibility == MerchantRecommendationEligibility(
+        normalizedMerchantName: "coffee shop",
+        categoryID: categoryID,
+        approvedDecisionCount: 3
+    ))
+}
+
+@Test
+func fetchMerchantRecommendationEligibilityReturnsNilWithoutMatchingPendingReviewItem() throws {
+    let service = WorkspaceService(store: MutableWorkspaceStore())
+
+    let eligibility = try service.fetchMerchantRecommendationEligibility(
+        reviewItemID: UUID(uuidString: "00000000-0000-0000-0000-000000000573")!
+    )
+
+    #expect(eligibility == nil)
 }
 
 private func makeTransactionDetail(

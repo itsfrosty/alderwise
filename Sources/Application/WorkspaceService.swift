@@ -317,6 +317,20 @@ public struct WorkspaceService: Sendable {
         return .ready(preview)
     }
 
+    public func fetchMerchantRecommendationEligibility(
+        reviewItemID: UUID
+    ) throws -> MerchantRecommendationEligibility? {
+        guard let recommendationReader = store as? any MerchantRecommendationEligibilityReading,
+              let normalizedMerchantName = try pendingReviewItemNormalizedMerchantName(reviewItemID: reviewItemID)
+        else {
+            return nil
+        }
+
+        return try recommendationReader.fetchMerchantRecommendationEligibility(
+            normalizedMerchantName: normalizedMerchantName
+        )
+    }
+
     public func fetchManagedTargets(referenceDate: Date = Date()) throws -> [ManagedMonthlyTarget] {
         try targetManager().fetchManagedTargets(referenceDate: referenceDate)
     }
@@ -691,15 +705,20 @@ public struct WorkspaceService: Sendable {
         reviewItemID: UUID,
         merchantPattern: String
     ) throws -> String? {
-        let fallbackPattern = try (store as? any ReviewQueueReading)?
-            .fetchPendingReviewItems()
-            .first { $0.id == reviewItemID }?
-            .classification?
-            .normalizedMerchantName
+        let fallbackPattern = try pendingReviewItemNormalizedMerchantName(reviewItemID: reviewItemID)
         return LearnedRuleMatcher.normalizedPattern(
             merchantPattern,
             fallbackPattern: fallbackPattern
         )
+    }
+
+    private func pendingReviewItemNormalizedMerchantName(reviewItemID: UUID) throws -> String? {
+        let normalizedMerchantName = try (store as? any ReviewQueueReading)?
+            .fetchPendingReviewItems()
+            .first { $0.id == reviewItemID }?
+            .classification?
+            .normalizedMerchantName
+        return LearnedRuleMatcher.normalizedPattern(normalizedMerchantName ?? "")
     }
 
     private func resolveRuleProvenance(

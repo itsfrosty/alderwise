@@ -3860,6 +3860,248 @@ func previewLearnedRuleImpactCountsContainsMatchesAcrossAcceptedTransactionsAndS
 }
 
 @Test
+func merchantHistoryDerivedFromAcceptedUserDecisionsBecomesEligibleForRecommendation() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee Shops", kind: "expense")
+
+    _ = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: categoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Downtown",
+            "Coffee Shop Uptown",
+            "Coffee Shop Midtown",
+        ]
+    )
+
+    let eligibility = try store.fetchMerchantRecommendationEligibility(normalizedMerchantName: "coffee shop")
+
+    #expect(eligibility == MerchantRecommendationEligibility(
+        normalizedMerchantName: "coffee shop",
+        categoryID: categoryID,
+        approvedDecisionCount: 3
+    ))
+}
+
+@Test
+func conflictingUserHistorySuppressesMerchantRecommendationEligibility() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let coffeeCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    let groceriesCategoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000112")!
+    try insertCategory(databaseURL: databaseURL, id: coffeeCategoryID, name: "Coffee Shops", kind: "expense")
+    try insertCategory(databaseURL: databaseURL, id: groceriesCategoryID, name: "Groceries", kind: "expense")
+
+    _ = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: coffeeCategoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Downtown",
+            "Coffee Shop Uptown",
+            "Coffee Shop Midtown",
+        ]
+    )
+    _ = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: groceriesCategoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Grocery Counter",
+        ],
+        startingSequence: 100
+    )
+
+    let eligibility = try store.fetchMerchantRecommendationEligibility(normalizedMerchantName: "coffee shop")
+
+    #expect(eligibility == nil)
+}
+
+@Test
+func sameImportDuplicatesDoNotCountAsRepeatedApprovals() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee Shops", kind: "expense")
+
+    _ = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: categoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Downtown",
+        ]
+    )
+    _ = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: categoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Repeated",
+            "Coffee Shop Repeated",
+        ],
+        rowHashes: [
+            "duplicate-row",
+            "duplicate-row",
+        ],
+        originalFilename: "checking-duplicate-import.csv",
+        startingSequence: 100
+    )
+
+    let eligibility = try store.fetchMerchantRecommendationEligibility(normalizedMerchantName: "coffee shop")
+
+    #expect(eligibility == nil)
+}
+
+@Test
+func nonUserSourcesDoNotCountTowardMerchantRecommendationEligibility() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee Shops", kind: "expense")
+
+    _ = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: categoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Downtown",
+            "Coffee Shop Uptown",
+        ]
+    )
+    let hiddenTransactionIDs = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: categoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Hidden",
+        ],
+        originalFilename: "checking-hidden.csv",
+        startingSequence: 100
+    )
+    try store.setTransactionHidden(id: try #require(hiddenTransactionIDs.first), isHidden: true)
+
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000071")!,
+        accountID: account.id,
+        categoryID: categoryID,
+        importSessionID: nil,
+        rawDescription: "Coffee Shop Rule",
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-5.25),
+        transactionDate: Date(timeIntervalSince1970: 1_776_355_360),
+        reviewStatus: TransactionReviewStatus.accepted.rawValue,
+        decisionSource: ClassificationDecisionSource.rule.rawValue,
+        decisionSourceReference: "00000000-0000-0000-0000-000000009999"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000072")!,
+        accountID: account.id,
+        categoryID: categoryID,
+        importSessionID: nil,
+        rawDescription: "Coffee Shop Heuristic",
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-5.75),
+        transactionDate: Date(timeIntervalSince1970: 1_776_441_760),
+        reviewStatus: TransactionReviewStatus.accepted.rawValue,
+        decisionSource: ClassificationDecisionSource.heuristic.rawValue,
+        decisionSourceReference: "seeded:coffee"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000073")!,
+        accountID: account.id,
+        categoryID: categoryID,
+        importSessionID: nil,
+        rawDescription: "Coffee Shop Curated",
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-6.25),
+        transactionDate: Date(timeIntervalSince1970: 1_776_528_160),
+        reviewStatus: TransactionReviewStatus.accepted.rawValue,
+        decisionSource: ClassificationDecisionSource.curatedPrefill.rawValue,
+        decisionSourceReference: "starter:coffee"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "10000000-0000-0000-0000-000000000074")!,
+        accountID: account.id,
+        categoryID: categoryID,
+        importSessionID: nil,
+        rawDescription: "Coffee Shop Suggestion",
+        normalizedMerchantName: "coffee shop",
+        amount: Decimal(-6.75),
+        transactionDate: Date(timeIntervalSince1970: 1_776_614_560),
+        reviewStatus: TransactionReviewStatus.accepted.rawValue,
+        decisionSource: ClassificationDecisionSource.suggestion.rawValue,
+        decisionSourceReference: "suggestion:coffee"
+    )
+
+    let eligibility = try store.fetchMerchantRecommendationEligibility(normalizedMerchantName: "coffee shop")
+
+    #expect(eligibility == nil)
+}
+
+@Test
+func existingLearnedRuleSuppressesMerchantRecommendationEligibility() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
+    try insertCategory(databaseURL: databaseURL, id: categoryID, name: "Coffee Shops", kind: "expense")
+
+    _ = try approveMerchantRecommendationHistory(
+        store: store,
+        accountID: account.id,
+        categoryID: categoryID,
+        normalizedMerchantName: "coffee shop",
+        rawDescriptions: [
+            "Coffee Shop Downtown",
+            "Coffee Shop Uptown",
+            "Coffee Shop Midtown",
+        ]
+    )
+    try insertRule(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000222")!,
+        pattern: "coffee shop",
+        categoryID: categoryID,
+        merchantName: "Coffee Shop",
+        matchKind: .exactNormalizedMerchant,
+        createdAt: Date(timeIntervalSince1970: 1_776_700_960)
+    )
+
+    let eligibility = try store.fetchMerchantRecommendationEligibility(normalizedMerchantName: "coffee shop")
+
+    #expect(eligibility == nil)
+}
+
+@Test
 func fetchClassificationRulesIgnoresRulesWithoutCategory() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -5367,6 +5609,100 @@ private func insertLegacyRuleWithoutDisabledAt(
             ]
         )
     }
+}
+
+private func approveMerchantRecommendationHistory(
+    store: WorkspaceStore,
+    accountID: UUID,
+    categoryID: UUID,
+    normalizedMerchantName: String,
+    rawDescriptions: [String],
+    rowHashes: [String]? = nil,
+    originalFilename: String = "checking-history.csv",
+    startingSequence: Int = 0
+) throws -> [UUID] {
+    let hashes = rowHashes ?? rawDescriptions.enumerated().map { index, _ in
+        "history-row-\(startingSequence + index)"
+    }
+    #expect(hashes.count == rawDescriptions.count)
+
+    let rows = rawDescriptions.enumerated().map { index, rawDescription in
+        StagedSourceRowDraft(
+            sourceLineNumber: index + 2,
+            rawPayload: #"["2026-04-03","\#(rawDescription)","-4.75"]"#,
+            rowHash: hashes[index],
+            validationStatus: .valid,
+            importDecision: .imported(reason: "New source row."),
+            classification: .reviewRequired(
+                prefill: nil,
+                source: nil,
+                sourceReference: nil,
+                confidence: nil,
+                reason: "No classification matched."
+            ),
+            normalizedMerchantName: normalizedMerchantName,
+            transaction: StagedTransactionDraft(
+                transactionDate: Date(timeIntervalSince1970: TimeInterval(1_776_355_360 + startingSequence + index)),
+                rawDescription: rawDescription,
+                normalizedMerchantName: normalizedMerchantName,
+                amount: Decimal(-4.75)
+            )
+        )
+    }
+
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: accountID,
+            originalFilename: originalFilename,
+            contentHash: "history-file-\(startingSequence)",
+            importedAt: Date(timeIntervalSince1970: TimeInterval(1_776_355_360 + startingSequence)),
+            rows: rows,
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2)
+            ),
+            validRowCount: rows.count,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+
+    let reviewItems = try store.fetchPendingReviewItems()
+        .filter { $0.classification?.normalizedMerchantName == normalizedMerchantName }
+        .sorted { lhs, rhs in
+            lhs.sourceRow.sourceLineNumber < rhs.sourceRow.sourceLineNumber
+        }
+
+    #expect(reviewItems.count == rawDescriptions.count)
+
+    for reviewItem in reviewItems {
+        _ = try store.approveClassificationReviewItem(
+            id: reviewItem.id,
+            assignment: ClassificationAssignment(categoryID: categoryID, merchantName: nil),
+            ruleLearning: nil,
+            resolvedAt: Date(timeIntervalSince1970: 1_776_355_860)
+        )
+    }
+
+    return try fetchTransactionIDs(
+        store: store,
+        normalizedMerchantName: normalizedMerchantName,
+        rawDescriptions: rawDescriptions
+    )
+}
+
+private func fetchTransactionIDs(
+    store: WorkspaceStore,
+    normalizedMerchantName: String,
+    rawDescriptions: [String]
+) throws -> [UUID] {
+    try store.fetchTransactionLedger(filter: .empty)
+        .filter {
+            $0.merchantName == normalizedMerchantName
+            && rawDescriptions.contains($0.rawDescription)
+        }
+        .map(\.id)
 }
 
 private func categoryNamesByGroup(

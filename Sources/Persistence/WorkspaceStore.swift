@@ -5,7 +5,7 @@ import GRDB
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, MerchantRecommendationEligibilityReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -1152,6 +1152,86 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
     }
 
+    public func fetchMerchantRecommendationEligibility(
+        normalizedMerchantName: String
+    ) throws -> MerchantRecommendationEligibility? {
+        guard let normalizedMerchantName = LearnedRuleMatcher.normalizedPattern(normalizedMerchantName) else {
+            return nil
+        }
+
+        return try databaseQueue.read { db in
+            guard try hasActiveLearnedRuleMatchingMerchant(
+                db: db,
+                normalizedMerchantName: normalizedMerchantName
+            ) == false else {
+                return nil
+            }
+
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                WITH approved_decisions AS (
+                    SELECT
+                        transactions.category_id AS category_id,
+                        CASE
+                            WHEN source_rows.source_file_id IS NOT NULL THEN
+                                CAST(source_rows.source_file_id AS TEXT) || ':' || source_rows.row_hash
+                            ELSE CAST(source_rows.id AS TEXT)
+                        END AS decision_key
+                    FROM review_decision_events
+                    JOIN review_items
+                        ON review_items.id = review_decision_events.review_item_id
+                    JOIN transactions
+                        ON transactions.id = review_items.transaction_id
+                    JOIN source_rows
+                        ON source_rows.id = review_decision_events.source_row_id
+                    WHERE review_decision_events.action = ?
+                      AND review_items.type = ?
+                      AND review_items.normalized_merchant_name = ?
+                      AND transactions.review_status = ?
+                      AND transactions.decision_source = ?
+                      AND transactions.is_hidden = 0
+                      AND transactions.category_id IS NOT NULL
+                ),
+                distinct_approved_decisions AS (
+                    SELECT category_id, decision_key
+                    FROM approved_decisions
+                    GROUP BY category_id, decision_key
+                )
+                SELECT category_id, COUNT(*) AS approval_count
+                FROM distinct_approved_decisions
+                GROUP BY category_id
+                ORDER BY approval_count DESC, category_id ASC
+                """,
+                arguments: [
+                    ReviewDecisionAction.approveSuggestion.rawValue,
+                    ReviewItemType.lowConfidenceCategory.rawValue,
+                    normalizedMerchantName,
+                    TransactionReviewStatus.accepted.rawValue,
+                    ClassificationDecisionSource.user.rawValue,
+                ]
+            )
+
+            guard rows.count == 1,
+                  let categoryIDText = rows[0]["category_id"] as String?,
+                  let categoryID = UUID(uuidString: categoryIDText)
+            else {
+                return nil
+            }
+
+            let approvalCount: Int = rows[0]["approval_count"]
+            guard approvalCount >= 3 else {
+                return nil
+            }
+
+            return MerchantRecommendationEligibility(
+                normalizedMerchantName: normalizedMerchantName,
+                categoryID: categoryID,
+                approvedDecisionCount: approvalCount
+            )
+        }
+    }
+
     public func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] {
         try databaseQueue.read { db in
             let rows = try Row.fetchAll(
@@ -1426,6 +1506,39 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
             (
                 reviewItemID: row["id"],
                 sourceRowID: row["source_row_id"]
+            )
+        }
+    }
+
+    private func hasActiveLearnedRuleMatchingMerchant(
+        db: Database,
+        normalizedMerchantName: String
+    ) throws -> Bool {
+        let rows = try Row.fetchAll(
+            db,
+            sql: """
+            SELECT pattern, match_kind
+            FROM rules
+            WHERE disabled_at IS NULL
+            """
+        )
+
+        return try rows.contains { row in
+            let matchKindRawValue: String = row["match_kind"]
+            guard let matchKind = ClassificationRuleMatchKind(rawValue: matchKindRawValue) else {
+                throw WorkspaceStoreError.invalidStoredReviewItem(
+                    field: "rules.match_kind",
+                    value: matchKindRawValue
+                )
+            }
+
+            return LearnedRuleMatcher.matches(
+                merchantPattern: row["pattern"],
+                matchKind: matchKind,
+                candidate: LearnedRuleMatchCandidate(
+                    normalizedMerchantName: normalizedMerchantName,
+                    rawDescription: normalizedMerchantName
+                )
             )
         }
     }

@@ -102,6 +102,26 @@ public struct PendingReviewClassification: Equatable, Sendable {
     }
 }
 
+public struct MerchantRecommendationEligibility: Equatable, Sendable {
+    public var normalizedMerchantName: String
+    public var categoryID: UUID
+    public var approvedDecisionCount: Int
+
+    public init(
+        normalizedMerchantName: String,
+        categoryID: UUID,
+        approvedDecisionCount: Int
+    ) {
+        self.normalizedMerchantName = normalizedMerchantName
+        self.categoryID = categoryID
+        self.approvedDecisionCount = approvedDecisionCount
+    }
+}
+
+public protocol MerchantRecommendationEligibilityReading: Sendable {
+    func fetchMerchantRecommendationEligibility(normalizedMerchantName: String) throws -> MerchantRecommendationEligibility?
+}
+
 public struct ReviewDecisionEvent: Equatable, Sendable {
     public var id: UUID
     public var reviewItemID: UUID
