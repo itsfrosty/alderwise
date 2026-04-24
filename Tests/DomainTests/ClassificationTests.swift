@@ -976,7 +976,7 @@ func seededClassifierRoutesTravelAggregatorsThroughReviewFirst() {
 
         #expect(decision == .reviewRequired(
             prefill: ClassificationAssignment(
-                categoryID: DefaultBudgetTaxonomy.CategoryID.flights,
+                categoryID: DefaultBudgetTaxonomy.CategoryID.hotels,
                 merchantName: testCase.merchantName
             ),
             source: .curatedPrefill,

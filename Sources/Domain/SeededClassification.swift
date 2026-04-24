@@ -173,14 +173,14 @@ public enum SeededClassification {
         curatedReviewPrefill(
             id: "starter.travel.booking-com",
             merchantPattern: "booking com",
-            categoryID: DefaultBudgetTaxonomy.CategoryID.flights,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.hotels,
             merchantName: "Booking.com",
             matchKind: .prefixNormalizedMerchant
         ),
         curatedReviewPrefill(
             id: "starter.travel.amex-travel",
             merchantPattern: "amex travel",
-            categoryID: DefaultBudgetTaxonomy.CategoryID.flights,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.hotels,
             merchantName: "Amex Travel",
             matchKind: .prefixNormalizedMerchant
         ),

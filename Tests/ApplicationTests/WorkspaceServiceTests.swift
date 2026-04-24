@@ -1699,8 +1699,8 @@ func stageCSVImportCountsTravelAggregatorsAsPendingReviewPrefills() throws {
     #expect(result.classifications.allSatisfy { $0.decision.source == .curatedPrefill })
     #expect(
         result.classifications.map(\.decision.assignment?.categoryID) == [
-            DefaultBudgetTaxonomy.CategoryID.flights,
-            DefaultBudgetTaxonomy.CategoryID.flights,
+            DefaultBudgetTaxonomy.CategoryID.hotels,
+            DefaultBudgetTaxonomy.CategoryID.hotels,
         ]
     )
 
