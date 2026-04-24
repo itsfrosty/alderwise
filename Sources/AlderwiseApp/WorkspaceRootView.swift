@@ -14,6 +14,33 @@ struct WorkspaceRootView: View {
         section == .settings
     }
 
+    static func generalAccountCreationSheetBinding(for model: WorkspaceShellModel) -> Binding<Bool> {
+        Binding(
+            get: { model.accountCreationRoute == .general },
+            set: { isPresented in
+                if isPresented == false, model.accountCreationRoute == .general {
+                    model.cancelAccountCreation()
+                }
+            }
+        )
+    }
+
+    static func batchImportAccountCreationSheetBinding(for model: WorkspaceShellModel) -> Binding<Bool> {
+        Binding(
+            get: {
+                if case .batchImport = model.accountCreationRoute {
+                    return true
+                }
+                return false
+            },
+            set: { isPresented in
+                if isPresented == false, case .batchImport = model.accountCreationRoute {
+                    model.cancelAccountCreation()
+                }
+            }
+        )
+    }
+
     private var fileImporterContentTypes: [UTType] {
         switch model.fileImportRequest {
         case .csv:
@@ -48,15 +75,26 @@ struct WorkspaceRootView: View {
         )
     }
 
-    private var isPresentingAccountCreationSheet: Binding<Bool> {
-        Binding(
-            get: { model.accountCreationRoute != nil },
-            set: { isPresented in
-                if isPresented == false {
-                    model.cancelAccountCreation()
-                }
+    private var isPresentingGeneralAccountCreationSheet: Binding<Bool> {
+        Self.generalAccountCreationSheetBinding(for: model)
+    }
+
+    private var isPresentingBatchImportAccountCreationSheet: Binding<Bool> {
+        Self.batchImportAccountCreationSheetBinding(for: model)
+    }
+
+    private var accountCreationSheet: some View {
+        AccountCreationSheet(
+            onCancel: {
+                model.cancelAccountCreation()
             }
-        )
+        ) { name, kind, institutionName in
+            _ = try model.createAccount(
+                name: name,
+                kind: kind,
+                institutionName: institutionName
+            )
+        }
     }
 
     var body: some View {
@@ -80,18 +118,8 @@ struct WorkspaceRootView: View {
                 toolbarActions
             }
         }
-        .sheet(isPresented: isPresentingAccountCreationSheet) {
-            AccountCreationSheet(
-                onCancel: {
-                    model.cancelAccountCreation()
-                }
-            ) { name, kind, institutionName in
-                _ = try model.createAccount(
-                    name: name,
-                    kind: kind,
-                    institutionName: institutionName
-                )
-            }
+        .sheet(isPresented: isPresentingGeneralAccountCreationSheet) {
+            accountCreationSheet
         }
         .sheet(isPresented: $model.isPresentingTargetSheet) {
             TargetCreationSheet(
@@ -165,6 +193,9 @@ struct WorkspaceRootView: View {
                     }
                 }
                 .interactiveDismissDisabled(session.importPhase.isExecuting)
+                .sheet(isPresented: isPresentingBatchImportAccountCreationSheet) {
+                    accountCreationSheet
+                }
             }
         }
         .alert(

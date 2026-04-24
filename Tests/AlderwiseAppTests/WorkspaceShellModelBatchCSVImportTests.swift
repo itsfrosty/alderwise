@@ -1,6 +1,7 @@
 import Application
 import Domain
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import AlderwiseApp
@@ -63,6 +64,57 @@ struct WorkspaceShellModelBatchCSVImportTests {
         model.beginBatchImportAccountCreation(itemID: itemID)
 
         #expect(model.accountCreationRoute == .batchImport(itemID: itemID))
+    }
+
+    @Test
+    @MainActor
+    func accountCreationPresentationBindingsSplitGeneralAndBatchImportRoutes() throws {
+        let model = makeModel()
+        let session = try makeBatchImportSession(
+            importEligibleAccounts: [existingAccount(id: "00000000-0000-0000-0000-000000000405", name: "Checking")]
+        )
+        let itemID = try #require(session.draft.items.first?.id)
+
+        model.presentBatchImportSession(session)
+
+        let generalBinding = WorkspaceRootView.generalAccountCreationSheetBinding(for: model)
+        let batchBinding = WorkspaceRootView.batchImportAccountCreationSheetBinding(for: model)
+
+        #expect(generalBinding.wrappedValue == false)
+        #expect(batchBinding.wrappedValue == false)
+
+        model.beginAccountCreation()
+
+        #expect(generalBinding.wrappedValue == true)
+        #expect(batchBinding.wrappedValue == false)
+
+        model.beginBatchImportAccountCreation(itemID: itemID)
+
+        #expect(generalBinding.wrappedValue == false)
+        #expect(batchBinding.wrappedValue == true)
+    }
+
+    @Test
+    @MainActor
+    func accountCreationPresentationBindingsCancelThroughTheSharedModelHandler() throws {
+        let model = makeModel()
+        let session = try makeBatchImportSession(
+            importEligibleAccounts: [existingAccount(id: "00000000-0000-0000-0000-000000000406", name: "Checking")]
+        )
+        let itemID = try #require(session.draft.items.first?.id)
+
+        model.presentBatchImportSession(session)
+
+        let generalBinding = WorkspaceRootView.generalAccountCreationSheetBinding(for: model)
+        let batchBinding = WorkspaceRootView.batchImportAccountCreationSheetBinding(for: model)
+
+        model.beginAccountCreation()
+        generalBinding.wrappedValue = false
+        #expect(model.accountCreationRoute == nil)
+
+        model.beginBatchImportAccountCreation(itemID: itemID)
+        batchBinding.wrappedValue = false
+        #expect(model.accountCreationRoute == nil)
     }
 
     @Test
