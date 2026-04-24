@@ -72,6 +72,7 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
     public var searchText: String
     public var startDate: Date?
     public var endDate: Date?
+    public var normalizedMerchantName: String?
     public var accountID: UUID?
     public var categoryID: UUID?
     public var categoryGroupID: UUID?
@@ -86,6 +87,7 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         searchText: String = "",
         startDate: Date? = nil,
         endDate: Date? = nil,
+        normalizedMerchantName: String? = nil,
         accountID: UUID? = nil,
         categoryID: UUID? = nil,
         categoryGroupID: UUID? = nil,
@@ -99,6 +101,7 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         self.searchText = searchText
         self.startDate = startDate
         self.endDate = endDate
+        self.normalizedMerchantName = normalizedMerchantName
         self.accountID = accountID
         self.categoryID = categoryID
         self.categoryGroupID = categoryGroupID

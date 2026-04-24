@@ -376,6 +376,66 @@ func monthlyReportSurfacesIncludedUncategorizedExpensesAsDriverRows() throws {
     ))
 }
 
+@Test
+func workspaceInsightSummaryCountsVisiblePendingExpensesAndExcludesHiddenRowsFromRecurringDetection() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    let januaryID = try homeDashboardInsertExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: nil,
+        amount: Decimal(-18),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 1, day: 6),
+        reviewStatus: "accepted",
+        rawDescription: "Transit Pass",
+        normalizedMerchantName: "transit pass"
+    )
+    let februaryPendingID = try homeDashboardInsertExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: nil,
+        amount: Decimal(-18),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 2, day: 6),
+        reviewStatus: "pending",
+        rawDescription: "Transit Pass",
+        normalizedMerchantName: "transit pass"
+    )
+    _ = try homeDashboardInsertExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: nil,
+        amount: Decimal(-18),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 6),
+        reviewStatus: "accepted",
+        rawDescription: "Transit Pass",
+        normalizedMerchantName: "transit pass",
+        isHidden: true
+    )
+    let aprilID = try homeDashboardInsertExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: nil,
+        amount: Decimal(-18),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 3, day: 6),
+        reviewStatus: "accepted",
+        rawDescription: "Transit Pass",
+        normalizedMerchantName: "transit pass"
+    )
+
+    let summary = try store.fetchWorkspaceInsightSummary(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 23))
+    let detail = try #require(summary.insights.compactMap(homeDashboardRecurringDetail(from:)).first)
+
+    #expect(summary.insights.count == 1)
+    #expect(detail.normalizedMerchantName == "transit pass")
+    #expect(detail.cadence == RecurringChargeCadence.monthly)
+    #expect(detail.observationCount == 3)
+    #expect(detail.supportingTransactionIDs == [januaryID, februaryPendingID, aprilID])
+}
+
 private func homeDashboardTemporaryDatabaseURL() throws -> URL {
     let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -442,6 +502,8 @@ private func homeDashboardInsertExpense(
     amount: Decimal,
     transactionDate: Date,
     reviewStatus: String,
+    rawDescription: String = "Home dashboard test",
+    normalizedMerchantName: String = "home dashboard test",
     isHidden: Bool = false
 ) throws -> UUID {
     let transactionID = UUID()
@@ -471,8 +533,8 @@ private func homeDashboardInsertExpense(
                 accountID.uuidString,
                 categoryID?.uuidString,
                 isHidden,
-                "Home dashboard test",
-                "home dashboard test",
+                rawDescription,
+                normalizedMerchantName,
                 NSDecimalNumber(decimal: amount).doubleValue,
                 transactionDate,
                 "expense",
@@ -512,5 +574,12 @@ private func homeDashboardInsertPendingReviewItem(
                 createdAt,
             ]
         )
+    }
+}
+
+private func homeDashboardRecurringDetail(from insight: WorkspaceInsight) -> RecurringChargeInsightDetail? {
+    switch insight.kind {
+    case let .recurringCharge(detail):
+        detail
     }
 }

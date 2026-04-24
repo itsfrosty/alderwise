@@ -110,6 +110,74 @@ func homeDashboardUsesMonthlyReportPendingReviewCountAsReviewSourceOfTruth() thr
 }
 
 @Test
+func homeDashboardOmitsRecurringSectionWhenNoQualifyingInsightExists() {
+    let report = homeDashboardReport(
+        pendingReviewCount: 0,
+        targets: [],
+        currentMonthAcceptedSpend: 40,
+        lastMonthAcceptedSpend: 25,
+        hasActiveTargets: false,
+        totalMonthlyTargetLimit: 0,
+        expectedPaceSpend: 0,
+        paceDelta: 0,
+        drivers: [],
+        biggestShift: nil
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 10, reviewCount: 0, targetCount: 0),
+        monthlyReport: report,
+        insights: .empty
+    )
+
+    #expect(dashboard.recurringSection == nil)
+}
+
+@Test
+func homeDashboardProjectsTopRecurringInsightIntoDedicatedSection() throws {
+    let report = homeDashboardReport(
+        pendingReviewCount: 0,
+        targets: [],
+        currentMonthAcceptedSpend: 40,
+        lastMonthAcceptedSpend: 25,
+        hasActiveTargets: false,
+        totalMonthlyTargetLimit: 0,
+        expectedPaceSpend: 0,
+        paceDelta: 0,
+        drivers: [],
+        biggestShift: nil
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 10, reviewCount: 0, targetCount: 0),
+        monthlyReport: report,
+        insights: homeDashboardRecurringInsights(
+            merchantName: "netflix",
+            cadence: .monthly,
+            observationCount: 3,
+            minimumAmount: Decimal(15.49),
+            maximumAmount: Decimal(15.49)
+        )
+    )
+
+    let section = try #require(dashboard.recurringSection)
+
+    #expect(section.merchantName == "netflix")
+    #expect(section.title == "Netflix may be recurring")
+    #expect(section.message.contains("Monthly"))
+    #expect(section.message.contains("3 charges"))
+    #expect(section.destination == HomeDashboardDestination.transactions(
+        TransactionLedgerFilter(
+            startDate: homeDashboardUTCDate(year: 2026, month: 2, day: 9),
+            endDate: homeDashboardEndOfDay(year: 2026, month: 4, day: 9),
+            normalizedMerchantName: "netflix",
+            direction: .expense,
+            visibility: .active
+        )
+    ))
+}
+
+@Test
 func homeDashboardBuildsCreateFirstTargetActionOnlyWhenIncludedExpenseHistoryExists() {
     let report = homeDashboardReport(
         pendingReviewCount: 0,
@@ -131,6 +199,69 @@ func homeDashboardBuildsCreateFirstTargetActionOnlyWhenIncludedExpenseHistoryExi
 
     #expect(dashboard.actions.map(\.kind) == [.createFirstTarget])
     #expect(dashboard.actions.first?.destination == .targets(nil))
+}
+
+@Test
+func homeDashboardKeepsExistingActionOrderWhenRecurringInsightExists() throws {
+    let foodGroupID = homeDashboardID("00000000-0000-0000-0000-000000000206")
+    let travelCategoryID = homeDashboardID("00000000-0000-0000-0000-000000000115")
+    let report = homeDashboardReport(
+        pendingReviewCount: 3,
+        targets: [
+            homeDashboardTarget(
+                id: "00000000-0000-0000-0000-000000000404",
+                name: "Food",
+                scope: .categoryGroup(foodGroupID),
+                monthlyLimit: 100,
+                spent: 120,
+                remaining: -20,
+                paceDelta: 20
+            ),
+        ],
+        currentMonthAcceptedSpend: 140,
+        lastMonthAcceptedSpend: 95,
+        hasActiveTargets: true,
+        totalMonthlyTargetLimit: 100,
+        expectedPaceSpend: 90,
+        paceDelta: 50,
+        drivers: [
+            homeDashboardDriver(
+                title: "Travel",
+                scope: .category(travelCategoryID),
+                currentPeriodSpend: 65,
+                comparisonPeriodSpend: 20,
+                delta: 45
+            ),
+        ],
+        biggestShift: homeDashboardDriver(
+            title: "Travel",
+            scope: .category(travelCategoryID),
+            currentPeriodSpend: 65,
+            comparisonPeriodSpend: 20,
+            delta: 45
+        )
+    )
+
+    let dashboard = HomeDashboardSnapshot.make(
+        summary: WorkspaceSummary(accountCount: 1, transactionCount: 10, reviewCount: 3, targetCount: 1),
+        monthlyReport: report,
+        insights: homeDashboardRecurringInsights(
+            merchantName: "netflix",
+            cadence: .monthly,
+            observationCount: 3,
+            minimumAmount: Decimal(15.49),
+            maximumAmount: Decimal(15.49)
+        )
+    )
+
+    #expect(dashboard.recurringSection != nil)
+    #expect(
+        dashboard.actions.map(\HomeDashboardAction.kind) == [
+            HomeDashboardActionKind.reviewBacklog(count: 3),
+            HomeDashboardActionKind.pressuredTarget,
+            HomeDashboardActionKind.spendDriver,
+        ]
+    )
 }
 
 @Test
@@ -463,6 +594,44 @@ private func homeDashboardReport(
     )
 }
 
+private func homeDashboardRecurringInsights(
+    merchantName: String,
+    cadence: RecurringChargeCadence,
+    observationCount: Int,
+    minimumAmount: Decimal,
+    maximumAmount: Decimal
+) -> WorkspaceInsightSummary {
+    WorkspaceInsightSummary(
+        insights: [
+            WorkspaceInsight(
+                kind: .recurringCharge(
+                    RecurringChargeInsightDetail(
+                        accountID: homeDashboardID("00000000-0000-0000-0000-000000009001"),
+                        normalizedMerchantName: merchantName,
+                        cadence: cadence,
+                        observationCount: observationCount,
+                        amountRange: RecurringChargeAmountRange(
+                            minimum: minimumAmount,
+                            maximum: maximumAmount
+                        ),
+                        supportingTransactionIDs: [
+                            homeDashboardID("00000000-0000-0000-0000-000000009101"),
+                            homeDashboardID("00000000-0000-0000-0000-000000009102"),
+                            homeDashboardID("00000000-0000-0000-0000-000000009103"),
+                        ],
+                        firstObservedDate: homeDashboardUTCDate(year: 2026, month: 2, day: 9),
+                        lastObservedDate: homeDashboardUTCDate(year: 2026, month: 4, day: 9),
+                        nextExpectedDateWindow: nil
+                    )
+                ),
+                confidence: 0.92,
+                rank: 1,
+                score: 92
+            ),
+        ]
+    )
+}
+
 private func homeDashboardTarget(
     id: String,
     name: String,
@@ -530,4 +699,8 @@ private func homeDashboardEndOfMonth(_ monthStart: Date) -> Date? {
         return nil
     }
     return calendar.date(byAdding: DateComponents(second: -1), to: nextMonth)
+}
+
+private func homeDashboardEndOfDay(year: Int, month: Int, day: Int) -> Date {
+    homeDashboardUTCDate(year: year, month: month, day: day, hour: 23, minute: 59, second: 59)
 }

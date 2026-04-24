@@ -47,9 +47,20 @@ func showTransactionsWithRuleFilterClearsHiddenSelectionAfterReload() {
         id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
         merchantName: "Coffee Shop"
     )
-    let hiddenRow = makeTransactionLedgerRow(
+    let hiddenRow = TransactionLedgerRow(
         id: UUID(uuidString: "22222222-2222-2222-2222-222222222222")!,
-        merchantName: "Grocery Market"
+        accountID: UUID(uuidString: "44444444-4444-4444-4444-444444444444")!,
+        accountName: "Checking",
+        categoryID: UUID(uuidString: "55555555-5555-5555-5555-555555555555")!,
+        categoryName: "Dining",
+        rawDescription: "GROCERY MARKET",
+        merchantName: "Grocery Market",
+        amount: Decimal(-12.34),
+        transactionDate: Date(timeIntervalSince1970: 1_778_000_000),
+        postedDate: nil,
+        direction: .expense,
+        reviewStatus: .accepted,
+        importOrigin: nil
     )
     let store = LearnedRuleDraftWorkspaceStore()
     store.transactionRows = [hiddenRow, matchingRow]
@@ -108,6 +119,86 @@ func beginDuplicateLearnedRuleLoadsEditableDraftIntoSheet() {
             merchantName: "Coffee Shop",
             matchKind: .prefixNormalizedMerchant
         )
+    )
+}
+
+@Test
+@MainActor
+func recurringMerchantDrilldownClearsSelectionAndLeavesNewestVisibleRowAsNextSelection() {
+    let hiddenRow = TransactionLedgerRow(
+        id: UUID(uuidString: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!,
+        accountID: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+        accountName: "Checking",
+        isHidden: false,
+        categoryID: nil,
+        categoryName: nil,
+        rawDescription: "Older selection",
+        merchantName: "Other",
+        amount: Decimal(-9),
+        transactionDate: Date(timeIntervalSince1970: 1_780_000_000),
+        postedDate: nil,
+        direction: .expense,
+        reviewStatus: .accepted,
+        importOrigin: nil
+    )
+    let newerRecurringRow = TransactionLedgerRow(
+        id: UUID(uuidString: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!,
+        accountID: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+        accountName: "Checking",
+        categoryID: nil,
+        categoryName: nil,
+        rawDescription: "Netflix Apr",
+        merchantName: "Netflix",
+        amount: Decimal(-15.49),
+        transactionDate: Date(timeIntervalSince1970: 1_775_692_800),
+        postedDate: nil,
+        direction: .expense,
+        reviewStatus: .accepted,
+        importOrigin: nil
+    )
+    let olderRecurringRow = TransactionLedgerRow(
+        id: UUID(uuidString: "cccccccc-cccc-cccc-cccc-cccccccccccc")!,
+        accountID: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
+        accountName: "Checking",
+        categoryID: nil,
+        categoryName: nil,
+        rawDescription: "Netflix Mar",
+        merchantName: "Netflix",
+        amount: Decimal(-15.49),
+        transactionDate: Date(timeIntervalSince1970: 1_773_187_200),
+        postedDate: nil,
+        direction: .expense,
+        reviewStatus: .accepted,
+        importOrigin: nil
+    )
+    let store = LearnedRuleDraftWorkspaceStore()
+    store.transactionRows = [hiddenRow, olderRecurringRow, newerRecurringRow]
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: WorkspaceService(store: store)
+    )
+    let filter = TransactionLedgerFilter(
+        startDate: Date(timeIntervalSince1970: 1_773_187_200),
+        endDate: Date(timeIntervalSince1970: 1_775_779_199),
+        normalizedMerchantName: "netflix",
+        direction: .expense,
+        visibility: .active
+    )
+
+    #expect(model.selectedTransactionID == hiddenRow.id)
+
+    model.showTransactions(filter: filter, clearSelection: true)
+
+    #expect(model.pendingAppSectionNavigation == .transactions)
+    #expect(model.transactionFilter == filter)
+    #expect(model.selectedTransactionID == nil)
+    #expect(model.selectedTransactionDetail == nil)
+    #expect(model.snapshot.transactions.map(\.id) == [newerRecurringRow.id, olderRecurringRow.id])
+    #expect(
+        TransactionLedgerSelectionState.selectionAfterReload(
+            currentSelectionID: model.selectedTransactionID,
+            visibleRows: model.snapshot.transactions
+        ) == newerRecurringRow.id
     )
 }
 
@@ -508,6 +599,40 @@ private final class LearnedRuleDraftWorkspaceStore: @unchecked Sendable, Workspa
 
     func fetchTransactionLedger(filter: TransactionLedgerFilter) throws -> [TransactionLedgerRow] {
         transactionRows
+            .filter { row in
+                if let normalizedMerchantName = filter.normalizedMerchantName?.lowercased(),
+                   row.merchantName.lowercased() != normalizedMerchantName {
+                    return false
+                }
+                if let startDate = filter.startDate, row.transactionDate < startDate {
+                    return false
+                }
+                if let endDate = filter.endDate, row.transactionDate > endDate {
+                    return false
+                }
+                if let direction = filter.direction, row.direction != direction {
+                    return false
+                }
+                switch filter.visibility ?? .active {
+                case .active:
+                    if row.isHidden {
+                        return false
+                    }
+                case .hidden:
+                    if row.isHidden == false {
+                        return false
+                    }
+                case .all:
+                    break
+                }
+                return true
+            }
+            .sorted {
+                if $0.transactionDate != $1.transactionDate {
+                    return $0.transactionDate > $1.transactionDate
+                }
+                return $0.id.uuidString < $1.id.uuidString
+            }
     }
 
     func fetchTransactionDetail(id: UUID) throws -> TransactionDetail? {

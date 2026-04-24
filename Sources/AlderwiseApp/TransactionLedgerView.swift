@@ -733,7 +733,7 @@ private extension TransactionLedgerHeaderState.Chip {
         switch self {
         case .visibility, .direction, .review, .importSession:
             return true
-        case .search, .ruleMatch, .account, .category, .categoryGroup, .uncategorized, .dateRange:
+        case .search, .merchant, .ruleMatch, .account, .category, .categoryGroup, .uncategorized, .dateRange:
             return false
         }
     }

@@ -64,6 +64,10 @@ struct HomeDashboardView: View {
                 expectedPaceSpend: snapshot.monthlyReport.expectedPaceSpend
             )
 
+            if let recurringSection = dashboard?.recurringSection {
+                recurringInsightSection(recurringSection)
+            }
+
             HomeDashboardSections(
                 hasActiveTargets: hasActiveTargets,
                 actions: actions,
@@ -73,6 +77,40 @@ struct HomeDashboardView: View {
                 perform: perform
             )
         }
+    }
+
+    private func recurringInsightSection(_ section: HomeDashboardRecurringSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Recurring Charges")
+                .font(.headline)
+
+            Button {
+                perform(section.destination)
+            } label: {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text(section.title)
+                        .font(.headline)
+                    Text(section.message)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text("Inspect matching charges")
+                        Image(systemName: "arrow.right")
+                    }
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(Color.accentColor)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(16)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(0.2))
+                }
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var emptyWorkspaceState: some View {

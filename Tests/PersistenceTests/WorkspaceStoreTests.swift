@@ -5056,6 +5056,281 @@ func likelyDuplicateTransactionsMatchNearbyDateAmountAndMerchant() throws {
     ])
 }
 
+@Test
+func fetchWorkspaceInsightSummarySurfacesSupportedCadencesAndFiltersInvalidSeries() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let primaryAccount = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    let monthlyTransactionIDs = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: primaryAccount.id,
+        normalizedMerchantName: "video streaming",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000a101")!, Decimal(-12.99), recurringUTCDate(year: 2026, month: 1, day: 9), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000a102")!, Decimal(-12.99), recurringUTCDate(year: 2026, month: 2, day: 9), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000a103")!, Decimal(-13.49), recurringUTCDate(year: 2026, month: 3, day: 9), "accepted", false),
+        ]
+    )
+    let quarterlyTransactionIDs = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: primaryAccount.id,
+        normalizedMerchantName: "car insurance",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000b101")!, Decimal(-90), recurringUTCDate(year: 2025, month: 10, day: 14), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000b102")!, Decimal(-90), recurringUTCDate(year: 2026, month: 1, day: 14), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000b103")!, Decimal(-95), recurringUTCDate(year: 2026, month: 4, day: 14), "accepted", false),
+        ]
+    )
+    let annualTransactionIDs = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: primaryAccount.id,
+        normalizedMerchantName: "domain renewal",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000c101")!, Decimal(-72), recurringUTCDate(year: 2023, month: 6, day: 2), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000c102")!, Decimal(-72), recurringUTCDate(year: 2024, month: 6, day: 2), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000c103")!, Decimal(-75), recurringUTCDate(year: 2025, month: 6, day: 2), "accepted", false),
+        ]
+    )
+
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: primaryAccount.id,
+        normalizedMerchantName: "hidden gym",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000d101")!, Decimal(-40), recurringUTCDate(year: 2026, month: 1, day: 3), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000d102")!, Decimal(-40), recurringUTCDate(year: 2026, month: 2, day: 3), "accepted", true),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000d103")!, Decimal(-40), recurringUTCDate(year: 2026, month: 3, day: 3), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: primaryAccount.id,
+        normalizedMerchantName: "stale backup",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000e101")!, Decimal(-9.99), recurringUTCDate(year: 2025, month: 1, day: 5), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000e102")!, Decimal(-9.99), recurringUTCDate(year: 2025, month: 2, day: 5), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000e103")!, Decimal(-9.99), recurringUTCDate(year: 2025, month: 3, day: 5), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: primaryAccount.id,
+        normalizedMerchantName: "music svc",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000f101")!, Decimal(-8.99), recurringUTCDate(year: 2026, month: 1, day: 12), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000f102")!, Decimal(-8.99), recurringUTCDate(year: 2026, month: 2, day: 12), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000f103")!, Decimal(-8.99), recurringUTCDate(year: 2026, month: 3, day: 12), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: primaryAccount.id,
+        normalizedMerchantName: "music service",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000f104")!, Decimal(-8.99), recurringUTCDate(year: 2026, month: 4, day: 12), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: primaryAccount.id,
+        normalizedMerchantName: "weekend coffee",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-000000001101")!, Decimal(-6), recurringUTCDate(year: 2026, month: 2, day: 2), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000001102")!, Decimal(-6), recurringUTCDate(year: 2026, month: 3, day: 2), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: primaryAccount.id,
+        normalizedMerchantName: "affirm installment",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-000000001201")!, Decimal(-120), recurringUTCDate(year: 2026, month: 1, day: 18), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000001202")!, Decimal(-120), recurringUTCDate(year: 2026, month: 2, day: 18), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000001203")!, Decimal(-120), recurringUTCDate(year: 2026, month: 3, day: 18), "accepted", false),
+        ]
+    )
+
+    let summary = try store.fetchWorkspaceInsightSummary(referenceDate: recurringUTCDate(year: 2026, month: 4, day: 23))
+    let recurringDetails: [RecurringChargeInsightDetail] = summary.insights.compactMap(recurringDetail(from:))
+    let recurringDetailsByMerchant = Dictionary(uniqueKeysWithValues: recurringDetails.map { ($0.normalizedMerchantName, $0) })
+
+    #expect(Set(recurringDetails.map(\.normalizedMerchantName)) == Set([
+        "car insurance",
+        "video streaming",
+        "music svc",
+        "domain renewal",
+    ]))
+    #expect(recurringDetailsByMerchant["car insurance"]?.cadence == .quarterly)
+    #expect(recurringDetailsByMerchant["video streaming"]?.cadence == .monthly)
+    #expect(recurringDetailsByMerchant["music svc"]?.cadence == .monthly)
+    #expect(recurringDetailsByMerchant["domain renewal"]?.cadence == .annual)
+    #expect(recurringDetailsByMerchant["car insurance"]?.observationCount == 3)
+    #expect(recurringDetailsByMerchant["video streaming"]?.observationCount == 3)
+    #expect(recurringDetailsByMerchant["music svc"]?.observationCount == 3)
+    #expect(recurringDetailsByMerchant["domain renewal"]?.observationCount == 3)
+    #expect(recurringDetailsByMerchant["car insurance"]?.supportingTransactionIDs == quarterlyTransactionIDs)
+    #expect(recurringDetailsByMerchant["video streaming"]?.supportingTransactionIDs == monthlyTransactionIDs)
+    #expect(recurringDetailsByMerchant["music svc"]?.supportingTransactionIDs == [
+        UUID(uuidString: "00000000-0000-0000-0000-00000000f101")!,
+        UUID(uuidString: "00000000-0000-0000-0000-00000000f102")!,
+        UUID(uuidString: "00000000-0000-0000-0000-00000000f103")!,
+    ])
+    #expect(recurringDetailsByMerchant["domain renewal"]?.supportingTransactionIDs == annualTransactionIDs)
+    #expect(recurringDetailsByMerchant["video streaming"]?.amountRange == RecurringChargeAmountRange(minimum: Decimal(12.99), maximum: Decimal(13.49)))
+    #expect(recurringDetailsByMerchant["video streaming"]?.lastObservedDate == recurringUTCDate(year: 2026, month: 3, day: 9))
+    #expect(recurringDetailsByMerchant["car insurance"]?.lastObservedDate == recurringUTCDate(year: 2026, month: 4, day: 14))
+    #expect(recurringDetailsByMerchant["domain renewal"]?.lastObservedDate == recurringUTCDate(year: 2025, month: 6, day: 2))
+    #expect(recurringDetails.contains { $0.normalizedMerchantName == "hidden gym" } == false)
+    #expect(recurringDetails.contains { $0.normalizedMerchantName == "stale backup" } == false)
+    #expect(recurringDetails.contains { $0.normalizedMerchantName == "music service" } == false)
+    #expect(recurringDetails.contains { $0.normalizedMerchantName == "weekend coffee" } == false)
+    #expect(recurringDetails.contains { $0.normalizedMerchantName == "affirm installment" } == false)
+}
+
+@Test
+func fetchWorkspaceInsightSummaryKeepsOnlyCadenceSupportingEvidenceForNoisySeries() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let supportingIDs = [
+        UUID(uuidString: "00000000-0000-0000-0000-000000008901")!,
+        UUID(uuidString: "00000000-0000-0000-0000-000000008902")!,
+        UUID(uuidString: "00000000-0000-0000-0000-000000008903")!,
+    ]
+    let outlierID = UUID(uuidString: "00000000-0000-0000-0000-000000008904")!
+
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        normalizedMerchantName: "cell service",
+        observations: [
+            (supportingIDs[0], Decimal(-55), recurringUTCDate(year: 2026, month: 1, day: 15), "accepted", false),
+            (supportingIDs[1], Decimal(-55), recurringUTCDate(year: 2026, month: 2, day: 15), "accepted", false),
+            (supportingIDs[2], Decimal(-55), recurringUTCDate(year: 2026, month: 3, day: 15), "accepted", false),
+            (outlierID, Decimal(-55), recurringUTCDate(year: 2026, month: 5, day: 15), "accepted", false),
+        ]
+    )
+
+    let summary = try store.fetchWorkspaceInsightSummary(referenceDate: recurringUTCDate(year: 2026, month: 5, day: 17))
+    let detail = try #require(summary.insights.compactMap(recurringDetail(from:)).first)
+
+    #expect(detail.normalizedMerchantName == "cell service")
+    #expect(detail.observationCount == 3)
+    #expect(detail.supportingTransactionIDs == supportingIDs)
+    #expect(detail.supportingTransactionIDs.contains(outlierID) == false)
+    #expect(detail.lastObservedDate == recurringUTCDate(year: 2026, month: 3, day: 15))
+}
+
+@Test
+func fetchWorkspaceInsightSummaryRanksRecurringCandidatesDeterministically() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let accountA = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let accountB = try store.createAccount(named: "Savings", kind: .savings, institutionName: "Local Bank")
+
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: accountA.id,
+        normalizedMerchantName: "camera club",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009101")!, Decimal(-25), recurringUTCDate(year: 2026, month: 2, day: 22), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009102")!, Decimal(-25), recurringUTCDate(year: 2026, month: 3, day: 22), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009103")!, Decimal(-25), recurringUTCDate(year: 2026, month: 4, day: 22), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: accountA.id,
+        normalizedMerchantName: "aardvark care",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009201")!, Decimal(-25), recurringUTCDate(year: 2026, month: 1, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009202")!, Decimal(-25), recurringUTCDate(year: 2026, month: 2, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009203")!, Decimal(-25), recurringUTCDate(year: 2026, month: 3, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009204")!, Decimal(-25), recurringUTCDate(year: 2026, month: 4, day: 21), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: accountB.id,
+        normalizedMerchantName: "aardvark care",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009301")!, Decimal(-25), recurringUTCDate(year: 2026, month: 1, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009302")!, Decimal(-25), recurringUTCDate(year: 2026, month: 2, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009303")!, Decimal(-25), recurringUTCDate(year: 2026, month: 3, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009304")!, Decimal(-25), recurringUTCDate(year: 2026, month: 4, day: 21), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: accountA.id,
+        normalizedMerchantName: "zeta care",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009401")!, Decimal(-25), recurringUTCDate(year: 2026, month: 1, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009402")!, Decimal(-25), recurringUTCDate(year: 2026, month: 2, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009403")!, Decimal(-25), recurringUTCDate(year: 2026, month: 3, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009404")!, Decimal(-25), recurringUTCDate(year: 2026, month: 4, day: 21), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: accountA.id,
+        normalizedMerchantName: "alpha lite",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009601")!, Decimal(-25), recurringUTCDate(year: 2026, month: 2, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009602")!, Decimal(-25), recurringUTCDate(year: 2026, month: 3, day: 21), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009603")!, Decimal(-25), recurringUTCDate(year: 2026, month: 4, day: 21), "accepted", false),
+        ]
+    )
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: accountA.id,
+        normalizedMerchantName: "noisy cable 1234",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009501")!, Decimal(-60), recurringUTCDate(year: 2026, month: 1, day: 24), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009502")!, Decimal(-60), recurringUTCDate(year: 2026, month: 2, day: 24), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009503")!, Decimal(-60), recurringUTCDate(year: 2026, month: 3, day: 24), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-000000009504")!, Decimal(-60), recurringUTCDate(year: 2026, month: 5, day: 24), "accepted", false),
+        ]
+    )
+
+    let summary = try store.fetchWorkspaceInsightSummary(referenceDate: recurringUTCDate(year: 2026, month: 5, day: 26))
+    let recurringDetails: [RecurringChargeInsightDetail] = summary.insights.compactMap(recurringDetail(from:))
+    let expectedAardvarkAccountOrder = [accountA.id, accountB.id].sorted { $0.uuidString < $1.uuidString }
+
+    #expect(recurringDetails.map(\.normalizedMerchantName) == [
+        "camera club",
+        "aardvark care",
+        "aardvark care",
+        "zeta care",
+        "alpha lite",
+        "noisy cable 1234",
+    ])
+    #expect(recurringDetails[0].accountID == accountA.id)
+    #expect(recurringDetails[1].accountID == expectedAardvarkAccountOrder[0])
+    #expect(recurringDetails[2].accountID == expectedAardvarkAccountOrder[1])
+    #expect(recurringDetails[3].accountID == accountA.id)
+    #expect(recurringDetails[4].accountID == accountA.id)
+    #expect(recurringDetails[5].accountID == accountA.id)
+    #expect(summary.insights.map(\.rank) == [1, 2, 3, 4, 5, 6])
+    #expect(summary.insights[0].score == summary.insights[1].score)
+    #expect(summary.insights[1].score == summary.insights[2].score)
+    #expect(summary.insights[2].score == summary.insights[3].score)
+    #expect(summary.insights[3].score == summary.insights[4].score)
+    #expect(summary.insights[4].score > summary.insights[5].score)
+    #expect(summary.insights[0].confidence == summary.insights[1].confidence)
+    #expect(summary.insights[1].confidence == summary.insights[2].confidence)
+    #expect(summary.insights[2].confidence == summary.insights[3].confidence)
+    #expect(summary.insights[3].confidence == summary.insights[4].confidence)
+    #expect(summary.insights[4].confidence > summary.insights[5].confidence)
+}
+
 private func temporaryDatabaseURL() throws -> URL {
     let directory = try temporaryDirectoryURL()
     return directory.appending(path: "workspace.sqlite")
@@ -5886,6 +6161,73 @@ private func insertCategory(
         )
     }
 }
+
+private func insertRecurringTransactions(
+    databaseURL: URL,
+    accountID: UUID,
+    normalizedMerchantName: String,
+    observations: [(id: UUID, amount: Decimal, transactionDate: Date, reviewStatus: String, isHidden: Bool)]
+) throws -> [UUID] {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        for observation in observations {
+            try db.execute(
+                sql: """
+                INSERT INTO transactions (
+                    id,
+                    account_id,
+                    is_hidden,
+                    raw_description,
+                    normalized_merchant_name,
+                    amount,
+                    transaction_date,
+                    direction,
+                    decision_source,
+                    review_status,
+                    duplicate_status
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                arguments: [
+                    observation.id.uuidString,
+                    accountID.uuidString,
+                    observation.isHidden,
+                    normalizedMerchantName,
+                    normalizedMerchantName,
+                    NSDecimalNumber(decimal: observation.amount).doubleValue,
+                    observation.transactionDate,
+                    TransactionDirection.expense.rawValue,
+                    "heuristic",
+                    observation.reviewStatus,
+                    "none",
+                ]
+            )
+        }
+    }
+    return observations.map(\.id)
+}
+
+private func recurringDetail(from insight: WorkspaceInsight) -> RecurringChargeInsightDetail? {
+    switch insight.kind {
+    case let .recurringCharge(detail):
+        detail
+    }
+}
+
+private func recurringUTCDate(year: Int, month: Int, day: Int) -> Date {
+    var components = DateComponents()
+    components.year = year
+    components.month = month
+    components.day = day
+    components.calendar = recurringUTCCalendar
+    return components.date!
+}
+
+private let recurringUTCCalendar: Calendar = {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+    return calendar
+}()
 
 private func insertCategoryGroup(
     databaseURL: URL,

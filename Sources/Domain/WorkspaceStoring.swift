@@ -68,6 +68,10 @@ public protocol ReportingReading: Sendable {
     func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport
 }
 
+public protocol WorkspaceInsightReading: Sendable {
+    func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary
+}
+
 public protocol TargetManagementReading: Sendable {
     func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget]
 }

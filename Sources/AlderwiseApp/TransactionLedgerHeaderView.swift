@@ -48,6 +48,8 @@ struct TransactionLedgerHeaderView: View {
         switch chip {
         case .search(let text):
             return "Search: \(text)"
+        case .merchant:
+            return "Merchant: \(chip.text())"
         case .visibility:
             return "Visibility: \(chip.text())"
         case .ruleMatch(_, let label):
@@ -75,6 +77,8 @@ struct TransactionLedgerHeaderView: View {
         switch chip {
         case .search:
             return "magnifyingglass"
+        case .merchant:
+            return "repeat"
         case .visibility(let visibility):
             return switch visibility {
             case .active:
