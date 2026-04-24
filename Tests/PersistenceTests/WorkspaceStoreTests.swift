@@ -1085,6 +1085,23 @@ func bootstrapBackfillsLedgerTransactionsForLegacyStagedImports() throws {
 }
 
 @Test
+func bootstrapBackfillsLegacyVenmoStagedImportsUsingStoredProfileSemantics() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000802")!
+    try createWorkspaceWithLegacyVenmoStagedImportMissingDecisionColumns(at: databaseURL, accountID: accountID)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+    let row = try #require(try store.fetchTransactionLedger(filter: .empty).first)
+
+    #expect(row.rawDescription == "Groceries")
+    #expect(row.merchantName == "jordan example")
+    #expect(row.amount == Decimal(-135))
+    #expect(row.reviewStatus == .pending)
+    #expect(row.importOrigin?.id == 1)
+}
+
+@Test
 func fetchPendingReviewItemsExcludesResolvedRows() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -4138,6 +4155,67 @@ func keepBothLikelyDuplicateResolvesReviewItemUpdatesSourceRowDecisionAndRecords
 }
 
 @Test
+func keepBothLikelyDuplicatePreservesVenmoSemanticsFromStoredMappingProfile() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let duplicateTransactionID = UUID(uuidString: "00000000-0000-0000-0000-000000000998")!
+    try insertTransaction(
+        databaseURL: databaseURL,
+        id: duplicateTransactionID,
+        accountID: account.id,
+        normalizedMerchantName: "jordan example",
+        amount: Decimal(-135),
+        transactionDate: Date(timeIntervalSince1970: 1_743_811_200)
+    )
+
+    let session = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "venmo-april.csv",
+            contentHash: "file-sha256",
+            importedAt: Date(timeIntervalSince1970: 1_775_171_200),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 5,
+                    rawPayload: venmoOutgoingRawPayload(),
+                    rowHash: "venmo-row-1-sha256",
+                    validationStatus: .valid,
+                    importDecision: .flaggedLikelyDuplicate(
+                        existingTransactionID: duplicateTransactionID,
+                        reason: "Same account, amount, normalized merchant, and nearby date."
+                    )
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 2,
+                descriptionColumnIndex: 6,
+                amount: .singleSignedAmount(columnIndex: 8),
+                profile: .venmoStatement
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .staged
+        )
+    )
+    let reviewItemID = try #require(try store.fetchPendingReviewItems().first?.id)
+
+    _ = try store.keepBothForLikelyDuplicateReviewItem(
+        id: reviewItemID,
+        resolvedAt: Date(timeIntervalSince1970: 1_775_171_260)
+    )
+
+    let ledgerRows = try store.fetchTransactionLedger(filter: .empty)
+    let createdRow = try #require(ledgerRows.first { $0.id != duplicateTransactionID })
+    #expect(createdRow.importOrigin?.id == session.id)
+    #expect(createdRow.rawDescription == "Groceries")
+    #expect(createdRow.merchantName == "jordan example")
+    #expect(createdRow.amount == Decimal(-135))
+}
+
+@Test
 func likelyDuplicateTransactionsMatchNearbyDateAmountAndMerchant() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -4624,6 +4702,159 @@ private func createWorkspaceWithLegacyStagedImportMissingDecisionColumns(
     }
 }
 
+private func createWorkspaceWithLegacyVenmoStagedImportMissingDecisionColumns(
+    at databaseURL: URL,
+    accountID: UUID
+) throws {
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        try db.execute(sql: "PRAGMA foreign_keys = ON")
+        try db.execute(sql: "CREATE TABLE grdb_migrations (identifier TEXT NOT NULL PRIMARY KEY)")
+        for identifier in [
+            "create-v1-schema",
+            "expand-staged-import-schema",
+            "add-review-decision-events",
+            "add-classification-review-context",
+            "add-category-group-membership",
+        ] {
+            try db.execute(sql: "INSERT INTO grdb_migrations (identifier) VALUES (?)", arguments: [identifier])
+        }
+
+        try db.execute(
+            sql: """
+            CREATE TABLE accounts (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                institution_name TEXT,
+                created_at DATETIME NOT NULL
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE source_files (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                original_filename TEXT NOT NULL,
+                content_hash TEXT NOT NULL,
+                imported_at DATETIME NOT NULL,
+                row_count INTEGER NOT NULL
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE source_rows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_file_id INTEGER NOT NULL REFERENCES source_files(id) ON DELETE CASCADE,
+                row_hash TEXT NOT NULL,
+                raw_payload TEXT NOT NULL,
+                source_line_number INTEGER NOT NULL DEFAULT 0,
+                validation_status TEXT NOT NULL DEFAULT 'valid'
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE import_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                source_file_id INTEGER NOT NULL REFERENCES source_files(id) ON DELETE CASCADE,
+                mapping_json TEXT NOT NULL,
+                valid_row_count INTEGER NOT NULL,
+                invalid_row_count INTEGER NOT NULL,
+                status TEXT NOT NULL,
+                created_at DATETIME NOT NULL
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE transactions (
+                id TEXT PRIMARY KEY,
+                account_id TEXT NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+                import_session_id INTEGER REFERENCES import_sessions(id) ON DELETE SET NULL,
+                merchant_id TEXT,
+                category_id TEXT,
+                raw_description TEXT NOT NULL,
+                normalized_merchant_name TEXT,
+                amount DOUBLE NOT NULL,
+                transaction_date DATE NOT NULL,
+                posted_date DATE,
+                direction TEXT NOT NULL,
+                decision_source TEXT NOT NULL,
+                decision_source_reference TEXT,
+                confidence DOUBLE,
+                review_status TEXT NOT NULL,
+                duplicate_status TEXT NOT NULL,
+                notes TEXT
+            )
+            """
+        )
+        try db.execute(
+            sql: """
+            CREATE TABLE review_items (
+                id TEXT PRIMARY KEY,
+                transaction_id TEXT REFERENCES transactions(id) ON DELETE CASCADE,
+                type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at DATETIME NOT NULL,
+                normalized_merchant_name TEXT,
+                suggested_category_id TEXT,
+                suggested_merchant_name TEXT,
+                classification_source TEXT,
+                classification_source_reference TEXT,
+                classification_confidence DOUBLE
+            )
+            """
+        )
+        try db.execute(sql: "CREATE TABLE categories (id TEXT PRIMARY KEY, name TEXT NOT NULL, kind TEXT NOT NULL, category_group_id TEXT)")
+        try db.execute(sql: "CREATE TABLE category_groups (id TEXT PRIMARY KEY, name TEXT NOT NULL)")
+        try db.execute(sql: "CREATE TABLE targets (id TEXT PRIMARY KEY, category_id TEXT, category_group_id TEXT, monthly_limit DOUBLE NOT NULL, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE rules (id TEXT PRIMARY KEY, pattern TEXT NOT NULL, category_id TEXT, merchant_name TEXT, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE review_decision_events (id TEXT PRIMARY KEY, review_item_id TEXT NOT NULL, source_row_id INTEGER NOT NULL, action TEXT NOT NULL, details TEXT NOT NULL, created_at DATETIME NOT NULL)")
+        try db.execute(sql: "CREATE TABLE decision_events (id TEXT PRIMARY KEY, transaction_id TEXT NOT NULL, source TEXT NOT NULL, details TEXT NOT NULL, created_at DATETIME NOT NULL)")
+
+        try db.execute(
+            sql: "INSERT INTO accounts (id, name, kind, institution_name, created_at) VALUES (?, ?, ?, ?, ?)",
+            arguments: [accountID.uuidString, "Checking", "checking", "Venmo", Date(timeIntervalSince1970: 1_775_171_200)]
+        )
+        try db.execute(
+            sql: "INSERT INTO source_files (id, account_id, original_filename, content_hash, imported_at, row_count) VALUES (?, ?, ?, ?, ?, ?)",
+            arguments: [1, accountID.uuidString, "venmo-april.csv", "file-sha256", Date(timeIntervalSince1970: 1_775_171_200), 1]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO import_sessions (
+                id, account_id, source_file_id, mapping_json, valid_row_count, invalid_row_count, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                1,
+                #"{"amount":{"singleSignedAmount":{"columnIndex":8}},"dateColumnIndex":2,"descriptionColumnIndex":6,"profile":"venmoStatement"}"#,
+                1,
+                0,
+                "staged",
+                Date(timeIntervalSince1970: 1_775_171_200),
+            ]
+        )
+        try db.execute(
+            sql: "INSERT INTO source_rows (source_file_id, row_hash, raw_payload, source_line_number, validation_status) VALUES (?, ?, ?, ?, ?)",
+            arguments: [
+                1,
+                "venmo-row-1-sha256",
+                venmoOutgoingRawPayload(),
+                5,
+                "valid",
+            ]
+        )
+    }
+}
+
 private func dropRestoreCandidateTables(at databaseURL: URL, tables: [String]) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
@@ -4792,6 +5023,10 @@ private func insertLedgerTransaction(
             ]
         )
     }
+}
+
+private func venmoOutgoingRawPayload() -> String {
+    #"["","4303787187085607348","2025-04-05T02:16:52","Payment","Complete","Groceries","Alex Example","Jordan Example","- $135.00","","0","","0","","Bank Checking *1234","","","","","Venmo","",""]"#
 }
 
 private func insertCategory(

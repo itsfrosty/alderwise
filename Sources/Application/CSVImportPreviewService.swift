@@ -46,13 +46,14 @@ public struct CSVImportPreview: Equatable, Sendable {
         mapping: CSVColumnMapping,
         rowLimit: Int
     ) -> CSVImportPreview {
+        let effectiveMapping = mapping.withProfile(profile)
         let interpreter = CSVImportRowInterpreter()
         let previewRows = rows.prefix(max(rowLimit, 0)).map { row in
-            let semantics = profile.semantics(for: row, headers: headers, mapping: mapping)
+            let semantics = profile.semantics(for: row, mapping: effectiveMapping)
             return CSVImportPreviewRow(
                 sourceLineNumber: row.sourceLineNumber,
                 cells: row.cells,
-                interpretedAmount: interpreter.interpretedAmount(for: row, mapping: mapping),
+                interpretedAmount: interpreter.interpretedAmount(for: row, mapping: effectiveMapping),
                 rawDescription: semantics.rawDescription,
                 derivedMerchant: semantics.derivedMerchant,
                 categorizationExplanation: semantics.categorizationExplanation
@@ -62,9 +63,9 @@ public struct CSVImportPreview: Equatable, Sendable {
         return CSVImportPreview(
             headers: headers,
             profile: profile,
-            mapping: mapping,
+            mapping: effectiveMapping,
             previewRows: Array(previewRows),
-            validation: CSVImportValidationSummary.make(rows: rows, mapping: mapping),
+            validation: CSVImportValidationSummary.make(rows: rows, mapping: effectiveMapping),
             sourceRows: rows,
             rowLimit: rowLimit
         )
@@ -181,8 +182,8 @@ public struct CSVImportPreviewService: Sendable {
 
     public func makePreview(from csvText: String, rowLimit: Int = 10) throws -> CSVImportPreview {
         let document = try parser.parse(csvText)
-        let mapping = mappingInference.inferMapping(for: document)
         let profile = mappingInference.inferProfile(for: document)
+        let mapping = mappingInference.inferMapping(for: document).withProfile(profile)
         let filteredRows = filteredRows(document.rows, mapping: mapping)
         return .make(
             headers: document.headers,

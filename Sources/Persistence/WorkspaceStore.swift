@@ -2643,16 +2643,16 @@ private func stagedTransactionDraft(rawPayload: String, mappingJSON: String) thr
 
     guard
         let transactionDate = legacyDateValue(in: values, at: mapping.dateColumnIndex),
-        let rawDescription = legacyStringValue(in: values, at: mapping.descriptionColumnIndex),
-        let amount = legacyAmountValue(in: values, mapping: mapping)
+        let amount = legacyAmountValue(in: values, mapping: mapping),
+        let semantics = mapping.profile.semantics(for: values, mapping: mapping)
     else {
         throw WorkspaceStoreError.invalidStoredReviewItem(field: "source_rows.raw_payload", value: rawPayload)
     }
 
     return StagedTransactionDraft(
         transactionDate: transactionDate,
-        rawDescription: rawDescription,
-        normalizedMerchantName: MerchantNormalizer().normalize(rawDescription),
+        rawDescription: semantics.rawDescription,
+        normalizedMerchantName: MerchantNormalizer().normalize(semantics.derivedMerchant),
         amount: amount
     )
 }
@@ -3783,8 +3783,8 @@ private func backfillLedgerTransactionsForLegacyStagedImports(db: Database) thro
         let values = try decoder.decode([String].self, from: rawPayloadData)
         guard
             let transactionDate = legacyDateValue(in: values, at: mapping.dateColumnIndex),
-            let rawDescription = legacyStringValue(in: values, at: mapping.descriptionColumnIndex),
-            let amount = legacyAmountValue(in: values, mapping: mapping)
+            let amount = legacyAmountValue(in: values, mapping: mapping),
+            let semantics = mapping.profile.semantics(for: values, mapping: mapping)
         else {
             continue
         }
@@ -3810,8 +3810,8 @@ private func backfillLedgerTransactionsForLegacyStagedImports(db: Database) thro
                 UUID().uuidString,
                 row["account_id"] as String,
                 row["import_session_id"] as Int64,
-                rawDescription,
-                merchantNormalizer.normalize(rawDescription),
+                semantics.rawDescription,
+                merchantNormalizer.normalize(semantics.derivedMerchant),
                 NSDecimalNumber(decimal: amount).doubleValue,
                 transactionDate,
                 amount < 0 ? TransactionDirection.expense.rawValue : TransactionDirection.income.rawValue,

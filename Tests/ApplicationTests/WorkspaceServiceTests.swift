@@ -1382,6 +1382,43 @@ func stageCSVImportUsesVenmoCounterpartyForNormalizedMerchantAndPreservesNoteAsR
 }
 
 @Test
+func stageCSVImportKeepsVenmoSemanticsWhenDescriptionMappingIsRemapped() throws {
+    let account = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Local Bank"
+    )
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store)
+    let preview = try CSVImportPreviewService().makePreview(from: venmoStatementCSVForTests())
+        .applying(
+            mapping: CSVColumnMapping(
+                dateColumnIndex: 2,
+                descriptionColumnIndex: 6,
+                amount: .singleSignedAmount(columnIndex: 8),
+                profile: .venmoStatement
+            )
+        )
+
+    #expect(preview.previewRows.map(\.rawDescription) == ["Groceries", "Birthday dinner"])
+    #expect(preview.previewRows.map(\.derivedMerchant) == ["Jordan Example", "Taylor Example"])
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "venmo-april.csv",
+        csvText: venmoStatementCSVForTests()
+    )
+
+    let draft = try #require(store.stagedImportDrafts.first)
+    #expect(result.outcome == .staged)
+    #expect(draft.mapping.descriptionColumnIndex == 6)
+    #expect(draft.rows.compactMap(\.transaction).map(\.rawDescription) == ["Groceries", "Birthday dinner"])
+    #expect(draft.rows.compactMap(\.transaction).map(\.normalizedMerchantName) == ["jordan example", "taylor example"])
+}
+
+@Test
 func stageCSVImportReturnsClassificationResultsForImportedRows() throws {
     let account = Account(
         id: UUID(uuidString: "00000000-0000-0000-0000-000000000123")!,

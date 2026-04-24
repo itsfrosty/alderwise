@@ -11,7 +11,6 @@ public enum CSVImportProfile: String, Codable, Equatable, Sendable {
 
     public func semantics(
         for row: CSVRow,
-        headers: [CSVColumn],
         mapping: CSVColumnMapping
     ) -> CSVImportRowSemantics {
         switch self {
@@ -23,8 +22,8 @@ public enum CSVImportProfile: String, Codable, Equatable, Sendable {
                 categorizationExplanation: nil
             )
         case .venmoStatement:
-            let note = row.stringValue(at: mapping.descriptionColumnIndex)
-            let counterparty = venmoCounterparty(in: row, headers: headers, mapping: mapping)
+            let note = row.stringValue(at: venmoStatementColumnIndexes.note)
+            let counterparty = venmoCounterparty(in: row, mapping: mapping)
             let rawDescription = note.isEmpty ? counterparty : note
             let derivedMerchant = counterparty.isEmpty ? rawDescription : counterparty
 
@@ -47,13 +46,42 @@ public enum CSVImportProfile: String, Codable, Equatable, Sendable {
         }
     }
 
+    public func semantics(
+        for values: [String],
+        mapping: CSVColumnMapping
+    ) -> CSVImportRowSemantics? {
+        switch self {
+        case .generic:
+            guard let description = stringValue(in: values, at: mapping.descriptionColumnIndex) else {
+                return nil
+            }
+            return CSVImportRowSemantics(
+                rawDescription: description,
+                derivedMerchant: description,
+                categorizationExplanation: nil
+            )
+        case .venmoStatement:
+            let note = stringValue(in: values, at: venmoStatementColumnIndexes.note) ?? ""
+            let counterparty = venmoCounterparty(in: values, mapping: mapping)
+            let rawDescription = note.isEmpty ? counterparty : note
+            let derivedMerchant = counterparty.isEmpty ? rawDescription : counterparty
+            guard rawDescription.isEmpty == false, derivedMerchant.isEmpty == false else {
+                return nil
+            }
+            return CSVImportRowSemantics(
+                rawDescription: rawDescription,
+                derivedMerchant: derivedMerchant,
+                categorizationExplanation: "Used for categorization: \(derivedMerchant)"
+            )
+        }
+    }
+
     private func venmoCounterparty(
         in row: CSVRow,
-        headers: [CSVColumn],
         mapping: CSVColumnMapping
     ) -> String {
-        let from = row.stringValue(at: indexOfHeader(named: "From", in: headers))
-        let to = row.stringValue(at: indexOfHeader(named: "To", in: headers))
+        let from = row.stringValue(at: venmoStatementColumnIndexes.from)
+        let to = row.stringValue(at: venmoStatementColumnIndexes.to)
         let amount = amountValue(in: row, mapping: mapping)
 
         if let amount {
@@ -68,11 +96,24 @@ public enum CSVImportProfile: String, Codable, Equatable, Sendable {
         return to.isEmpty ? from : to
     }
 
-    private func indexOfHeader(named name: String, in headers: [CSVColumn]) -> Int? {
-        let normalizedName = CSVImportValueParser.normalizedHeaderName(name)
-        return headers.first {
-            CSVImportValueParser.normalizedHeaderName($0.name) == normalizedName
-        }?.columnIndex
+    private func venmoCounterparty(
+        in values: [String],
+        mapping: CSVColumnMapping
+    ) -> String {
+        let from = stringValue(in: values, at: venmoStatementColumnIndexes.from) ?? ""
+        let to = stringValue(in: values, at: venmoStatementColumnIndexes.to) ?? ""
+        let amount = amountValue(in: values, mapping: mapping)
+
+        if let amount {
+            if amount < 0 {
+                return to.isEmpty ? from : to
+            }
+            if amount > 0 {
+                return from.isEmpty ? to : from
+            }
+        }
+
+        return to.isEmpty ? from : to
     }
 
     private func amountValue(in row: CSVRow, mapping: CSVColumnMapping) -> Decimal? {
@@ -89,6 +130,42 @@ public enum CSVImportProfile: String, Codable, Equatable, Sendable {
             }
             return row.decimalValue(at: creditColumnIndex)
         }
+    }
+
+    private func amountValue(in values: [String], mapping: CSVColumnMapping) -> Decimal? {
+        guard let amount = mapping.amount else {
+            return nil
+        }
+
+        switch amount {
+        case .singleSignedAmount(let columnIndex):
+            return decimalValue(in: values, at: columnIndex)
+        case .debitCredit(let debitColumnIndex, let creditColumnIndex):
+            if let debit = decimalValue(in: values, at: debitColumnIndex) {
+                return -debit
+            }
+            return decimalValue(in: values, at: creditColumnIndex)
+        }
+    }
+
+    private func stringValue(in values: [String], at columnIndex: Int?) -> String? {
+        guard
+            let columnIndex,
+            values.indices.contains(columnIndex)
+        else {
+            return nil
+        }
+
+        let trimmedValue = values[columnIndex].trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmedValue.isEmpty ? nil : trimmedValue
+    }
+
+    private func decimalValue(in values: [String], at columnIndex: Int) -> Decimal? {
+        guard values.indices.contains(columnIndex) else {
+            return nil
+        }
+
+        return CSVImportValueParser.decimal(from: values[columnIndex])
     }
 }
 
@@ -116,6 +193,12 @@ private let venmoStatementHeaderShape = [
     "year to date venmo fees",
     "disclaimer",
 ]
+
+private let venmoStatementColumnIndexes = (
+    note: 5,
+    from: 6,
+    to: 7
+)
 
 public struct CSVImportRowSemantics: Equatable, Sendable {
     public var rawDescription: String

@@ -1,18 +1,53 @@
 import Foundation
 
 public struct CSVColumnMapping: Codable, Equatable, Sendable {
+    private enum CodingKeys: String, CodingKey {
+        case dateColumnIndex
+        case descriptionColumnIndex
+        case amount
+        case profile
+    }
+
     public var dateColumnIndex: Int?
     public var descriptionColumnIndex: Int?
     public var amount: CSVAmountMapping?
+    public var profile: CSVImportProfile
 
     public init(
         dateColumnIndex: Int?,
         descriptionColumnIndex: Int?,
-        amount: CSVAmountMapping?
+        amount: CSVAmountMapping?,
+        profile: CSVImportProfile = .generic
     ) {
         self.dateColumnIndex = dateColumnIndex
         self.descriptionColumnIndex = descriptionColumnIndex
         self.amount = amount
+        self.profile = profile
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        dateColumnIndex = try container.decodeIfPresent(Int.self, forKey: .dateColumnIndex)
+        descriptionColumnIndex = try container.decodeIfPresent(Int.self, forKey: .descriptionColumnIndex)
+        amount = try container.decodeIfPresent(CSVAmountMapping.self, forKey: .amount)
+        profile = try container.decodeIfPresent(CSVImportProfile.self, forKey: .profile) ?? .generic
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(dateColumnIndex, forKey: .dateColumnIndex)
+        try container.encodeIfPresent(descriptionColumnIndex, forKey: .descriptionColumnIndex)
+        try container.encodeIfPresent(amount, forKey: .amount)
+        try container.encode(profile, forKey: .profile)
+    }
+
+    public func withProfile(_ profile: CSVImportProfile) -> CSVColumnMapping {
+        CSVColumnMapping(
+            dateColumnIndex: dateColumnIndex,
+            descriptionColumnIndex: descriptionColumnIndex,
+            amount: amount,
+            profile: profile
+        )
     }
 }
 

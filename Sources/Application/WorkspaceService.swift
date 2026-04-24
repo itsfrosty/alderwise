@@ -497,7 +497,6 @@ public struct WorkspaceService: Sendable {
                 normalizedRows.append(
                     try normalizedRow(
                         for: rowIdentity,
-                        headers: preview.headers,
                         mapping: preview.mapping,
                         profile: preview.profile
                     )
@@ -614,7 +613,6 @@ public struct WorkspaceService: Sendable {
 
     private func normalizedRow(
         for rowIdentity: StagedImportRowIdentity,
-        headers: [CSVColumn],
         mapping: CSVColumnMapping,
         profile: CSVImportProfile
     ) throws -> NormalizedImportCandidateWithPayload {
@@ -624,7 +622,7 @@ public struct WorkspaceService: Sendable {
         else {
             throw WorkspaceServiceError.importPreviewCouldNotNormalizeRow(line: rowIdentity.sourceLineNumber)
         }
-        let semantics = profile.semantics(for: rowIdentity.row, headers: headers, mapping: mapping)
+        let semantics = profile.semantics(for: rowIdentity.row, mapping: mapping)
         let rawDescription = semantics.rawDescription.isEmpty ? semantics.derivedMerchant : semantics.rawDescription
         let merchantText = semantics.derivedMerchant.isEmpty ? rawDescription : semantics.derivedMerchant
         guard rawDescription.isEmpty == false, merchantText.isEmpty == false else {
