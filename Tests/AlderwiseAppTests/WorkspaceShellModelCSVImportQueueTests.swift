@@ -19,15 +19,12 @@ func importingOneCSVSelectionOpensABatchPreflightSessionInsteadOfTheLegacyPrevie
 
     #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["checking-april.csv"])
     #expect(model.batchImportSession?.draft.isReadyForImport == true)
-    #expect(model.isPresentingImportPreview == false)
-    #expect(model.pendingCSVImport == nil)
-    #expect(model.csvImportPreview == nil)
     #expect(model.importErrorMessage == nil)
 }
 
 @Test
 @MainActor
-func triggeringBatchImportCallbackDoesNotStageAnythingYet() throws {
+func confirmingBatchImportStagesTheQueuedSelectionAndDismissesTheBatchSession() async throws {
     let files = try CSVImportQueueTestFiles.make(
         [
             ("checking-april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
@@ -42,12 +39,17 @@ func triggeringBatchImportCallbackDoesNotStageAnythingYet() throws {
     _ = try #require(model.batchImportSession)
 
     model.confirmBatchCSVImport()
+    #expect(model.batchImportSession?.importPhase == .staging)
 
-    #expect(store.createdSessions.isEmpty)
-    #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["checking-april.csv"])
-    #expect(model.batchImportSession?.draft.isReadyForImport == true)
-    #expect(model.importResultMessage == nil)
-    #expect(model.importErrorMessage == "Batch import execution lands in the next diff.")
+    await waitForBatchImportCompletion(in: model)
+
+    #expect(store.createdSessions.map(\.originalFilename) == ["checking-april.csv"])
+    #expect(model.batchImportSession == nil)
+    #expect(
+        model.importResultMessage
+            == "1 imported to Transactions, 0 skipped, 1 sent to Review, 0 likely duplicates waiting in Review."
+    )
+    #expect(model.importErrorMessage == nil)
 }
 
 @Test
@@ -66,7 +68,6 @@ func importingMultipleCSVFilesCreatesASingleBatchSessionWithAllItems() throws {
     #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["checking-april.csv", "checking-may.csv"])
     #expect(model.batchImportSession?.draft.selectedItem?.originalFilename == "checking-may.csv")
     #expect(model.batchImportSession?.draft.isReadyForImport == false)
-    #expect(model.isPresentingImportPreview == false)
     #expect(model.importErrorMessage == nil)
 }
 
@@ -276,4 +277,21 @@ private final class WorkspaceShellModelCSVImportQueueStore: @unchecked Sendable,
     }
 
     func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {}
+}
+
+@MainActor
+private func waitForBatchImportCompletion(
+    in model: WorkspaceShellModel,
+    timeoutNanoseconds: UInt64 = 1_000_000_000
+) async {
+    let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+
+    while DispatchTime.now().uptimeNanoseconds < deadline {
+        if model.batchImportSession == nil {
+            return
+        }
+        await Task.yield()
+    }
+
+    Issue.record("Timed out waiting for batch import completion.")
 }

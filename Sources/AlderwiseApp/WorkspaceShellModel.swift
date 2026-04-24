@@ -5,15 +5,6 @@ import SwiftUI
 
 @MainActor
 final class WorkspaceShellModel: ObservableObject {
-    struct PendingCSVImport {
-        var originalFilename: String
-        var csvText: String
-    }
-
-    struct QueuedCSVImportSelection {
-        var fileURL: URL
-    }
-
     enum State {
         case loading
         case loaded(WorkspaceSnapshot)
@@ -102,7 +93,6 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var accountCreationRoute: AccountCreationRoute?
     @Published var isPresentingFileImporter = false
     @Published var fileImportRequest: FileImportRequest?
-    @Published var isPresentingImportPreview = false
     @Published var isPresentingTargetSheet = false
     @Published private(set) var batchImportSession: BatchCSVImportSession?
     @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
@@ -112,8 +102,6 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var reviewCreatedLearnedRuleAction: ReviewCreatedLearnedRuleAction?
     @Published private(set) var pendingAppSectionNavigation: AppSection?
     @Published var learnedRuleManagerActionErrorMessage: String?
-    @Published private(set) var csvImportPreview: CSVImportPreview?
-    @Published private(set) var pendingCSVImport: PendingCSVImport?
     @Published var importErrorMessage: String?
     @Published var importResultMessage: String?
     @Published var sampleDataMessage: String?
@@ -140,9 +128,6 @@ final class WorkspaceShellModel: ObservableObject {
     private var scheduledReviewRulePreview: ReviewRulePreviewScheduleToken?
     private var scheduledLearnedRuleDraftPreview: ReviewRulePreviewScheduleToken?
     private var preservesClearedTransactionSelectionOnNextReload = false
-    private var queuedCSVImportSelections: [QueuedCSVImportSelection] = []
-    private var queuedCSVImportSummary: StagedImportDecisionSummary?
-    private var queuedCSVImportOutcome: StagedCSVImportOutcome?
 
     private static let learnedRuleDraftPreviewItemID = UUID(
         uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff"
@@ -738,9 +723,6 @@ final class WorkspaceShellModel: ObservableObject {
         if case .batchImport = accountCreationRoute {
             accountCreationRoute = nil
         }
-        isPresentingImportPreview = false
-        csvImportPreview = nil
-        pendingCSVImport = nil
     }
 
     func dismissBatchImportSession() {
@@ -850,10 +832,6 @@ final class WorkspaceShellModel: ObservableObject {
                 throw CocoaError(.fileNoSuchFile)
             }
 
-            queuedCSVImportSummary = nil
-            queuedCSVImportOutcome = nil
-            queuedCSVImportSelections = []
-
             let session = BatchCSVImportSession(
                 selectedURLs: urls,
                 importEligibleAccounts: snapshot.importEligibleAccounts,
@@ -862,12 +840,6 @@ final class WorkspaceShellModel: ObservableObject {
             presentBatchImportSession(session)
         } catch {
             dismissBatchImportSession()
-            isPresentingImportPreview = false
-            csvImportPreview = nil
-            pendingCSVImport = nil
-            queuedCSVImportSummary = nil
-            queuedCSVImportOutcome = nil
-            queuedCSVImportSelections = []
             importErrorMessage = error.localizedDescription
         }
     }
@@ -913,98 +885,6 @@ final class WorkspaceShellModel: ObservableObject {
                 }
                 importErrorMessage = batchImportFailureMessage(for: failure)
             }
-        }
-    }
-
-    func confirmCSVImport(preview: CSVImportPreview, account: Account) {
-        guard let service, let pendingCSVImport else {
-            return
-        }
-
-        do {
-            let result = try service.stageCSVImport(
-                preview: preview,
-                account: account,
-                originalFilename: pendingCSVImport.originalFilename,
-                csvText: pendingCSVImport.csvText
-            )
-            recordQueuedCSVImport(result)
-            reload()
-
-            if advanceQueuedCSVImportPreviewAfterStaging() == false {
-                let summary = queuedCSVImportSummary ?? result.summary
-                let outcome = queuedCSVImportOutcome ?? result.outcome
-                dismissCSVImportPreview()
-                importResultMessage = ImportResultMessage.make(for: outcome, summary: summary)
-            }
-        } catch {
-            dismissCSVImportPreview()
-            importErrorMessage = error.localizedDescription
-        }
-    }
-
-    func dismissCSVImportPreview() {
-        isPresentingImportPreview = false
-        csvImportPreview = nil
-        pendingCSVImport = nil
-        queuedCSVImportSelections = []
-        queuedCSVImportSummary = nil
-        queuedCSVImportOutcome = nil
-    }
-
-    private func advanceQueuedCSVImportPreviewAfterStaging() -> Bool {
-        guard let nextSelection = queuedCSVImportSelections.first else {
-            return false
-        }
-
-        queuedCSVImportSelections.removeFirst()
-
-        do {
-            try loadCSVImportPreview(from: nextSelection.fileURL)
-            return true
-        } catch {
-            dismissCSVImportPreview()
-            importErrorMessage = error.localizedDescription
-            return true
-        }
-    }
-
-    private func loadCSVImportPreview(from url: URL) throws {
-        let didAccessScopedResource = url.startAccessingSecurityScopedResource()
-        defer {
-            if didAccessScopedResource {
-                url.stopAccessingSecurityScopedResource()
-            }
-        }
-
-        let csvText = try String(contentsOf: url, encoding: .utf8)
-        csvImportPreview = try csvImportPreviewService.makePreview(from: csvText)
-        pendingCSVImport = PendingCSVImport(
-            originalFilename: url.lastPathComponent,
-            csvText: csvText
-        )
-        isPresentingImportPreview = true
-    }
-
-    private func recordQueuedCSVImport(_ result: StagedCSVImportResult) {
-        if let existingSummary = queuedCSVImportSummary {
-            queuedCSVImportSummary = StagedImportDecisionSummary(
-                importedRowCount: existingSummary.importedRowCount + result.summary.importedRowCount,
-                skippedRowCount: existingSummary.skippedRowCount + result.summary.skippedRowCount,
-                pendingClassificationReviewRowCount: existingSummary.pendingClassificationReviewRowCount + result.summary.pendingClassificationReviewRowCount,
-                flaggedDuplicateRowCount: existingSummary.flaggedDuplicateRowCount + result.summary.flaggedDuplicateRowCount
-            )
-        } else {
-            queuedCSVImportSummary = result.summary
-        }
-
-        switch (queuedCSVImportOutcome, result.outcome) {
-        case (.staged, _), (_, .staged):
-            queuedCSVImportOutcome = .staged
-        case (.exactReimportNoOp, .exactReimportNoOp):
-            queuedCSVImportOutcome = .exactReimportNoOp
-        case (nil, let outcome):
-            queuedCSVImportOutcome = outcome
         }
     }
 

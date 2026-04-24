@@ -179,9 +179,6 @@ struct WorkspaceShellModelBatchCSVImportTests {
 
         #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["checking-april.csv"])
         #expect(model.batchImportSession?.draft.selectedItem?.originalFilename == "checking-april.csv")
-        #expect(model.isPresentingImportPreview == false)
-        #expect(model.csvImportPreview == nil)
-        #expect(model.pendingCSVImport == nil)
         #expect(model.importErrorMessage == nil)
     }
 
@@ -202,9 +199,6 @@ struct WorkspaceShellModelBatchCSVImportTests {
         #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["ready.csv", "blocked.csv", "later.csv"])
         #expect(model.batchImportSession?.draft.selectedItem?.originalFilename == "blocked.csv")
         #expect(model.batchImportSession?.draft.isReadyForImport == false)
-        #expect(model.isPresentingImportPreview == false)
-        #expect(model.csvImportPreview == nil)
-        #expect(model.pendingCSVImport == nil)
         #expect(model.importErrorMessage == nil)
     }
 
