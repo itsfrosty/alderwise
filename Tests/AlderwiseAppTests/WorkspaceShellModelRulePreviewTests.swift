@@ -307,6 +307,89 @@ func approvingRecommendedMerchantKeepsKeyboardFlowAndAdvancesSelection() {
 
 @Test
 @MainActor
+func merchantRecommendationEligibilityLoadsOncePerUniqueMerchantAndPopulatesModelState() throws {
+    let recommendedCategoryID = UUID(uuidString: "dddddddd-dddd-dddd-dddd-dddddddddddd")!
+    let firstRecommendedItem = makeReviewItem(
+        id: UUID(uuidString: "11111111-aaaa-aaaa-aaaa-aaaaaaaaaaaa")!,
+        normalizedMerchantName: "coffee shop"
+    )
+    let secondRecommendedItem = makeReviewItem(
+        id: UUID(uuidString: "22222222-bbbb-bbbb-bbbb-bbbbbbbbbbbb")!,
+        normalizedMerchantName: "coffee shop"
+    )
+    let curatedItem = makeReviewItem(
+        id: UUID(uuidString: "33333333-cccc-cccc-cccc-cccccccccccc")!,
+        normalizedMerchantName: "coffee shop",
+        source: .curatedPrefill
+    )
+    let unrelatedItem = makeReviewItem(
+        id: UUID(uuidString: "44444444-dddd-dddd-dddd-dddddddddddd")!,
+        normalizedMerchantName: "book store"
+    )
+    let store = RulePreviewWorkspaceStore(
+        reviewItems: [
+            firstRecommendedItem,
+            secondRecommendedItem,
+            curatedItem,
+            unrelatedItem,
+        ],
+        merchantRecommendationEligibilityByMerchant: [
+            "coffee shop": MerchantRecommendationEligibility(
+                normalizedMerchantName: "coffee shop",
+                categoryID: recommendedCategoryID,
+                approvedDecisionCount: 3
+            ),
+        ]
+    )
+    let service = WorkspaceService(store: store)
+
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: service,
+        merchantRecommendationEligibilityLoader: { merchant in
+            try store.fetchMerchantRecommendationEligibility(normalizedMerchantName: merchant)
+        }
+    )
+
+    #expect(model.merchantRecommendationEligibilityByReviewItemID == [
+        firstRecommendedItem.id: MerchantRecommendationEligibility(
+            normalizedMerchantName: "coffee shop",
+            categoryID: recommendedCategoryID,
+            approvedDecisionCount: 3
+        ),
+        secondRecommendedItem.id: MerchantRecommendationEligibility(
+            normalizedMerchantName: "coffee shop",
+            categoryID: recommendedCategoryID,
+            approvedDecisionCount: 3
+        ),
+    ])
+    #expect(store.fetchMerchantRecommendationEligibilityCalls == [
+        "coffee shop": 1,
+        "book store": 1,
+    ])
+
+    model.reload()
+
+    #expect(model.merchantRecommendationEligibilityByReviewItemID == [
+        firstRecommendedItem.id: MerchantRecommendationEligibility(
+            normalizedMerchantName: "coffee shop",
+            categoryID: recommendedCategoryID,
+            approvedDecisionCount: 3
+        ),
+        secondRecommendedItem.id: MerchantRecommendationEligibility(
+            normalizedMerchantName: "coffee shop",
+            categoryID: recommendedCategoryID,
+            approvedDecisionCount: 3
+        ),
+    ])
+    #expect(store.fetchMerchantRecommendationEligibilityCalls == [
+        "coffee shop": 2,
+        "book store": 2,
+    ])
+}
+
+@Test
+@MainActor
 func reviewRulePreviewShowsNoEligiblePreviewWhenRuleCreationIsDisabled() async throws {
     let item = makeReviewItem(
         id: UUID(uuidString: "11111111-1111-1111-1111-111111111111")!,
@@ -343,7 +426,11 @@ func reviewRulePreviewShowsNoEligiblePreviewWhenRuleCreationIsDisabled() async t
     ))
 }
 
-private func makeReviewItem(id: UUID, normalizedMerchantName: String) -> PendingReviewItem {
+private func makeReviewItem(
+    id: UUID,
+    normalizedMerchantName: String,
+    source: ClassificationDecisionSource? = .suggestion
+) -> PendingReviewItem {
     PendingReviewItem(
         id: id,
         type: .lowConfidenceCategory,
@@ -364,7 +451,7 @@ private func makeReviewItem(id: UUID, normalizedMerchantName: String) -> Pending
         classification: PendingReviewClassification(
             normalizedMerchantName: normalizedMerchantName,
             prefill: nil,
-            source: .suggestion,
+            source: source,
             sourceReference: nil,
             confidence: 0.4
         )
@@ -437,11 +524,17 @@ private final class PreviewLoaderHarness {
     }
 }
 
-private final class RulePreviewWorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReportingReading, TargetManaging, WorkspacePreferencesManaging {
+private final class RulePreviewWorkspaceStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReportingReading, TargetManaging, WorkspacePreferencesManaging, MerchantRecommendationEligibilityReading {
     private let reviewItems: [PendingReviewItem]
+    private let merchantRecommendationEligibilityByMerchant: [String: MerchantRecommendationEligibility]
+    private(set) var fetchMerchantRecommendationEligibilityCalls: [String: Int] = [:]
 
-    init(reviewItems: [PendingReviewItem]) {
+    init(
+        reviewItems: [PendingReviewItem],
+        merchantRecommendationEligibilityByMerchant: [String: MerchantRecommendationEligibility] = [:]
+    ) {
         self.reviewItems = reviewItems
+        self.merchantRecommendationEligibilityByMerchant = merchantRecommendationEligibilityByMerchant
     }
 
     func fetchSummary() throws -> WorkspaceSummary {
@@ -515,6 +608,13 @@ private final class RulePreviewWorkspaceStore: @unchecked Sendable, WorkspaceSto
 
     func fetchPendingReviewItems() throws -> [PendingReviewItem] {
         reviewItems
+    }
+
+    func fetchMerchantRecommendationEligibility(
+        normalizedMerchantName: String
+    ) throws -> MerchantRecommendationEligibility? {
+        fetchMerchantRecommendationEligibilityCalls[normalizedMerchantName, default: 0] += 1
+        return merchantRecommendationEligibilityByMerchant[normalizedMerchantName]
     }
 
     func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {

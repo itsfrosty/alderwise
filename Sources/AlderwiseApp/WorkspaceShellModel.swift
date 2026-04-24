@@ -118,6 +118,7 @@ final class WorkspaceShellModel: ObservableObject {
     private let store: WorkspaceStore?
     private let service: WorkspaceService?
     private let csvImportPreviewService: CSVImportPreviewService
+    private let merchantRecommendationEligibilityLoader: @MainActor @Sendable (String) throws -> MerchantRecommendationEligibility?
     private let reviewRulePreviewScheduler: ReviewRulePreviewScheduler
     private let reviewRulePreviewLoader: @MainActor @Sendable (ReviewRulePreviewKey) async throws -> LearnedRuleImpactPreviewState
     private let reviewRulePreviewDebounceDelay: Duration
@@ -136,6 +137,7 @@ final class WorkspaceShellModel: ObservableObject {
         store: WorkspaceStore?,
         service: WorkspaceService?,
         csvImportPreviewService: CSVImportPreviewService = CSVImportPreviewService(),
+        merchantRecommendationEligibilityLoader: (@MainActor @Sendable (String) throws -> MerchantRecommendationEligibility?)? = nil,
         reviewRulePreviewScheduler: ReviewRulePreviewScheduler = .live,
         reviewRulePreviewLoader: (@MainActor @Sendable (ReviewRulePreviewKey) async throws -> LearnedRuleImpactPreviewState)? = nil,
         reviewRulePreviewDebounceDelay: Duration = .milliseconds(250)
@@ -143,6 +145,15 @@ final class WorkspaceShellModel: ObservableObject {
         self.store = store
         self.service = service
         self.csvImportPreviewService = csvImportPreviewService
+        self.merchantRecommendationEligibilityLoader = merchantRecommendationEligibilityLoader ?? { [store] normalizedMerchantName in
+            guard let store else {
+                return nil
+            }
+
+            return try store.fetchMerchantRecommendationEligibility(
+                normalizedMerchantName: normalizedMerchantName
+            )
+        }
         self.reviewRulePreviewScheduler = reviewRulePreviewScheduler
         self.reviewRulePreviewDebounceDelay = reviewRulePreviewDebounceDelay
         self.reviewRulePreviewLoader = reviewRulePreviewLoader ?? { [service] key in
@@ -925,8 +936,7 @@ final class WorkspaceShellModel: ObservableObject {
         let preferences = (try? service.loadWorkspacePreferences()) ?? .default
         let learnedRuleManagerSnapshot = try? service.loadLearnedRuleManagerSnapshot()
         let merchantRecommendationEligibilityByReviewItemID = loadMerchantRecommendationEligibility(
-            for: snapshot.pendingReviewItems,
-            service: service
+            for: snapshot.pendingReviewItems
         )
 
         state = .loaded(snapshot)
@@ -975,18 +985,30 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     private func loadMerchantRecommendationEligibility(
-        for items: [PendingReviewItem],
-        service: WorkspaceService
+        for items: [PendingReviewItem]
     ) -> [UUID: MerchantRecommendationEligibility] {
-        Dictionary(uniqueKeysWithValues: items.compactMap { item in
-            guard let eligibility = try? service.fetchMerchantRecommendationEligibility(
-                reviewItemID: item.id
-            ) else {
+        let eligibleItemsByMerchant = Dictionary(grouping: items.compactMap { item -> (String, UUID)? in
+            guard item.classification?.source != .curatedPrefill else {
                 return nil
             }
+            guard let normalizedMerchantName = item.classification?.normalizedMerchantName
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+                  normalizedMerchantName.isEmpty == false else {
+                return nil
+            }
+            return (normalizedMerchantName, item.id)
+        }, by: \.0)
 
-            return (item.id, eligibility)
-        })
+        var eligibilityByReviewItemID: [UUID: MerchantRecommendationEligibility] = [:]
+        for (normalizedMerchantName, itemPairs) in eligibleItemsByMerchant {
+            guard let eligibility = try? merchantRecommendationEligibilityLoader(normalizedMerchantName) else {
+                continue
+            }
+            for (_, itemID) in itemPairs {
+                eligibilityByReviewItemID[itemID] = eligibility
+            }
+        }
+        return eligibilityByReviewItemID
     }
 
     private func refreshWorkspaceMetadata() {
