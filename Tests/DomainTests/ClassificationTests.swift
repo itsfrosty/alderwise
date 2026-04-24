@@ -988,6 +988,101 @@ func seededClassifierRoutesTravelAggregatorsThroughReviewFirst() {
 }
 
 @Test
+func issuerCreditArtifactsRouteThroughBuiltInReviewFirst() {
+    let classifier = SeededClassification.liveClassifier()
+    let cases: [(description: String, categoryID: UUID, merchantName: String, sourceReference: String)] = [
+        (
+            "PLATINUM DIGITAL ENTERTAINMENT CREDIT",
+            DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment,
+            "Platinum Digital Entertainment Credit",
+            "starter.issuer-credit.platinum-digital-entertainment-credit"
+        ),
+        (
+            "AMEX AIRLINE FEE REIMBURSEMENT",
+            DefaultBudgetTaxonomy.CategoryID.flights,
+            "Amex Airline Fee Reimbursement",
+            "starter.issuer-credit.amex-airline-fee-reimbursement"
+        ),
+        (
+            "PLATINUM HOTEL CREDIT",
+            DefaultBudgetTaxonomy.CategoryID.hotels,
+            "Platinum Hotel Credit",
+            "starter.issuer-credit.platinum-hotel-credit"
+        ),
+    ]
+
+    for (index, testCase) in cases.enumerated() {
+        let decision = classifier.classify(
+            candidate: NormalizedImportCandidate(
+                rowHash: "issuer-credit-\(index)",
+                sourceLineNumber: index + 2,
+                transactionDate: Date(timeIntervalSince1970: 1_775_171_500 + Double(index)),
+                rawDescription: testCase.description,
+                normalizedMerchantName: MerchantNormalizer().normalize(testCase.description),
+                amount: Decimal(-25)
+            )
+        )
+
+        #expect(decision == .reviewRequired(
+            prefill: ClassificationAssignment(
+                categoryID: testCase.categoryID,
+                merchantName: testCase.merchantName
+            ),
+            source: .curatedPrefill,
+            sourceReference: testCase.sourceReference,
+            confidence: nil,
+            reason: "Curated starter match requires review before acceptance."
+        ))
+    }
+}
+
+@Test
+func airlineFeeReimbursementPrefillsFlights() {
+    let classifier = SeededClassification.liveClassifier()
+
+    let decision = classifier.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "issuer-credit-airline",
+            sourceLineNumber: 2,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_510),
+            rawDescription: "AMEX AIRLINE FEE REIMBURSEMENT",
+            normalizedMerchantName: MerchantNormalizer().normalize("AMEX AIRLINE FEE REIMBURSEMENT"),
+            amount: Decimal(-200)
+        )
+    )
+
+    #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.flights)
+    #expect(decision.assignment?.merchantName == "Amex Airline Fee Reimbursement")
+    #expect(decision.source == .curatedPrefill)
+    #expect(decision.source != .rule)
+    #expect(decision.source != .heuristic)
+    #expect(decision.isAutoAccepted == false)
+}
+
+@Test
+func hotelCreditPrefillsHotels() {
+    let classifier = SeededClassification.liveClassifier()
+
+    let decision = classifier.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "issuer-credit-hotel",
+            sourceLineNumber: 2,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_520),
+            rawDescription: "PLATINUM HOTEL CREDIT",
+            normalizedMerchantName: MerchantNormalizer().normalize("PLATINUM HOTEL CREDIT"),
+            amount: Decimal(-200)
+        )
+    )
+
+    #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.hotels)
+    #expect(decision.assignment?.merchantName == "Platinum Hotel Credit")
+    #expect(decision.source == .curatedPrefill)
+    #expect(decision.source != .rule)
+    #expect(decision.source != .heuristic)
+    #expect(decision.isAutoAccepted == false)
+}
+
+@Test
 func specificSeededRulesBeatBroaderMerchantRules() {
     let classifier = SeededClassification.liveClassifier()
 

@@ -171,6 +171,27 @@ public enum SeededClassification {
 
     public static let curatedReviewPrefills: [CuratedReviewPrefill] = [
         curatedReviewPrefill(
+            id: "starter.issuer-credit.platinum-digital-entertainment-credit",
+            merchantPattern: "platinum digital entertainment credit",
+            categoryID: DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment,
+            merchantName: "Platinum Digital Entertainment Credit",
+            matchKind: .exactNormalizedMerchant
+        ),
+        curatedReviewPrefill(
+            id: "starter.issuer-credit.amex-airline-fee-reimbursement",
+            merchantPattern: "amex airline fee reimbursement",
+            categoryID: DefaultBudgetTaxonomy.CategoryID.flights,
+            merchantName: "Amex Airline Fee Reimbursement",
+            matchKind: .exactNormalizedMerchant
+        ),
+        curatedReviewPrefill(
+            id: "starter.issuer-credit.platinum-hotel-credit",
+            merchantPattern: "platinum hotel credit",
+            categoryID: DefaultBudgetTaxonomy.CategoryID.hotels,
+            merchantName: "Platinum Hotel Credit",
+            matchKind: .exactNormalizedMerchant
+        ),
+        curatedReviewPrefill(
             id: "starter.travel.booking-com",
             merchantPattern: "booking com",
             categoryID: DefaultBudgetTaxonomy.CategoryID.hotels,

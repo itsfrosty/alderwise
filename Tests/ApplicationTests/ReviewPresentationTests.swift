@@ -234,6 +234,41 @@ func curatedPrefillDefaultsToExactWhenPrefixLearningIsAvailable() {
 }
 
 @Test
+func issuerCreditReviewItemsDoNotDefaultToRuleLearning() {
+    let flightsID = UUID(uuidString: "00000000-0000-0000-0000-000000000113")!
+    let item = makeReviewItem(
+        source: .curatedPrefill,
+        reason: "Curated starter match requires review before acceptance.",
+        categoryID: flightsID,
+        normalizedMerchantName: "amex airline fee reimbursement"
+    )
+    let presentation = ReviewPresentation(
+        categories: [
+            BudgetCategory(id: flightsID, name: "Flights", kind: .expense),
+        ]
+    )
+
+    #expect(presentation.queueSubtitle(for: item) == "checking-april.csv · Row 7 · Built-In Review-First: Flights")
+    #expect(presentation.initialCreateRuleValue(for: item) == false)
+    #expect(
+        presentation.staticConsequences(
+            for: item,
+            createRule: presentation.initialCreateRuleValue(for: item),
+            selectedRuleLearning: nil
+        ) == [
+            ReviewPresentation.ConsequenceLine(
+                text: "Built-In Review-First suggestions stay review-only until you approve them.",
+                emphasis: .neutral
+            ),
+            ReviewPresentation.ConsequenceLine(
+                text: "Approving updates this transaction only. No learned rule will be created.",
+                emphasis: .neutral
+            ),
+        ]
+    )
+}
+
+@Test
 func resolvedRuleLearningSelectionPreservesExplicitUserChoice() {
     let donationsID = UUID(uuidString: "00000000-0000-0000-0000-000000000112")!
     let item = makeReviewItem(
