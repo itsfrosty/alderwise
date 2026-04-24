@@ -5,16 +5,8 @@ public enum CSVImportProfile: String, Codable, Equatable, Sendable {
     case venmoStatement
 
     public static func infer(from headers: [CSVColumn]) -> CSVImportProfile {
-        let normalizedHeaders = Set(headers.map { CSVImportValueParser.normalizedHeaderName($0.name) })
-        let venmoHeaders: Set<String> = [
-            "datetime",
-            "note",
-            "from",
-            "to",
-            "amount total",
-        ]
-
-        return venmoHeaders.isSubset(of: normalizedHeaders) ? .venmoStatement : .generic
+        let normalizedHeaders = headers.map { CSVImportValueParser.normalizedHeaderName($0.name) }
+        return normalizedHeaders == venmoStatementHeaderShape ? .venmoStatement : .generic
     }
 
     public func semantics(
@@ -99,6 +91,31 @@ public enum CSVImportProfile: String, Codable, Equatable, Sendable {
         }
     }
 }
+
+private let venmoStatementHeaderShape = [
+    "",
+    "id",
+    "datetime",
+    "type",
+    "status",
+    "note",
+    "from",
+    "to",
+    "amount total",
+    "amount tip",
+    "amount tax",
+    "amount fee",
+    "tax rate",
+    "tax exempt",
+    "funding source",
+    "destination",
+    "beginning balance",
+    "ending balance",
+    "statement period venmo fees",
+    "terminal location",
+    "year to date venmo fees",
+    "disclaimer",
+]
 
 public struct CSVImportRowSemantics: Equatable, Sendable {
     public var rawDescription: String

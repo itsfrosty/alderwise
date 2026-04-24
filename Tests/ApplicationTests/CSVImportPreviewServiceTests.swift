@@ -130,6 +130,20 @@ func genericCSVImportsStillUseDescriptionColumnDirectly() throws {
     #expect(preview.previewRows.map(\.categorizationExplanation) == [String?.none, String?.none])
 }
 
+@Test
+func venmoProfileDetectionRequiresNativeHeaderShape() throws {
+    let csv = """
+    Datetime,Note,From,To,Amount (total)
+    2025-04-05T02:16:52,Groceries,Alex Example,Jordan Example,-135.00
+    """
+
+    let preview = try CSVImportPreviewService().makePreview(from: csv)
+
+    #expect(preview.profile == .generic)
+    #expect(preview.previewRows.map(\.rawDescription) == ["Groceries"])
+    #expect(preview.previewRows.map(\.derivedMerchant) == ["Groceries"])
+}
+
 private func headerName(in preview: CSVImportPreview, at columnIndex: Int?) -> String? {
     guard let columnIndex else {
         return nil

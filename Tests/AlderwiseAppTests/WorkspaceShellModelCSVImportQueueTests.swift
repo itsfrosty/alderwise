@@ -77,11 +77,15 @@ func confirmingTheLastQueuedCSVImportShowsAnAggregateCompletionMessage() throws 
 }
 
 @Test
+@MainActor
 func csvImportPreviewSheetExplainsVenmoDerivedCategorization() throws {
-    let source = try sourceText(in: "Sources/AlderwiseApp/CSVImportPreviewSheet.swift")
+    let preview = try CSVImportPreviewService().makePreview(from: venmoStatementCSV())
 
-    #expect(source.contains("Used for categorization:"))
-    #expect(source.contains("Venmo imports keep the Note column as the raw description."))
+    #expect(CSVImportPreviewSheet.descriptionSemanticsLines(for: preview) == [
+        "Venmo imports keep the Note column as the raw description.",
+        "Used for categorization: Jordan Example",
+        "Used for categorization: Taylor Example",
+    ])
 }
 
 private struct CSVImportQueueTestFiles {
@@ -266,11 +270,14 @@ private extension WorkspaceShellModel {
     }
 }
 
-private func sourceText(in relativePath: String) throws -> String {
-    let repoRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let sourceURL = repoRoot.appendingPathComponent(relativePath)
-    return try String(contentsOf: sourceURL, encoding: .utf8)
+private func venmoStatementCSV() -> String {
+    """
+    Account Statement - (@alex-example),,,,,,,,,,,,,,,,,,,,,
+    Account Activity,,,,,,,,,,,,,,,,,,,,,
+    ,ID,Datetime,Type,Status,Note,From,To,Amount (total),Amount (tip),Amount (tax),Amount (fee),Tax Rate,Tax Exempt,Funding Source,Destination,Beginning Balance,Ending Balance,Statement Period Venmo Fees,Terminal Location,Year to Date Venmo Fees,Disclaimer
+    ,,,,,,,,,,,,,,,,$7.94,,,,,
+    ,4303787187085607348,2025-04-05T02:16:52,Payment,Complete,Groceries,Alex Example,Jordan Example,- $135.00,,0,,0,,Bank Checking *1234,,,,,Venmo,,
+    ,4306652244709872490,2025-04-09T01:09:14,Payment,Complete,Birthday dinner,Taylor Example,Alex Example,$42.50,,0,,0,,Venmo balance,,,,,Venmo,,
+    ,,,,,,,,,,,,,,,,,$6.94,$0.00,,$0.00,"Disclaimer text"
+    """
 }

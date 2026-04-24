@@ -118,10 +118,14 @@ struct CSVImportPreviewSheet: View {
                 MappingBadge(title: "Amount", value: amountMappingDescription)
             }
 
-            if let descriptionSemanticsHint {
-                Text(descriptionSemanticsHint)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+            if descriptionSemanticsLines.isEmpty == false {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(descriptionSemanticsLines, id: \.self) { line in
+                        Text(line)
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
     }
@@ -284,23 +288,8 @@ struct CSVImportPreviewSheet: View {
         }
     }
 
-    private var descriptionSemanticsHint: String? {
-        var lines: [String] = []
-
-        if workingPreview.profile == .venmoStatement {
-            lines.append(CSVImportPreviewSheetCopy.venmoNoteGuidance)
-        }
-        if let derivedMerchant = workingPreview.previewRows.first(where: {
-            $0.derivedMerchant.isEmpty == false
-        })?.derivedMerchant {
-            lines.append("\(CSVImportPreviewSheetCopy.categorizationPrefix) \(derivedMerchant)")
-        }
-
-        guard lines.isEmpty == false else {
-            return nil
-        }
-
-        return lines.joined(separator: " ")
+    private var descriptionSemanticsLines: [String] {
+        Self.descriptionSemanticsLines(for: workingPreview)
     }
 
     private var missingFieldsDescription: String {
@@ -428,6 +417,24 @@ struct CSVImportPreviewSheet: View {
         }
 
         return nil
+    }
+}
+
+extension CSVImportPreviewSheet {
+    static func descriptionSemanticsLines(for preview: CSVImportPreview) -> [String] {
+        var lines: [String] = []
+
+        if preview.profile == .venmoStatement {
+            lines.append(CSVImportPreviewSheetCopy.venmoNoteGuidance)
+        }
+
+        for explanation in preview.previewRows.compactMap(\.categorizationExplanation) {
+            if lines.contains(explanation) == false {
+                lines.append(explanation)
+            }
+        }
+
+        return lines
     }
 }
 
