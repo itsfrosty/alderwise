@@ -846,9 +846,9 @@ func seededClassifierMatchesRepresentativeSampleMerchants() {
         ("CHAVEZ SUPERMARKET SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.groceries, true),
         ("FRANCHISE TAX BO PAYMENTS   129035404    PM WEB ID: 1282532045", DefaultBudgetTaxonomy.CategoryID.taxes, true),
         ("INTEREST PAID 03-31-2026", DefaultBudgetTaxonomy.CategoryID.income, true),
-        ("AUTOMATIC PAYMENT THANK YOU", DefaultBudgetTaxonomy.CategoryID.transfers, true),
-        ("META DIRECT DEP", DefaultBudgetTaxonomy.CategoryID.income, true),
-        ("DISNEYPLUS", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, true),
+        ("AUTOMATIC PAYMENT - THANK", DefaultBudgetTaxonomy.CategoryID.transfers, true),
+        ("META             DIRECT DEP                 PPD ID: 9111111101", DefaultBudgetTaxonomy.CategoryID.income, true),
+        ("DISNEYPLUS          888-905-7888        CA", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, true),
         ("GOOGLE *YOUTUBEPREMIUM MOUNTAIN VIEW CA", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, true),
         ("BLUE BOTTLE COFFEE PALO ALTO CA", DefaultBudgetTaxonomy.CategoryID.coffeeShops, true),
         ("T J MAXX #0712 SUNNYVALE CA", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, true),
@@ -885,14 +885,14 @@ func seededClassifierRoutesRepresentativeCuratedPrefillThroughReview() {
     let classifier = SeededClassification.liveClassifier()
     let cases: [(description: String, categoryID: UUID, merchantName: String, sourceReference: String)] = [
         ("99PLEDG*ONIR BAWEJA", DefaultBudgetTaxonomy.CategoryID.donations, "99PLEDG", "starter.99pledg.family"),
-        ("CHOICELUNCH ORDER 12345", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, "Choicelunch", "starter.school-family.choicelunch"),
-        ("LINELEADER TUITION", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, "LineLeader", "starter.school-family.lineleader"),
+        ("CHOICELUNCH 855-465-8624 CA", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, "Choicelunch", "starter.choicelunch.school-lunch"),
+        ("LINELEADER       J2542 RCUR                 PPD ID: 8263863381", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, "LineLeader", "starter.lineleader.childcare-billing"),
     ]
 
     for (index, testCase) in cases.enumerated() {
         let decision = classifier.classify(
             candidate: NormalizedImportCandidate(
-                rowHash: "starter-\(index)",
+                rowHash: "curated-\(index)",
                 sourceLineNumber: index + 2,
                 transactionDate: Date(timeIntervalSince1970: 1_775_171_200 + Double(index)),
                 rawDescription: testCase.description,

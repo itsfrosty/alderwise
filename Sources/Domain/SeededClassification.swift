@@ -77,14 +77,14 @@ public enum SeededClassification {
         rule("disneyplus", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Disney Plus"),
         rule("amazon prime", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Amazon Prime"),
         rule("google google one", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Google One"),
-        rule("youtube", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "YouTube"),
+        rule("youtube", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "YouTube Premium"),
         rule("openai", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "OpenAI"),
         rule("apple com", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, merchantName: "Apple"),
         rule("meta payroll", DefaultBudgetTaxonomy.CategoryID.income, merchantName: "Meta Payroll"),
         rule(
             "meta direct dep",
             DefaultBudgetTaxonomy.CategoryID.income,
-            merchantName: "Meta Direct Deposit",
+            merchantName: "Meta Payroll",
             matchKind: .prefixNormalizedMerchant
         ),
         rule("interest payment", DefaultBudgetTaxonomy.CategoryID.income, merchantName: "Interest Payment"),
@@ -103,7 +103,7 @@ public enum SeededClassification {
         rule(
             "automatic payment thank",
             DefaultBudgetTaxonomy.CategoryID.transfers,
-            merchantName: "Automatic Payment Thank You",
+            merchantName: "Automatic Payment",
             matchKind: .prefixNormalizedMerchant
         ),
         rule("ally bank p2p", DefaultBudgetTaxonomy.CategoryID.transfers, merchantName: "Ally Bank P2P"),
@@ -137,7 +137,7 @@ public enum SeededClassification {
         rule(
             "waterworks swim",
             DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities,
-            merchantName: "Waterworks Swim",
+            merchantName: "Waterworks Swim School",
             matchKind: .prefixNormalizedMerchant
         ),
         rule(
@@ -156,7 +156,7 @@ public enum SeededClassification {
         rule(
             "bb tuition mgmt",
             DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans,
-            merchantName: "BB Tuition Mgmt",
+            merchantName: "BB Tuition Management",
             matchKind: .prefixNormalizedMerchant
         ),
         rule("beast academy", DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans, merchantName: "Beast Academy"),
@@ -273,14 +273,14 @@ public enum SeededClassification {
             matchKind: .prefixNormalizedMerchant
         ),
         curatedReviewPrefill(
-            id: "starter.school-family.choicelunch",
+            id: "starter.choicelunch.school-lunch",
             merchantPattern: "choicelunch",
             categoryID: DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities,
             merchantName: "Choicelunch",
             matchKind: .prefixNormalizedMerchant
         ),
         curatedReviewPrefill(
-            id: "starter.school-family.lineleader",
+            id: "starter.lineleader.childcare-billing",
             merchantPattern: "lineleader",
             categoryID: DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities,
             merchantName: "LineLeader",
