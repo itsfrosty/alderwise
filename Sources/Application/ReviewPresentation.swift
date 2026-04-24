@@ -35,7 +35,7 @@ public struct ReviewPresentation: Sendable {
     }
 
     public func initialCreateRuleValue(for item: PendingReviewItem) -> Bool {
-        !isCuratedPrefill(item)
+        !disablesRuleLearningByDefault(for: item)
     }
 
     public func initialRuleLearningSelection(for item: PendingReviewItem) -> ReviewRuleLearningOption? {
@@ -162,6 +162,10 @@ public struct ReviewPresentation: Sendable {
 
     private func isCuratedPrefill(_ item: PendingReviewItem) -> Bool {
         item.classification?.source == .curatedPrefill
+    }
+
+    private func disablesRuleLearningByDefault(for item: PendingReviewItem) -> Bool {
+        isCuratedPrefill(item)
     }
 
     private func learnedRuleCreationConsequence(
