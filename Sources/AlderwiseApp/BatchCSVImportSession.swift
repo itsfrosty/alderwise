@@ -5,6 +5,7 @@ import SwiftUI
 
 enum BatchCSVImportPhase: Equatable {
     case editing
+    case staging
 }
 
 @MainActor
@@ -43,13 +44,55 @@ final class BatchCSVImportSession: ObservableObject {
         draft.items.contains { $0.id == itemID }
     }
 
+    func setImportPhase(_ phase: BatchCSVImportPhase) {
+        importPhase = phase
+    }
+
     @discardableResult
-    func selectAccount(id accountID: UUID, forItemID itemID: UUID) -> Bool {
+    func setSelectedAccount(id accountID: UUID?, forItemID itemID: UUID) -> Bool {
         guard let index = draft.items.firstIndex(where: { $0.id == itemID }) else {
             return false
         }
 
         draft.items[index].selectedAccountID = accountID
+        return true
+    }
+
+    @discardableResult
+    func selectAccount(id accountID: UUID, forItemID itemID: UUID) -> Bool {
+        setSelectedAccount(id: accountID, forItemID: itemID)
+    }
+
+    @discardableResult
+    func updateMapping(_ mapping: CSVColumnMapping, forItemID itemID: UUID) -> Bool {
+        guard let index = draft.items.firstIndex(where: { $0.id == itemID }) else {
+            return false
+        }
+        guard case .loaded(let csvText, let preview) = draft.items[index].content else {
+            return false
+        }
+
+        draft.items[index].content = .loaded(
+            csvText: csvText,
+            preview: preview.applying(mapping: mapping)
+        )
+        return true
+    }
+
+    @discardableResult
+    func removeItem(id itemID: UUID) -> Bool {
+        guard let index = draft.items.firstIndex(where: { $0.id == itemID }) else {
+            return false
+        }
+
+        draft.items.remove(at: index)
+
+        if draft.selectedItemID == itemID {
+            draft.selectedItemID = Self.initialSelectionID(in: draft.items)
+        } else if draft.selectedItemID != nil, draft.selectedItem == nil {
+            draft.selectedItemID = Self.initialSelectionID(in: draft.items)
+        }
+
         return true
     }
 
@@ -135,5 +178,41 @@ struct BatchCSVImportItemDraft: Identifiable, Equatable {
         }
 
         return selectedAccountID != nil && preview.validation.isReadyForImport
+    }
+
+    var preview: CSVImportPreview? {
+        guard case .loaded(_, let preview) = content else {
+            return nil
+        }
+
+        return preview
+    }
+
+    var csvText: String? {
+        guard case .loaded(let csvText, _) = content else {
+            return nil
+        }
+
+        return csvText
+    }
+
+    var loadFailureMessage: String? {
+        guard case .loadFailed(let message) = content else {
+            return nil
+        }
+
+        return message
+    }
+
+    var statusText: String {
+        switch content {
+        case .loadFailed:
+            return "Error"
+        case .loaded(_, let preview):
+            if selectedAccountID == nil {
+                return "Choose Account"
+            }
+            return preview.validation.isReadyForImport ? "Ready" : "Blocked"
+        }
     }
 }

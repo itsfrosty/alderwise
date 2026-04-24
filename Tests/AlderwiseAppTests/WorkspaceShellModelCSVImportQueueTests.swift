@@ -7,72 +7,66 @@ import Testing
 
 @Test
 @MainActor
-func selectingMultipleCSVFilesLoadsTheFirstPreview() throws {
+func importingOneCSVSelectionOpensABatchPreflightSessionInsteadOfTheLegacyPreview() throws {
     let files = try CSVImportQueueTestFiles.make(
         [
             ("checking-april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
-            ("checking-may.csv", "Date,Description,Amount\n2026-05-01,Payroll,1250.00\n"),
         ]
     )
-    let model = WorkspaceShellModel(store: nil, service: nil)
+    let model = WorkspaceShellModel(store: nil, service: WorkspaceService(store: WorkspaceShellModelCSVImportQueueStore()))
 
     model.importCSV(from: .success(files.urls))
 
-    #expect(model.isPresentingImportPreview == true)
-    #expect(model.pendingCSVImport?.originalFilename == "checking-april.csv")
-    #expect(model.csvImportPreview?.previewRows.map(\.sourceLineNumber) == [2])
-    #expect(model.importErrorMessage == nil)
-}
-
-@Test
-@MainActor
-func confirmingAQueuedCSVImportAdvancesToTheNextPreview() throws {
-    let files = try CSVImportQueueTestFiles.make(
-        [
-            ("checking-april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
-            ("checking-may.csv", "Date,Description,Amount\n2026-05-01,Payroll,1250.00\n"),
-        ]
-    )
-    let store = WorkspaceShellModelCSVImportQueueStore()
-    let service = WorkspaceService(store: store)
-    let model = WorkspaceShellModel(store: nil, service: service)
-    let firstPreview = try #require(model.csvImportPreviewForSelection(files.urls))
-    let account = try #require(model.snapshot.importEligibleAccounts.first)
-
-    model.confirmCSVImport(preview: firstPreview, account: account)
-
-    #expect(store.createdSessions.map(\.originalFilename) == ["checking-april.csv"])
-    #expect(model.isPresentingImportPreview == true)
-    #expect(model.pendingCSVImport?.originalFilename == "checking-may.csv")
-    #expect(model.csvImportPreview?.previewRows.map(\.sourceLineNumber) == [2])
-    #expect(model.importResultMessage == nil)
-    #expect(model.importErrorMessage == nil)
-}
-
-@Test
-@MainActor
-func confirmingTheLastQueuedCSVImportShowsAnAggregateCompletionMessage() throws {
-    let files = try CSVImportQueueTestFiles.make(
-        [
-            ("checking-april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
-            ("checking-may.csv", "Date,Description,Amount\n2026-05-01,Payroll,1250.00\n"),
-        ]
-    )
-    let store = WorkspaceShellModelCSVImportQueueStore()
-    let service = WorkspaceService(store: store)
-    let model = WorkspaceShellModel(store: nil, service: service)
-    let account = try #require(model.snapshot.importEligibleAccounts.first)
-    let firstPreview = try #require(model.csvImportPreviewForSelection(files.urls))
-
-    model.confirmCSVImport(preview: firstPreview, account: account)
-    let secondPreview = try #require(model.csvImportPreview)
-    model.confirmCSVImport(preview: secondPreview, account: account)
-
-    #expect(store.createdSessions.map(\.originalFilename) == ["checking-april.csv", "checking-may.csv"])
+    #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["checking-april.csv"])
+    #expect(model.batchImportSession?.draft.isReadyForImport == true)
     #expect(model.isPresentingImportPreview == false)
     #expect(model.pendingCSVImport == nil)
     #expect(model.csvImportPreview == nil)
-    #expect(model.importResultMessage == "2 imported to Transactions, 0 skipped, 2 sent to Review, 0 likely duplicates waiting in Review.")
+    #expect(model.importErrorMessage == nil)
+}
+
+@Test
+@MainActor
+func triggeringBatchImportCallbackDoesNotStageAnythingYet() throws {
+    let files = try CSVImportQueueTestFiles.make(
+        [
+            ("checking-april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+        ]
+    )
+    let store = WorkspaceShellModelCSVImportQueueStore()
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(store: nil, service: service)
+
+    model.importCSV(from: .success(files.urls))
+
+    _ = try #require(model.batchImportSession)
+
+    model.confirmBatchCSVImport()
+
+    #expect(store.createdSessions.isEmpty)
+    #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["checking-april.csv"])
+    #expect(model.batchImportSession?.draft.isReadyForImport == true)
+    #expect(model.importResultMessage == nil)
+    #expect(model.importErrorMessage == "Batch import execution lands in the next diff.")
+}
+
+@Test
+@MainActor
+func importingMultipleCSVFilesCreatesASingleBatchSessionWithAllItems() throws {
+    let files = try CSVImportQueueTestFiles.make(
+        [
+            ("checking-april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+            ("checking-may.csv", "Date,Description,Amount\n2026-05-01,Payroll\n"),
+        ]
+    )
+    let model = WorkspaceShellModel(store: nil, service: WorkspaceService(store: WorkspaceShellModelCSVImportQueueStore()))
+
+    model.importCSV(from: .success(files.urls))
+
+    #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["checking-april.csv", "checking-may.csv"])
+    #expect(model.batchImportSession?.draft.selectedItem?.originalFilename == "checking-may.csv")
+    #expect(model.batchImportSession?.draft.isReadyForImport == false)
+    #expect(model.isPresentingImportPreview == false)
     #expect(model.importErrorMessage == nil)
 }
 
@@ -282,11 +276,4 @@ private final class WorkspaceShellModelCSVImportQueueStore: @unchecked Sendable,
     }
 
     func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {}
-}
-
-private extension WorkspaceShellModel {
-    func csvImportPreviewForSelection(_ urls: [URL]) -> CSVImportPreview? {
-        importCSV(from: .success(urls))
-        return csvImportPreview
-    }
 }

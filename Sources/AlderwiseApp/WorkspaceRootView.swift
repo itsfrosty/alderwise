@@ -130,24 +130,26 @@ struct WorkspaceRootView: View {
         }
         .sheet(
             isPresented: Binding(
-                get: { model.isPresentingImportPreview },
+                get: { model.batchImportSession != nil },
                 set: { isPresented in
                     if !isPresented {
-                        model.dismissCSVImportPreview()
+                        model.dismissBatchImportSession()
                     }
                 }
             )
         ) {
-            if let preview = model.csvImportPreview {
-                CSVImportPreviewSheet(
-                    preview: preview,
+            if let session = model.batchImportSession {
+                BatchCSVImportPreflightSheet(
+                    session: session,
                     accounts: model.snapshot.importEligibleAccounts,
-                    originalFilename: model.pendingCSVImport?.originalFilename ?? "CSV file",
-                    onCancel: {
-                        model.dismissCSVImportPreview()
+                    onCreateAccount: { itemID in
+                        model.beginBatchImportAccountCreation(itemID: itemID)
                     },
-                    onImport: { preview, account in
-                        model.confirmCSVImport(preview: preview, account: account)
+                    onCancel: {
+                        model.dismissBatchImportSession()
+                    },
+                    onImportAll: {
+                        model.confirmBatchCSVImport()
                     }
                 )
             }

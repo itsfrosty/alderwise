@@ -735,6 +735,41 @@ final class WorkspaceShellModel: ObservableObject {
 
     func presentBatchImportSession(_ session: BatchCSVImportSession) {
         batchImportSession = session
+        if case .batchImport = accountCreationRoute {
+            accountCreationRoute = nil
+        }
+        isPresentingImportPreview = false
+        csvImportPreview = nil
+        pendingCSVImport = nil
+    }
+
+    func dismissBatchImportSession() {
+        batchImportSession = nil
+        if case .batchImport = accountCreationRoute {
+            accountCreationRoute = nil
+        }
+    }
+
+    func selectBatchImportItem(id: UUID?) {
+        batchImportSession?.selectItem(id: id)
+    }
+
+    func selectBatchImportAccount(id accountID: UUID?, forItemID itemID: UUID) {
+        _ = batchImportSession?.setSelectedAccount(id: accountID, forItemID: itemID)
+    }
+
+    func updateBatchImportMapping(_ mapping: CSVColumnMapping, forItemID itemID: UUID) {
+        _ = batchImportSession?.updateMapping(mapping, forItemID: itemID)
+    }
+
+    func removeBatchImportItem(id itemID: UUID) {
+        guard batchImportSession?.removeItem(id: itemID) == true else {
+            return
+        }
+
+        if batchImportSession?.draft.items.isEmpty == true {
+            dismissBatchImportSession()
+        }
     }
 
     @discardableResult
@@ -811,20 +846,41 @@ final class WorkspaceShellModel: ObservableObject {
     func importCSV(from result: Result<[URL], Error>) {
         do {
             let urls = try result.get()
-            guard let firstURL = urls.first else {
+            guard urls.isEmpty == false else {
                 throw CocoaError(.fileNoSuchFile)
             }
 
             queuedCSVImportSummary = nil
             queuedCSVImportOutcome = nil
-            queuedCSVImportSelections = urls.dropFirst().map(QueuedCSVImportSelection.init(fileURL:))
-            try loadCSVImportPreview(from: firstURL)
+            queuedCSVImportSelections = []
+
+            let session = BatchCSVImportSession(
+                selectedURLs: urls,
+                importEligibleAccounts: snapshot.importEligibleAccounts,
+                previewService: csvImportPreviewService
+            )
+            presentBatchImportSession(session)
         } catch {
+            dismissBatchImportSession()
+            isPresentingImportPreview = false
+            csvImportPreview = nil
+            pendingCSVImport = nil
             queuedCSVImportSummary = nil
             queuedCSVImportOutcome = nil
             queuedCSVImportSelections = []
             importErrorMessage = error.localizedDescription
         }
+    }
+
+    func confirmBatchCSVImport() {
+        guard let batchImportSession else {
+            return
+        }
+        guard batchImportSession.draft.isReadyForImport else {
+            return
+        }
+
+        importErrorMessage = "Batch import execution lands in the next diff."
     }
 
     func confirmCSVImport(preview: CSVImportPreview, account: Account) {

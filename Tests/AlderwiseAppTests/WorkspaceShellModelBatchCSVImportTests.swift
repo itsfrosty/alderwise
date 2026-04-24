@@ -119,7 +119,7 @@ struct WorkspaceShellModelBatchCSVImportTests {
 
     @Test
     @MainActor
-    func staleBatchImportRoutePreventsCreatingAnUnassignedAccount() throws {
+    func replacingBatchImportSessionClearsTheImportScopedAccountCreationRoute() throws {
         let store = WorkspaceShellModelBatchCSVImportStore()
         let model = makeModel(store: store)
         let originalSession = try makeBatchImportSession(
@@ -135,11 +135,7 @@ struct WorkspaceShellModelBatchCSVImportTests {
         )
         model.presentBatchImportSession(replacementSession)
 
-        #expect(throws: WorkspaceShellModel.AccountCreationRouteError.self) {
-            try model.createAccount(name: "Travel Card", kind: .creditCard, institutionName: "Visa")
-        }
-
-        #expect(model.accountCreationRoute == .batchImport(itemID: triggeringItemID))
+        #expect(model.accountCreationRoute == nil)
         #expect(model.snapshot.importEligibleAccounts.map(\.id) == [store.initialAccount.id])
     }
 
@@ -169,6 +165,47 @@ struct WorkspaceShellModelBatchCSVImportTests {
         #expect(accountID(for: firstItemID, in: model) == originalAccountID)
         #expect(accountID(for: secondItemID, in: model) == createdAccount.id)
         #expect(model.snapshot.importEligibleAccounts.map(\.id) == [originalAccountID, createdAccount.id])
+    }
+
+    @Test
+    @MainActor
+    func importingOneCSVOpensTheBatchPreflightFlowInsteadOfTheLegacyPreviewSheet() throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [("checking-april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n")]
+        )
+        let model = makeModel()
+
+        model.importCSV(from: .success(files.urls))
+
+        #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["checking-april.csv"])
+        #expect(model.batchImportSession?.draft.selectedItem?.originalFilename == "checking-april.csv")
+        #expect(model.isPresentingImportPreview == false)
+        #expect(model.csvImportPreview == nil)
+        #expect(model.pendingCSVImport == nil)
+        #expect(model.importErrorMessage == nil)
+    }
+
+    @Test
+    @MainActor
+    func importingMultipleCSVFilesCreatesOneBatchSessionAndSelectsTheFirstBlockedFile() throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [
+                ("ready.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+                ("blocked.csv", "Date,Description,Amount\n2026-04-01,Coffee\n"),
+                ("later.csv", "Date,Description,Amount\n2026-04-02,Payroll,1200.00\n"),
+            ]
+        )
+        let model = makeModel()
+
+        model.importCSV(from: .success(files.urls))
+
+        #expect(model.batchImportSession?.draft.items.map(\.originalFilename) == ["ready.csv", "blocked.csv", "later.csv"])
+        #expect(model.batchImportSession?.draft.selectedItem?.originalFilename == "blocked.csv")
+        #expect(model.batchImportSession?.draft.isReadyForImport == false)
+        #expect(model.isPresentingImportPreview == false)
+        #expect(model.csvImportPreview == nil)
+        #expect(model.pendingCSVImport == nil)
+        #expect(model.importErrorMessage == nil)
     }
 
     @MainActor

@@ -119,6 +119,131 @@ func sessionDoesNotAutoSelectAnAccountWhenMultipleEligibleAccountsExist() throws
     #expect(session.draft.isReadyForImport == false)
 }
 
+@Test
+@MainActor
+func selectingAnItemChangesTheSelectedDetailSourceItem() throws {
+    let files = try BatchCSVImportSessionTestFiles.make(
+        [
+            ("checking.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+            ("savings.csv", "Date,Description,Amount\n2026-04-02,Interest,1.25\n"),
+        ]
+    )
+
+    let session = BatchCSVImportSession(
+        selectedURLs: files.urls,
+        importEligibleAccounts: [batchCSVImportAccount(id: "00000000-0000-0000-0000-000000000501", name: "Checking")]
+    )
+    let secondItemID = try #require(session.draft.items.last?.id)
+
+    session.selectItem(id: secondItemID)
+
+    #expect(session.draft.selectedItemID == secondItemID)
+    #expect(session.draft.selectedItem?.originalFilename == "savings.csv")
+}
+
+@Test
+@MainActor
+func selectingAccountAndChangingMappingOnlyAffectTheSelectedItem() throws {
+    let files = try BatchCSVImportSessionTestFiles.make(
+        [
+            ("checking.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+            ("savings.csv", "Date,Description,Amount\n2026-04-02,Interest,1.25\n"),
+        ]
+    )
+
+    let checkingAccount = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000502",
+        name: "Checking"
+    )
+    let savingsAccount = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000503",
+        name: "Savings"
+    )
+    let session = BatchCSVImportSession(
+        selectedURLs: files.urls,
+        importEligibleAccounts: [checkingAccount, savingsAccount]
+    )
+    let firstItemID = try #require(session.draft.items.first?.id)
+    let secondItemID = try #require(session.draft.items.last?.id)
+
+    session.selectItem(id: firstItemID)
+    #expect(session.selectAccount(id: checkingAccount.id, forItemID: firstItemID))
+
+    let firstPreviewBeforeEdit = try #require(preview(forItemID: firstItemID, in: session))
+
+    session.selectItem(id: secondItemID)
+    #expect(session.selectAccount(id: savingsAccount.id, forItemID: secondItemID))
+    #expect(
+        session.updateMapping(
+            CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: nil
+            ),
+            forItemID: secondItemID
+        )
+    )
+
+    let firstItem = try #require(session.draft.items.first(where: { $0.id == firstItemID }))
+    let secondItem = try #require(session.draft.items.first(where: { $0.id == secondItemID }))
+    let firstPreviewAfterEdit = try #require(preview(forItemID: firstItemID, in: session))
+    let secondPreview = try #require(preview(forItemID: secondItemID, in: session))
+
+    #expect(firstItem.selectedAccountID == checkingAccount.id)
+    #expect(firstPreviewBeforeEdit.mapping == firstPreviewAfterEdit.mapping)
+    #expect(firstPreviewAfterEdit.validation.isReadyForImport)
+
+    #expect(secondItem.selectedAccountID == savingsAccount.id)
+    #expect(secondPreview.mapping.amount == nil)
+    #expect(secondPreview.validation.isReadyForImport == false)
+}
+
+@Test
+@MainActor
+func removingABlockedFileUpdatesReadinessAndSelectionAndKeepsImportAllDisabledUntilThen() throws {
+    let fileManager = FileManager.default
+    let directoryURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+    let validURL = directoryURL.appendingPathComponent("valid.csv")
+    try "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n".write(to: validURL, atomically: true, encoding: .utf8)
+
+    let blockedURL = directoryURL.appendingPathComponent("blocked.csv")
+    try "Date,Description,Amount\n2026-04-01,Coffee\n".write(to: blockedURL, atomically: true, encoding: .utf8)
+
+    let session = BatchCSVImportSession(
+        selectedURLs: [validURL, blockedURL],
+        importEligibleAccounts: [batchCSVImportAccount(id: "00000000-0000-0000-0000-000000000504", name: "Checking")]
+    )
+    let blockedItemID = try #require(session.draft.selectedItemID)
+
+    #expect(session.draft.selectedItem?.originalFilename == "blocked.csv")
+    #expect(session.draft.isReadyForImport == false)
+
+    #expect(session.removeItem(id: blockedItemID))
+
+    #expect(session.draft.items.map(\.originalFilename) == ["valid.csv"])
+    #expect(session.draft.selectedItem?.originalFilename == "valid.csv")
+    #expect(session.draft.isReadyForImport)
+}
+
+@MainActor
+private func preview(forItemID itemID: UUID, in session: BatchCSVImportSession) -> CSVImportPreview? {
+    guard let item = session.draft.items.first(where: { $0.id == itemID }) else {
+        return nil
+    }
+
+    return firstPreview(for: item)
+}
+
+private func firstPreview(for item: BatchCSVImportItemDraft) -> CSVImportPreview? {
+    guard case .loaded(_, let preview) = item.content else {
+        return nil
+    }
+
+    return preview
+}
+
 private struct BatchCSVImportSessionTestFiles {
     let directoryURL: URL
     let urls: [URL]
