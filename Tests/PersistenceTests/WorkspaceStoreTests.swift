@@ -194,6 +194,34 @@ func workspaceStoreBootstrapPreservesExpectedDefaultTaxonomyOrderWithTravel() th
             "Hotels",
         ],
     ])
+    #expect(categories.map(\.name) == [
+        "Rent & Mortgage",
+        "Utilities",
+        "Internet & Phone",
+        "Home Maintenance & Supplies",
+        "Groceries",
+        "Restaurants & Bars",
+        "Coffee Shops",
+        "Gas & Charging",
+        "Public Transit & Ride Share",
+        "Auto Maintenance & Insurance",
+        "Flights",
+        "Hotels",
+        "Shopping & Clothing",
+        "Subscriptions & Entertainment",
+        "Personal Care",
+        "Pets",
+        "Fun Money",
+        "Donations",
+        "Medical & Pharmacy",
+        "Fitness & Gym",
+        "Childcare & Kids' Activities",
+        "Education & Student Loans",
+        "Income",
+        "Transfers",
+        "Taxes",
+        "Fees & Bank Charges",
+    ])
 }
 
 @Test
