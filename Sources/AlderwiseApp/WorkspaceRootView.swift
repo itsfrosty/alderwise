@@ -25,6 +25,15 @@ struct WorkspaceRootView: View {
         }
     }
 
+    private var allowsMultipleFileSelection: Bool {
+        switch model.fileImportRequest {
+        case .csv:
+            true
+        case .workspaceRestore, nil:
+            false
+        }
+    }
+
     private var selectedSection: AppSection {
         AppSection(rawValue: selectedSectionRawValue) ?? .home
     }
@@ -84,7 +93,7 @@ struct WorkspaceRootView: View {
         .fileImporter(
             isPresented: $model.isPresentingFileImporter,
             allowedContentTypes: fileImporterContentTypes,
-            allowsMultipleSelection: false
+            allowsMultipleSelection: allowsMultipleFileSelection
         ) { result in
             let request = model.fileImportRequest
             model.fileImportRequest = nil
@@ -92,7 +101,7 @@ struct WorkspaceRootView: View {
 
             switch request {
             case .csv:
-                model.importCSV(from: selectedFileURL(from: result))
+                model.importCSV(from: result)
             case .workspaceRestore:
                 switch selectedFileURL(from: result) {
                 case .success(let backupURL):

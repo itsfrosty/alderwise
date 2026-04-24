@@ -10,6 +10,10 @@ final class WorkspaceShellModel: ObservableObject {
         var csvText: String
     }
 
+    struct QueuedCSVImportSelection {
+        var fileURL: URL
+    }
+
     enum State {
         case loading
         case loaded(WorkspaceSnapshot)
@@ -119,6 +123,9 @@ final class WorkspaceShellModel: ObservableObject {
     private var scheduledReviewRulePreview: ReviewRulePreviewScheduleToken?
     private var scheduledLearnedRuleDraftPreview: ReviewRulePreviewScheduleToken?
     private var preservesClearedTransactionSelectionOnNextReload = false
+    private var queuedCSVImportSelections: [QueuedCSVImportSelection] = []
+    private var queuedCSVImportSummary: StagedImportDecisionSummary?
+    private var queuedCSVImportOutcome: StagedCSVImportOutcome?
 
     private static let learnedRuleDraftPreviewItemID = UUID(
         uuidString: "ffffffff-ffff-ffff-ffff-ffffffffffff"
@@ -758,24 +765,21 @@ final class WorkspaceShellModel: ObservableObject {
         isPresentingFileImporter = true
     }
 
-    func importCSV(from result: Result<URL, Error>) {
+    func importCSV(from result: Result<[URL], Error>) {
         do {
-            let url = try result.get()
-            let didAccessScopedResource = url.startAccessingSecurityScopedResource()
-            defer {
-                if didAccessScopedResource {
-                    url.stopAccessingSecurityScopedResource()
-                }
+            let urls = try result.get()
+            guard let firstURL = urls.first else {
+                throw CocoaError(.fileNoSuchFile)
             }
 
-            let csvText = try String(contentsOf: url, encoding: .utf8)
-            csvImportPreview = try csvImportPreviewService.makePreview(from: csvText)
-            pendingCSVImport = PendingCSVImport(
-                originalFilename: url.lastPathComponent,
-                csvText: csvText
-            )
-            isPresentingImportPreview = true
+            queuedCSVImportSummary = nil
+            queuedCSVImportOutcome = nil
+            queuedCSVImportSelections = urls.dropFirst().map(QueuedCSVImportSelection.init(fileURL:))
+            try loadCSVImportPreview(from: firstURL)
         } catch {
+            queuedCSVImportSummary = nil
+            queuedCSVImportOutcome = nil
+            queuedCSVImportSelections = []
             importErrorMessage = error.localizedDescription
         }
     }
@@ -792,9 +796,15 @@ final class WorkspaceShellModel: ObservableObject {
                 originalFilename: pendingCSVImport.originalFilename,
                 csvText: pendingCSVImport.csvText
             )
-            dismissCSVImportPreview()
+            recordQueuedCSVImport(result)
             reload()
-            importResultMessage = ImportResultMessage.make(for: result.outcome, summary: result.summary)
+
+            if advanceQueuedCSVImportPreviewAfterStaging() == false {
+                let summary = queuedCSVImportSummary ?? result.summary
+                let outcome = queuedCSVImportOutcome ?? result.outcome
+                dismissCSVImportPreview()
+                importResultMessage = ImportResultMessage.make(for: outcome, summary: summary)
+            }
         } catch {
             dismissCSVImportPreview()
             importErrorMessage = error.localizedDescription
@@ -805,6 +815,65 @@ final class WorkspaceShellModel: ObservableObject {
         isPresentingImportPreview = false
         csvImportPreview = nil
         pendingCSVImport = nil
+        queuedCSVImportSelections = []
+        queuedCSVImportSummary = nil
+        queuedCSVImportOutcome = nil
+    }
+
+    private func advanceQueuedCSVImportPreviewAfterStaging() -> Bool {
+        guard let nextSelection = queuedCSVImportSelections.first else {
+            return false
+        }
+
+        queuedCSVImportSelections.removeFirst()
+
+        do {
+            try loadCSVImportPreview(from: nextSelection.fileURL)
+            return true
+        } catch {
+            dismissCSVImportPreview()
+            importErrorMessage = error.localizedDescription
+            return true
+        }
+    }
+
+    private func loadCSVImportPreview(from url: URL) throws {
+        let didAccessScopedResource = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccessScopedResource {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        let csvText = try String(contentsOf: url, encoding: .utf8)
+        csvImportPreview = try csvImportPreviewService.makePreview(from: csvText)
+        pendingCSVImport = PendingCSVImport(
+            originalFilename: url.lastPathComponent,
+            csvText: csvText
+        )
+        isPresentingImportPreview = true
+    }
+
+    private func recordQueuedCSVImport(_ result: StagedCSVImportResult) {
+        if let existingSummary = queuedCSVImportSummary {
+            queuedCSVImportSummary = StagedImportDecisionSummary(
+                importedRowCount: existingSummary.importedRowCount + result.summary.importedRowCount,
+                skippedRowCount: existingSummary.skippedRowCount + result.summary.skippedRowCount,
+                pendingClassificationReviewRowCount: existingSummary.pendingClassificationReviewRowCount + result.summary.pendingClassificationReviewRowCount,
+                flaggedDuplicateRowCount: existingSummary.flaggedDuplicateRowCount + result.summary.flaggedDuplicateRowCount
+            )
+        } else {
+            queuedCSVImportSummary = result.summary
+        }
+
+        switch (queuedCSVImportOutcome, result.outcome) {
+        case (.staged, _), (_, .staged):
+            queuedCSVImportOutcome = .staged
+        case (.exactReimportNoOp, .exactReimportNoOp):
+            queuedCSVImportOutcome = .exactReimportNoOp
+        case (nil, let outcome):
+            queuedCSVImportOutcome = outcome
+        }
     }
 
     private func resetWorkspace() {
