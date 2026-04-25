@@ -27,6 +27,10 @@ struct AnalysisCategoriesView: View {
         snapshot.targetProgress.count
     }
 
+    nonisolated static func rowIdentity(for row: AnalysisSpendRow) -> RowIdentity {
+        RowIdentity(scope: row.scope)
+    }
+
     var body: some View {
         Group {
             if inspectorPresentation == .persistent {
@@ -159,7 +163,7 @@ struct AnalysisCategoriesView: View {
                     .padding(.vertical, 8)
             } else {
                 VStack(spacing: 10) {
-                    ForEach(Array(sortedRows.enumerated()), id: \.offset) { _, row in
+                    ForEach(sortedRows, id: \.selfRowIdentity) { row in
                         Button {
                             selection = .row(row)
                         } label: {
@@ -353,6 +357,12 @@ struct AnalysisCategoriesView: View {
     }
 }
 
+extension AnalysisSpendRow {
+    fileprivate var selfRowIdentity: AnalysisCategoriesView.RowIdentity {
+        AnalysisCategoriesView.rowIdentity(for: self)
+    }
+}
+
 private struct AnalysisCategoriesSummaryBadge: View {
     let title: String
     let value: String
@@ -373,6 +383,38 @@ private struct AnalysisCategoriesSummaryBadge: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
         .background(.quaternary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+extension AnalysisCategoriesView {
+    struct RowIdentity: Hashable {
+        private let base: Base
+
+        init(scope: InsightEvidenceScope) {
+            switch scope {
+            case .workspace:
+                base = .workspace
+            case .category(let id):
+                base = .category(id)
+            case .categoryGroup(let id):
+                base = .categoryGroup(id)
+            case .merchant(let name):
+                base = .merchant(name)
+            case .uncategorized:
+                base = .uncategorized
+            case .account(let id):
+                base = .account(id)
+            }
+        }
+
+        private enum Base: Hashable {
+            case workspace
+            case category(UUID)
+            case categoryGroup(UUID)
+            case merchant(String)
+            case uncategorized
+            case account(UUID)
+        }
     }
 }
 

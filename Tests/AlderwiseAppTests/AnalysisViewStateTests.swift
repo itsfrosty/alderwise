@@ -565,8 +565,12 @@ func analysisContextChangesRepairPageLocalSelectionAgainstTheReloadedSnapshot() 
 
     model.setAnalysisRange(.yearToDate)
 
+    let visibleRowsAfterReload = AnalysisScreenState.CategoriesState(
+        sort: model.analysisCategoriesSort,
+        selection: model.analysisCategoriesSelection
+    )
+    .sortedRows(in: model.analysisSnapshot.categories)
     let repairedSelection = try #require(model.analysisCategoriesSelection)
-    let repairedRows = try #require(model.analysisSnapshot.categories?.report.rows)
     let repairedRow: AnalysisSpendRow
     switch repairedSelection {
     case .row(let row):
@@ -574,7 +578,7 @@ func analysisContextChangesRepairPageLocalSelectionAgainstTheReloadedSnapshot() 
     }
 
     #expect(model.analysisCategoriesSort == .largestDelta)
-    #expect(repairedRows.first?.scope != repairedRow.scope)
+    #expect(visibleRowsAfterReload.first?.scope != repairedRow.scope)
     #expect(repairedRow.scope == .category(selectedScope))
     #expect(repairedRow.currentSpend == Decimal(320))
 }

@@ -29,7 +29,32 @@ func categoriesPageDefaultsToLargestCurrentSpend() {
 }
 
 @Test
-func categoriesPageSwitchesSortWithoutClearingSelectionWhenTheEntityStillExists() {
+func categoriesPageUsesStableIdentityForUpdatedRowsWithTheSameEntity() {
+    let originalRow = analysisEntityCategoriesRow(
+        title: "Food",
+        scope: .category(analysisEntityPageStateID("00000000-0000-0000-0000-000000001005")),
+        currentSpend: Decimal(120),
+        comparisonSpend: Decimal(80)
+    )
+    let updatedRow = analysisEntityCategoriesRow(
+        title: "Food",
+        scope: .category(analysisEntityPageStateID("00000000-0000-0000-0000-000000001005")),
+        currentSpend: Decimal(220),
+        comparisonSpend: Decimal(80)
+    )
+    let differentRow = analysisEntityCategoriesRow(
+        title: "Travel",
+        scope: .category(analysisEntityPageStateID("00000000-0000-0000-0000-000000001006")),
+        currentSpend: Decimal(220),
+        comparisonSpend: Decimal(80)
+    )
+
+    #expect(AnalysisCategoriesView.rowIdentity(for: originalRow) == AnalysisCategoriesView.rowIdentity(for: updatedRow))
+    #expect(AnalysisCategoriesView.rowIdentity(for: originalRow) != AnalysisCategoriesView.rowIdentity(for: differentRow))
+}
+
+@Test
+func categoriesPageSwitchesSortThroughStateTransitionAndPreservesSelection() {
     let food = analysisEntityCategoriesRow(
         title: "Food",
         scope: .category(analysisEntityPageStateID("00000000-0000-0000-0000-000000001011")),
@@ -42,13 +67,21 @@ func categoriesPageSwitchesSortWithoutClearingSelectionWhenTheEntityStillExists(
         currentSpend: Decimal(180),
         comparisonSpend: Decimal(40)
     )
-    var state = AnalysisScreenState.CategoriesState()
+    var state = AnalysisScreenState()
+    let snapshot = analysisEntityCategoriesSnapshot(rows: [food, travel])
 
-    state.selection = .row(food)
-    state.sort = .largestDelta
+    state.setCategoriesSelection(.row(food))
+    let initialOrder = state.categories.sortedRows(in: snapshot)
 
-    #expect(state.selection == .row(food))
-    #expect(state.sortedRows(in: analysisEntityCategoriesSnapshot(rows: [food, travel])).map(\.scope) == [
+    state.setCategoriesSort(.largestDelta)
+    let sortedOrder = state.categories.sortedRows(in: snapshot)
+
+    #expect(initialOrder.map(\.scope) == [
+        food.scope,
+        travel.scope,
+    ])
+    #expect(state.categories.selection == .row(food))
+    #expect(sortedOrder.map(\.scope) == [
         travel.scope,
         food.scope,
     ])
@@ -114,14 +147,14 @@ func categoriesPageTargetHandoffFollowsTheSelectedRowInsteadOfTheSortedPosition(
     let firstRow = analysisEntityCategoriesRow(
         title: "Travel",
         scope: .category(analysisEntityPageStateID("00000000-0000-0000-0000-000000001041")),
-        currentSpend: Decimal(320),
-        comparisonSpend: Decimal(300)
+        currentSpend: Decimal(420),
+        comparisonSpend: Decimal(120)
     )
     let selectedRow = analysisEntityCategoriesRow(
         title: "Food",
         scope: .category(analysisEntityPageStateID("00000000-0000-0000-0000-000000001042")),
         currentSpend: Decimal(180),
-        comparisonSpend: Decimal(20)
+        comparisonSpend: Decimal(120)
     )
     let firstTarget = analysisEntityTargetProgress(
         id: analysisEntityPageStateID("00000000-0000-0000-0000-000000001051"),
@@ -143,10 +176,7 @@ func categoriesPageTargetHandoffFollowsTheSelectedRowInsteadOfTheSortedPosition(
         targetProgress: [firstTarget, selectedTarget]
     )
 
-    #expect(state.sortedRows(in: snapshot).map(\.scope) == [
-        selectedRow.scope,
-        firstRow.scope,
-    ])
+    #expect(state.sortedRows(in: snapshot).first?.scope == firstRow.scope)
     #expect(state.selectedTargetProgress(in: snapshot)?.id == selectedTarget.id)
 }
 
