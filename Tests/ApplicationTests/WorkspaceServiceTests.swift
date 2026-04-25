@@ -245,6 +245,54 @@ private struct StubWorkspaceStoreWithInsights: WorkspaceStoring, StagedImportWri
     }
 }
 
+private struct StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, LearnedRuleReading, WorkspaceInsightReading, AnalysisReportReading {
+    var base: StubWorkspaceStore
+    var insights: WorkspaceInsightSummary
+    var overview: OverviewReport
+
+    func fetchSummary() throws -> WorkspaceSummary { try base.fetchSummary() }
+    func fetchAccounts() throws -> [Account] { try base.fetchAccounts() }
+    func fetchManagementAccounts() throws -> [Account] { try base.fetchManagementAccounts() }
+    func fetchImportEligibleAccounts() throws -> [Account] { try base.fetchImportEligibleAccounts() }
+    func fetchLedgerFilterAccounts() throws -> [Account] { try base.fetchLedgerFilterAccounts() }
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> { try base.fetchPermanentlyDeletableAccountIDs() }
+    func fetchCategories() throws -> [BudgetCategory] { try base.fetchCategories() }
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] { try base.fetchCategoryGroups() }
+    func fetchPendingReviewItems() throws -> [PendingReviewItem] { try base.fetchPendingReviewItems() }
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] { try base.fetchLearnedRuleSummaries() }
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? { try base.fetchLearnedRuleSummary(id: id) }
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? { try base.fetchLearnedRuleDetail(id: id) }
+    func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try base.createAccount(named: named, kind: kind, institutionName: institutionName)
+    }
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try base.updateAccount(id: id, named: named, kind: kind, institutionName: institutionName)
+    }
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account { try base.archiveAccount(id: id, archivedAt: archivedAt) }
+    func restoreAccount(id: UUID) throws -> Account { try base.restoreAccount(id: id) }
+    func deleteAccountPermanently(id: UUID) throws { try base.deleteAccountPermanently(id: id) }
+    func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
+        try base.createStagedImportSession(draft)
+    }
+    func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
+        try base.fetchExistingSourceRowHashes(accountID: accountID, rowHashes: rowHashes)
+    }
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        try base.fetchExistingSourceRowHashCounts(accountID: accountID, rowHashes: rowHashes)
+    }
+    func fetchLikelyDuplicateTransactions(accountID: UUID, candidates: [NormalizedImportCandidate]) throws -> [LikelyDuplicateCandidate] {
+        try base.fetchLikelyDuplicateTransactions(accountID: accountID, candidates: candidates)
+    }
+    func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary { insights }
+    func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport { overview }
+    func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport {
+        CategoryAnalysisReport(context: context, rows: [])
+    }
+    func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport {
+        MerchantAnalysisReport(context: context, merchants: [], recurring: [])
+    }
+}
+
 private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, MerchantRecommendationEligibilityReading, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
@@ -1265,6 +1313,141 @@ func loadSnapshotProjectsRecurringInsightIntoHomeDashboardWhenStoreImplementsIns
             visibility: .active
         )
     ))
+}
+
+@Test
+func loadSnapshotThreadsIncubatedOverviewWhenStoreImplementsAnalysisReader() throws {
+    let baseStore = StubWorkspaceStore(
+        summary: WorkspaceSummary(
+            accountCount: 1,
+            transactionCount: 24,
+            reviewCount: 0,
+            targetCount: 0
+        ),
+        accounts: [
+            Account(name: "Checking", kind: .checking, institutionName: "Local Bank"),
+        ]
+    )
+    let insights = WorkspaceInsightSummary(
+        insights: [
+            WorkspaceInsight(
+                kind: .spendDriverChange(
+                    SpendDriverChangeInsightDetail(
+                        title: "Dining",
+                        scope: .category(UUID(uuidString: "00000000-0000-0000-0000-000000000811")!),
+                        currentSpend: Decimal(180),
+                        comparisonSpend: Decimal(40),
+                        delta: Decimal(140)
+                    )
+                ),
+                confidence: 1,
+                rank: 1,
+                score: 110,
+                suppressionKey: "driver:dining",
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_775_001_600),
+                        end: Date(timeIntervalSince1970: 1_776_297_600)
+                    ),
+                    scope: .category(UUID(uuidString: "00000000-0000-0000-0000-000000000811")!),
+                    reconciliationRule: .exactTransactionSum,
+                    destination: InsightEvidenceDestination(
+                        scope: .category(UUID(uuidString: "00000000-0000-0000-0000-000000000811")!),
+                        direction: .expense
+                    )
+                ),
+                tieBreaker: WorkspaceInsightTieBreaker(
+                    primaryDate: Date(timeIntervalSince1970: 1_776_211_200),
+                    secondaryKey: "Dining",
+                    tertiaryKey: "driver:dining"
+                )
+            ),
+        ]
+    )
+    let overview = OverviewReport(
+        context: AnalysisContext(
+            range: .monthToDate,
+            referenceDate: Date(timeIntervalSince1970: 1_776_211_200),
+            scope: .workspace,
+            comparison: .previousPeriod
+        ),
+        currentSpend: Decimal(320),
+        comparisonSpend: Decimal(180),
+        drivers: [
+            AnalysisSpendRow(
+                title: "Dining",
+                scope: .category(UUID(uuidString: "00000000-0000-0000-0000-000000000811")!),
+                currentSpend: Decimal(180),
+                comparisonSpend: Decimal(40),
+                delta: Decimal(140),
+                evidence: insights.insights[0].evidence
+            ),
+        ],
+        recurring: []
+    )
+    let store = StubWorkspaceStoreWithInsightsAndAnalysis(
+        base: baseStore,
+        insights: insights,
+        overview: overview
+    )
+
+    let snapshot = try WorkspaceService(store: store).loadSnapshot()
+
+    #expect(snapshot.analysis.overview?.report == overview)
+    #expect(snapshot.analysis.overview?.projectedInsights == insights.homeProjectedInsights)
+}
+
+@Test
+func incubatedOverviewSnapshotTranslatesDriverSelectionIntoLedgerFilter() throws {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000821")!
+    let context = AnalysisContext(
+        range: .monthToDate,
+        referenceDate: Date(timeIntervalSince1970: 1_776_211_200),
+        scope: .workspace,
+        comparison: .previousPeriod
+    )
+    let driver = AnalysisSpendRow(
+        title: "Dining",
+        scope: .category(categoryID),
+        currentSpend: Decimal(180),
+        comparisonSpend: Decimal(40),
+        delta: Decimal(140),
+        evidence: InsightEvidence(
+            metricBasis: .includedVisibleExpenses,
+            resolvedInterval: DateInterval(
+                start: Date(timeIntervalSince1970: 1_775_001_600),
+                end: Date(timeIntervalSince1970: 1_776_297_600)
+            ),
+            scope: .category(categoryID),
+            reconciliationRule: .exactTransactionSum,
+            destination: InsightEvidenceDestination(
+                scope: .category(categoryID),
+                direction: .expense
+            )
+        )
+    )
+    let overview = AnalysisOverviewSnapshot(
+        context: context,
+        report: OverviewReport(
+            context: context,
+            currentSpend: Decimal(320),
+            comparisonSpend: Decimal(180),
+            drivers: [driver],
+            recurring: []
+        ),
+        monthlyReport: .empty,
+        projectedInsights: []
+    )
+
+    let filter = overview.transactionFilter(for: .driver(driver))
+
+    #expect(filter.startDate == Date(timeIntervalSince1970: 1_775_001_600))
+    #expect(filter.endDate == Date(timeIntervalSince1970: 1_776_297_599))
+    #expect(filter.categoryID == categoryID)
+    #expect(filter.direction == .expense)
+    #expect(filter.reviewStatuses == Set([.accepted, .pending]))
+    #expect(filter.visibility == .active)
 }
 
 @Test

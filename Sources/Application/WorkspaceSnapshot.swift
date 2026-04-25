@@ -14,6 +14,7 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
     public var transactionImportOrigins: [TransactionImportOrigin]
     public var monthlyReport: MonthlyReport
     public var insights: WorkspaceInsightSummary
+    public var analysis: AnalysisSnapshot
     public var homeDashboard: HomeDashboardSnapshot?
 
     public var accounts: [Account] {
@@ -33,6 +34,7 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
         transactionImportOrigins: [TransactionImportOrigin] = [],
         monthlyReport: MonthlyReport = .empty,
         insights: WorkspaceInsightSummary = .empty,
+        analysis: AnalysisSnapshot = .empty,
         homeDashboard: HomeDashboardSnapshot? = nil
     ) {
         self.summary = summary
@@ -47,6 +49,7 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
         self.transactionImportOrigins = transactionImportOrigins
         self.monthlyReport = monthlyReport
         self.insights = insights
+        self.analysis = analysis
         self.homeDashboard = homeDashboard
     }
 
@@ -60,6 +63,7 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
         transactionImportOrigins: [TransactionImportOrigin] = [],
         monthlyReport: MonthlyReport = .empty,
         insights: WorkspaceInsightSummary = .empty,
+        analysis: AnalysisSnapshot = .empty,
         homeDashboard: HomeDashboardSnapshot? = nil
     ) {
         self.init(
@@ -72,6 +76,7 @@ public struct WorkspaceSnapshot: Equatable, Sendable {
             transactionImportOrigins: transactionImportOrigins,
             monthlyReport: monthlyReport,
             insights: insights,
+            analysis: analysis,
             homeDashboard: homeDashboard
         )
     }

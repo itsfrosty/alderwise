@@ -101,6 +101,8 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var learnedRuleManagerSnapshot: LearnedRuleManagerSnapshot?
     @Published private(set) var reviewCreatedLearnedRuleAction: ReviewCreatedLearnedRuleAction?
     @Published private(set) var pendingAppSectionNavigation: AppSection?
+    @Published private(set) var isPresentingAnalysisOverview = false
+    @Published private(set) var analysisOverviewSelection: AnalysisOverviewSelection?
     @Published var learnedRuleManagerActionErrorMessage: String?
     @Published var importErrorMessage: String?
     @Published var importResultMessage: String?
@@ -375,6 +377,18 @@ final class WorkspaceShellModel: ObservableObject {
         }
         pendingAppSectionNavigation = .transactions
         updateTransactionFilter(filter)
+    }
+
+    func presentAnalysisOverview() {
+        isPresentingAnalysisOverview = true
+    }
+
+    func dismissAnalysisOverview() {
+        isPresentingAnalysisOverview = false
+    }
+
+    func setAnalysisOverviewSelection(_ selection: AnalysisOverviewSelection?) {
+        analysisOverviewSelection = selection
     }
 
     func matchingTransactions(in rows: [TransactionLedgerRow]) -> [TransactionLedgerRow] {
@@ -976,6 +990,11 @@ final class WorkspaceShellModel: ObservableObject {
         self.learnedRuleManagerSnapshot = learnedRuleManagerSnapshot
         self.merchantRecommendationEligibilityByReviewItemID = merchantRecommendationEligibilityByReviewItemID
 
+        if snapshot.analysis.overview == nil {
+            isPresentingAnalysisOverview = false
+            analysisOverviewSelection = nil
+        }
+
         if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
             self.selectedTargetID = nil
         }
@@ -1009,6 +1028,8 @@ final class WorkspaceShellModel: ObservableObject {
         learnedRuleManagerSnapshot = nil
         reviewCreatedLearnedRuleAction = nil
         pendingAppSectionNavigation = nil
+        isPresentingAnalysisOverview = false
+        analysisOverviewSelection = nil
         merchantRecommendationEligibilityByReviewItemID = [:]
         state = .failed(message)
         workspaceStatus = .failedToOpen(message)

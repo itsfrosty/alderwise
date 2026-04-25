@@ -139,11 +139,29 @@ public struct WorkspaceService: Sendable {
         let ledgerReader = store as? any TransactionLedgerReading
         let reportingReader = store as? any ReportingReading
         let insightReader = store as? any WorkspaceInsightReading
+        let analysisReader = store as? any AnalysisReportReading
         let reviewReader = store as? any ReviewQueueReading
         let referenceDate = Date()
         let summary = try store.fetchSummary()
         let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: referenceDate) ?? .empty
         let insights = try insightReader?.fetchWorkspaceInsightSummary(referenceDate: referenceDate) ?? .empty
+        let overviewContext = AnalysisContext(
+            range: .monthToDate,
+            referenceDate: referenceDate,
+            scope: .workspace,
+            comparison: .previousPeriod
+        )
+        let overviewReport = try analysisReader?.fetchOverviewReport(context: overviewContext)
+        let analysis = AnalysisSnapshot(
+            overview: overviewReport.map {
+                AnalysisOverviewSnapshot(
+                    context: $0.context,
+                    report: $0,
+                    monthlyReport: monthlyReport,
+                    projectedInsights: insights.homeProjectedInsights
+                )
+            }
+        )
         let managementAccounts = try store.fetchManagementAccounts()
         let importEligibleAccounts = try store.fetchImportEligibleAccounts()
         let ledgerFilterAccounts = try store.fetchLedgerFilterAccounts()
@@ -161,6 +179,7 @@ public struct WorkspaceService: Sendable {
             transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
             monthlyReport: monthlyReport,
             insights: insights,
+            analysis: analysis,
             homeDashboard: HomeDashboardSnapshot.make(
                 summary: summary,
                 monthlyReport: monthlyReport,
