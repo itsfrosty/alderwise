@@ -120,6 +120,22 @@ struct AnalysisInspectorView<Selection: AnalysisInspectorPresentable, Actions: V
 }
 
 extension AnalysisOverviewSelection: AnalysisInspectorPresentable {
+    var title: String {
+        switch self {
+        case .insight(let insight):
+            switch insight.kind {
+            case .recurringCharge(let detail):
+                detail.normalizedMerchantName.localizedCapitalized
+            case .spendDriverChange(let detail):
+                detail.title
+            }
+        case .driver(let row):
+            row.title
+        case .recurring(let row):
+            row.detail.normalizedMerchantName.localizedCapitalized
+        }
+    }
+
     var summaryText: String {
         switch self {
         case .insight(let insight):

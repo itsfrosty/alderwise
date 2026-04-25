@@ -553,6 +553,129 @@ func analysisContextChangesRepairPageLocalSelectionAgainstTheReloadedSnapshot() 
 
 @Test
 @MainActor
+func analysisOverviewContextChangesRepairCommittedSelectionAgainstTheReloadedSnapshot() throws {
+    let now = analysisViewStateUTCDate(year: 2026, month: 4, day: 15)
+    let selectedScope = analysisViewStateID("00000000-0000-0000-0000-000000000971")
+    let store = AnalysisLoadingWorkspaceStore(referenceDate: now)
+    store.overviewReportProvider = { context in
+        let selectedRow = AnalysisSpendRow(
+            title: "Dining",
+            scope: .category(selectedScope),
+            currentSpend: context.range == .yearToDate ? Decimal(320) : Decimal(180),
+            comparisonSpend: Decimal(110),
+            delta: context.range == .yearToDate ? Decimal(210) : Decimal(70),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                    end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+                ),
+                scope: .category(selectedScope),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: .category(selectedScope),
+                    direction: .expense
+                )
+            )
+        )
+        return OverviewReport(
+            context: context,
+            currentSpend: Decimal(420),
+            comparisonSpend: Decimal(310),
+            drivers: [
+                selectedRow,
+                AnalysisSpendRow(
+                    title: "Travel",
+                    scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000972")),
+                    currentSpend: Decimal(90),
+                    comparisonSpend: Decimal(60),
+                    delta: Decimal(30),
+                    evidence: InsightEvidence(
+                        metricBasis: .includedVisibleExpenses,
+                        resolvedInterval: DateInterval(
+                            start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                            end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+                        ),
+                        scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000972")),
+                        reconciliationRule: .exactTransactionSum,
+                        destination: InsightEvidenceDestination(
+                            scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000972")),
+                            direction: .expense
+                        )
+                    )
+                ),
+            ],
+            recurring: []
+        )
+    }
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: service,
+        referenceDateProvider: { now }
+    )
+
+    model.showAnalysis(page: .overview)
+    let initialSelection = try #require(model.analysisSnapshot.overview?.report.drivers.first)
+    model.setAnalysisOverviewSelection(.driver(initialSelection))
+
+    model.setAnalysisRange(.yearToDate)
+
+    let repairedSelection = try #require(model.analysisOverviewSelection)
+
+    switch repairedSelection {
+    case .driver(let row):
+        #expect(row.scope == .category(selectedScope))
+        #expect(row.currentSpend == Decimal(320))
+    case .insight, .recurring:
+        Issue.record("Expected a driver selection after repairing the overview selection.")
+    }
+}
+
+@Test
+func analysisOverviewSelectionRepairKeepsRecurringSelectionAcrossSnapshotContextChange() throws {
+    let accountID = analysisViewStateID("00000000-0000-0000-0000-000000000981")
+    var state = AnalysisScreenState()
+    let initialSnapshot = analysisViewOverviewSnapshot(
+        range: .monthToDate,
+        recurring: [
+            analysisViewRecurringOverviewRow(
+                accountID: accountID,
+                name: "netflix",
+                amount: Decimal(15.49)
+            )
+        ]
+    )
+
+    let initialSelection = try #require(initialSnapshot.report.recurring.first)
+    state.setOverviewSelection(.recurring(initialSelection))
+
+    state.repairSelections(for: AnalysisSnapshot(
+        overview: analysisViewOverviewSnapshot(
+            range: .yearToDate,
+            recurring: [
+                analysisViewRecurringOverviewRow(
+                    accountID: accountID,
+                    name: "netflix",
+                    amount: Decimal(18.99)
+                )
+            ]
+        )
+    ))
+
+    let repairedSelection = try #require(state.overview.selection)
+
+    switch repairedSelection {
+    case .recurring(let row):
+        #expect(row.detail.accountID == accountID)
+        #expect(row.detail.amountRange.maximum == Decimal(18.99))
+    case .insight, .driver:
+        Issue.record("Expected a recurring selection after repairing the overview selection.")
+    }
+}
+
+@Test
+@MainActor
 func analysisContextChangesDoNotChangeInspectorVisibility() {
     let now = analysisViewStateUTCDate(year: 2026, month: 4, day: 15)
     let store = AnalysisLoadingWorkspaceStore(referenceDate: now)
@@ -733,6 +856,80 @@ private func analysisViewCategoriesRow(
             reconciliationRule: .exactTransactionSum,
             destination: InsightEvidenceDestination(
                 scope: scope,
+                direction: .expense
+            )
+        )
+    )
+}
+
+private func analysisViewOverviewSnapshot(
+    range: AnalysisRange,
+    recurring: [MerchantRecurringReportRow]
+) -> AnalysisOverviewSnapshot {
+    let context = AnalysisContext(
+        range: range,
+        referenceDate: analysisViewStateUTCDate(year: 2026, month: 4, day: 15),
+        scope: .workspace,
+        comparison: .previousPeriod,
+        metricBasis: .includedVisibleExpenses
+    )
+    return AnalysisOverviewSnapshot(
+        context: context,
+        report: OverviewReport(
+            context: context,
+            currentSpend: Decimal(420),
+            comparisonSpend: Decimal(310),
+            drivers: [],
+            recurring: recurring
+        ),
+        monthlyReport: MonthlyReport(
+            monthStart: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+            currentMonthAcceptedSpend: Decimal(420),
+            lastMonthAcceptedSpend: Decimal(310),
+            expenseBasis: .includedVisibleExpenses,
+            pendingReviewCount: 0,
+            targets: [],
+            hasActiveTargets: false,
+            totalMonthlyTargetLimit: 0,
+            expectedPaceSpend: Decimal(390),
+            paceDelta: Decimal(30),
+            paceSeries: [],
+            drivers: [],
+            biggestShift: nil
+        ),
+        projectedInsights: []
+    )
+}
+
+private func analysisViewRecurringOverviewRow(
+    accountID: UUID,
+    name: String,
+    amount: Decimal
+) -> MerchantRecurringReportRow {
+    MerchantRecurringReportRow(
+        detail: RecurringChargeInsightDetail(
+            accountID: accountID,
+            normalizedMerchantName: name,
+            cadence: .monthly,
+            observationCount: 4,
+            amountRange: RecurringChargeAmountRange(minimum: amount, maximum: amount),
+            supportingTransactionIDs: [
+                analysisViewStateID("00000000-0000-0000-0000-000000000982")
+            ],
+            firstObservedDate: analysisViewStateUTCDate(year: 2026, month: 1, day: 9),
+            lastObservedDate: analysisViewStateUTCDate(year: 2026, month: 4, day: 9),
+            nextExpectedDateWindow: nil
+        ),
+        evidence: InsightEvidence(
+            metricBasis: .includedVisibleExpenses,
+            resolvedInterval: DateInterval(
+                start: analysisViewStateUTCDate(year: 2026, month: 1, day: 9),
+                end: analysisViewStateUTCDate(year: 2026, month: 4, day: 10)
+            ),
+            scope: .merchant(name),
+            reconciliationRule: .recurringObservationSet,
+            destination: InsightEvidenceDestination(
+                scope: .merchant(name),
                 direction: .expense
             )
         )
