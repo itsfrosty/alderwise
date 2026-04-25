@@ -86,11 +86,18 @@ struct TransactionLedgerView: View {
         )
     }
 
+    private static let headerInsets = EdgeInsets(
+        top: 12,
+        leading: 20,
+        bottom: 12,
+        trailing: 12
+    )
+
     var body: some View {
         HSplitView {
             VStack(spacing: 0) {
                 ledgerHeader
-                    .padding(WorkspaceLayout.transactionLedgerHeaderInsets)
+                    .padding(Self.headerInsets)
 
                 Divider()
 

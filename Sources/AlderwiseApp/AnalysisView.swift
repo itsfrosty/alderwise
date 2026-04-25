@@ -45,8 +45,8 @@ struct AnalysisView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(
-                    minWidth: WorkspaceLayout.analysisPagePickerMinimumWidth,
-                    idealWidth: WorkspaceLayout.analysisPagePickerIdealWidth
+                    minWidth: AnalysisTheme.Toolbar.pagePickerMinimumWidth,
+                    idealWidth: AnalysisTheme.Toolbar.pagePickerIdealWidth
                 )
             }
 
