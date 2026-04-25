@@ -62,7 +62,7 @@ struct AnalysisCategoriesView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .sheet(isPresented: transientInspectorBinding) {
-            inspectorView
+            transientInspectorView
         }
     }
 
@@ -79,13 +79,25 @@ struct AnalysisCategoriesView: View {
 
     private var transientInspectorBinding: Binding<Bool> {
         Binding(
-            get: { inspectorPresentation == .transient },
+            get: { inspectorPresentation.shouldPresentTransientInspector(hasSelection: selection != nil) },
             set: { isPresented in
                 if isPresented == false {
                     onDismissTransientInspector?()
                 }
             }
         )
+    }
+
+    private var transientInspectorView: some View {
+        ZStack(alignment: .topTrailing) {
+            inspectorView
+
+            Button("Done") {
+                onDismissTransientInspector?()
+            }
+            .keyboardShortcut(.cancelAction)
+            .padding()
+        }
     }
 
     private var inspectorView: some View {

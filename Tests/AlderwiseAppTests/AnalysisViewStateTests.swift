@@ -388,6 +388,16 @@ func analysisNarrowWidthsUseTransientInspectorPresentationWhenRequested() {
 }
 
 @Test
+func transientInspectorRequiresACommittedSelectionBeforePresentingItsSheet() {
+    #expect(
+        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: false) == false
+    )
+    #expect(
+        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: true)
+    )
+}
+
+@Test
 func analysisWideWidthsUsePersistentInspectorPresentationWhenRequested() {
     #expect(
         AnalysisInspectorPresentation.resolve(

@@ -17,6 +17,14 @@ enum AnalysisInspectorPresentation: Equatable {
 
         return availableWidth > AnalysisView.persistentInspectorMinimumWidth ? .persistent : .transient
     }
+
+    var presentsTransientSheet: Bool {
+        self == .transient
+    }
+
+    func shouldPresentTransientInspector(hasSelection: Bool) -> Bool {
+        presentsTransientSheet && hasSelection
+    }
 }
 
 struct AnalysisView: View {
