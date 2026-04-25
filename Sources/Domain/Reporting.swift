@@ -1,9 +1,15 @@
 import Foundation
 
+public enum ReportingExpenseBasis: String, Equatable, Sendable {
+    case includedVisibleExpenses
+    case acceptedExpenses
+}
+
 public struct MonthlyReport: Equatable, Sendable {
     public var monthStart: Date
     public var currentMonthAcceptedSpend: Decimal
     public var lastMonthAcceptedSpend: Decimal
+    public var expenseBasis: ReportingExpenseBasis
     public var pendingReviewCount: Int
     public var targets: [TargetProgress]
     public var hasActiveTargets: Bool
@@ -18,6 +24,7 @@ public struct MonthlyReport: Equatable, Sendable {
         monthStart: Date,
         currentMonthAcceptedSpend: Decimal,
         lastMonthAcceptedSpend: Decimal,
+        expenseBasis: ReportingExpenseBasis = .includedVisibleExpenses,
         pendingReviewCount: Int,
         targets: [TargetProgress],
         hasActiveTargets: Bool,
@@ -31,6 +38,7 @@ public struct MonthlyReport: Equatable, Sendable {
         self.monthStart = monthStart
         self.currentMonthAcceptedSpend = currentMonthAcceptedSpend
         self.lastMonthAcceptedSpend = lastMonthAcceptedSpend
+        self.expenseBasis = expenseBasis
         self.pendingReviewCount = pendingReviewCount
         self.targets = targets
         self.hasActiveTargets = hasActiveTargets
@@ -42,10 +50,19 @@ public struct MonthlyReport: Equatable, Sendable {
         self.biggestShift = biggestShift
     }
 
+    public var currentMonthIncludedVisibleSpend: Decimal {
+        currentMonthAcceptedSpend
+    }
+
+    public var lastMonthIncludedVisibleSpend: Decimal {
+        lastMonthAcceptedSpend
+    }
+
     public static let empty = MonthlyReport(
         monthStart: Date(timeIntervalSince1970: 0),
         currentMonthAcceptedSpend: 0,
         lastMonthAcceptedSpend: 0,
+        expenseBasis: .includedVisibleExpenses,
         pendingReviewCount: 0,
         targets: [],
         hasActiveTargets: false,

@@ -1960,8 +1960,8 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         let totalDays = calendar.range(of: .day, in: .month, for: interval.start)?.count ?? 30
 
         return try databaseQueue.read { db in
-            let currentSpend = try acceptedExpenseSpend(db: db, interval: interval)
-            let lastMonthSpend = try acceptedExpenseSpend(db: db, interval: lastMonthInterval)
+            let currentSpend = try includedVisibleExpenseSpend(db: db, interval: interval)
+            let lastMonthSpend = try includedVisibleExpenseSpend(db: db, interval: lastMonthInterval)
             let pendingReviewCount = try Int.fetchOne(
                 db,
                 sql: """
@@ -2018,6 +2018,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 monthStart: interval.start,
                 currentMonthAcceptedSpend: currentSpend,
                 lastMonthAcceptedSpend: lastMonthSpend,
+                expenseBasis: .includedVisibleExpenses,
                 pendingReviewCount: pendingReviewCount,
                 targets: targets,
                 hasActiveTargets: hasActiveTargets,
@@ -3356,7 +3357,7 @@ private func elapsedComparisonInterval(for referenceDate: Date, monthInterval: D
     return DateInterval(start: lastMonthStart, end: min(comparisonEnd, lastMonthEnd))
 }
 
-private func acceptedExpenseSpend(
+private func includedVisibleExpenseSpend(
     db: Database,
     interval: DateInterval,
     categoryID: UUID? = nil,
@@ -3626,14 +3627,14 @@ private func targetProgress(
         }
         scope = .category(categoryID)
         name = (row["category_name"] as String?) ?? "Uncategorized"
-        spent = try acceptedExpenseSpend(db: db, interval: interval, categoryID: categoryID)
+        spent = try includedVisibleExpenseSpend(db: db, interval: interval, categoryID: categoryID)
     } else if let categoryGroupIDText {
         guard let categoryGroupID = UUID(uuidString: categoryGroupIDText) else {
             throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.category_group_id", value: categoryGroupIDText)
         }
         scope = .categoryGroup(categoryGroupID)
         name = (row["category_group_name"] as String?) ?? "Category Group"
-        spent = try acceptedExpenseSpend(db: db, interval: interval, categoryGroupID: categoryGroupID)
+        spent = try includedVisibleExpenseSpend(db: db, interval: interval, categoryGroupID: categoryGroupID)
     } else {
         throw WorkspaceStoreError.invalidStoredReviewItem(field: "targets.scope", value: "NULL")
     }

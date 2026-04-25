@@ -282,7 +282,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             isEmptyWorkspace: isEmptyWorkspace,
             reviewQualifier: reviewQualifier,
             hero: isEmptyWorkspace ? nil : HomeDashboardHero(
-                amount: monthlyReport.currentMonthAcceptedSpend,
+                amount: monthlyReport.currentMonthIncludedVisibleSpend,
                 status: heroStatus(for: monthlyReport)
             ),
             recurringSection: recurringSection,
@@ -375,7 +375,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                 HomeDashboardAction(
                     kind: .spendDriver,
                     destination: .transactions(
-                        TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
+                        TransactionDrilldownFilterBuilder.currentMonthIncludedVisibleExpenses(
                             monthStart: monthlyReport.monthStart,
                             scope: driver.scope
                         )
@@ -388,7 +388,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
 
         if monthlyReport.targets.isEmpty,
            monthlyReport.pendingReviewCount == 0,
-           monthlyReport.currentMonthAcceptedSpend > 0 {
+           monthlyReport.currentMonthIncludedVisibleSpend > 0 {
             actions.append(
                 HomeDashboardAction(
                     kind: .createFirstTarget,
@@ -414,15 +414,18 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
             HomeDashboardSummaryCard(
                 id: "current-month",
                 title: "This Month",
-                value: currency(monthlyReport.currentMonthAcceptedSpend),
+                value: currency(monthlyReport.currentMonthIncludedVisibleSpend),
                 detail: "Visible expenses",
                 destination: nil
             ),
             HomeDashboardSummaryCard(
                 id: "last-month",
                 title: "Last Month",
-                value: currency(monthlyReport.lastMonthAcceptedSpend),
-                detail: changeDetail(current: monthlyReport.currentMonthAcceptedSpend, previous: monthlyReport.lastMonthAcceptedSpend),
+                value: currency(monthlyReport.lastMonthIncludedVisibleSpend),
+                detail: changeDetail(
+                    current: monthlyReport.currentMonthIncludedVisibleSpend,
+                    previous: monthlyReport.lastMonthIncludedVisibleSpend
+                ),
                 destination: nil
             ),
         ]
@@ -462,7 +465,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                     value: deltaText(driver.delta),
                     detail: driver.title,
                     destination: .transactions(
-                        TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
+                        TransactionDrilldownFilterBuilder.currentMonthIncludedVisibleExpenses(
                             monthStart: monthlyReport.monthStart,
                             scope: driver.scope
                         )
@@ -528,7 +531,7 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
                 delta: driver.delta,
                 deltaText: deltaText(driver.delta),
                 destination: .transactions(
-                    TransactionDrilldownFilterBuilder.currentMonthAcceptedExpenses(
+                    TransactionDrilldownFilterBuilder.currentMonthIncludedVisibleExpenses(
                         monthStart: monthlyReport.monthStart,
                         scope: driver.scope
                     )

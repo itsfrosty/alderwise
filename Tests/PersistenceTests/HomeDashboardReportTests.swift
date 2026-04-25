@@ -340,6 +340,49 @@ func monthlyReportCountsIncludedPendingExpensesAndExcludesHiddenExpenses() throw
 }
 
 @Test
+func monthlyReportExposesIncludedVisibleSpendCompatibilityAliases() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000821")!
+    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000822")!
+    try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try homeDashboardInsertAcceptedExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-40),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 4)
+    )
+    try homeDashboardInsertPendingExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-10),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 8)
+    )
+    try homeDashboardInsertPendingExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-25),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 9),
+        isHidden: true
+    )
+
+    let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
+
+    #expect(report.expenseBasis == .includedVisibleExpenses)
+    #expect(report.currentMonthIncludedVisibleSpend == Decimal(50))
+    #expect(report.lastMonthIncludedVisibleSpend == Decimal(0))
+    #expect(report.currentMonthAcceptedSpend == report.currentMonthIncludedVisibleSpend)
+    #expect(report.lastMonthAcceptedSpend == report.lastMonthIncludedVisibleSpend)
+}
+
+@Test
 func monthlyReportSurfacesIncludedUncategorizedExpensesAsDriverRows() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -434,147 +477,6 @@ func workspaceInsightSummaryCountsVisiblePendingExpensesAndExcludesHiddenRowsFro
     #expect(detail.cadence == RecurringChargeCadence.monthly)
     #expect(detail.observationCount == 3)
     #expect(detail.supportingTransactionIDs == [januaryID, februaryPendingID, aprilID])
-}
-
-private func homeDashboardTemporaryDatabaseURL() throws -> URL {
-    let directory = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    return directory.appending(path: "workspace.sqlite")
-}
-
-private func homeDashboardUTCDate(year: Int, month: Int, day: Int) -> Date {
-    var components = DateComponents()
-    components.calendar = Calendar(identifier: .gregorian)
-    components.timeZone = TimeZone(secondsFromGMT: 0)
-    components.year = year
-    components.month = month
-    components.day = day
-    return components.date!
-}
-
-private func homeDashboardInsertCategoryGroup(databaseURL: URL, id: UUID, name: String) throws {
-    let queue = try DatabaseQueue(path: databaseURL.path)
-    try queue.write { db in
-        try db.execute(
-            sql: "INSERT INTO category_groups (id, name) VALUES (?, ?)",
-            arguments: [id.uuidString, name]
-        )
-    }
-}
-
-private func homeDashboardInsertCategory(
-    databaseURL: URL,
-    id: UUID,
-    name: String,
-    kind: String,
-    categoryGroupID: UUID? = nil
-) throws {
-    let queue = try DatabaseQueue(path: databaseURL.path)
-    try queue.write { db in
-        try db.execute(
-            sql: "INSERT INTO categories (id, name, kind, category_group_id) VALUES (?, ?, ?, ?)",
-            arguments: [id.uuidString, name, kind, categoryGroupID?.uuidString]
-        )
-    }
-}
-
-private func homeDashboardInsertAcceptedExpense(
-    databaseURL: URL,
-    accountID: UUID,
-    categoryID: UUID,
-    amount: Decimal,
-    transactionDate: Date
-) throws {
-    _ = try homeDashboardInsertExpense(
-        databaseURL: databaseURL,
-        accountID: accountID,
-        categoryID: categoryID,
-        amount: amount,
-        transactionDate: transactionDate,
-        reviewStatus: "accepted"
-    )
-}
-
-private func homeDashboardInsertExpense(
-    databaseURL: URL,
-    accountID: UUID,
-    categoryID: UUID?,
-    amount: Decimal,
-    transactionDate: Date,
-    reviewStatus: String,
-    rawDescription: String = "Home dashboard test",
-    normalizedMerchantName: String = "home dashboard test",
-    isHidden: Bool = false
-) throws -> UUID {
-    let transactionID = UUID()
-    let queue = try DatabaseQueue(path: databaseURL.path)
-    try queue.write { db in
-        try db.execute(
-            sql: """
-            INSERT INTO transactions (
-                id,
-                account_id,
-                category_id,
-                is_hidden,
-                raw_description,
-                normalized_merchant_name,
-                amount,
-                transaction_date,
-                direction,
-                decision_source,
-                confidence,
-                review_status,
-                duplicate_status
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            arguments: [
-                transactionID.uuidString,
-                accountID.uuidString,
-                categoryID?.uuidString,
-                isHidden,
-                rawDescription,
-                normalizedMerchantName,
-                NSDecimalNumber(decimal: amount).doubleValue,
-                transactionDate,
-                "expense",
-                "user",
-                1.0,
-                reviewStatus,
-                "none",
-            ]
-        )
-    }
-    return transactionID
-}
-
-private func homeDashboardInsertPendingReviewItem(
-    databaseURL: URL,
-    transactionID: UUID? = nil,
-    createdAt: Date
-) throws {
-    let queue = try DatabaseQueue(path: databaseURL.path)
-    try queue.write { db in
-        try db.execute(
-            sql: """
-            INSERT INTO review_items (
-                id,
-                transaction_id,
-                type,
-                status,
-                created_at
-            )
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            arguments: [
-                UUID().uuidString,
-                transactionID?.uuidString,
-                ReviewItemType.lowConfidenceCategory.rawValue,
-                ReviewItemStatus.pending.rawValue,
-                createdAt,
-            ]
-        )
-    }
 }
 
 private func homeDashboardRecurringDetail(from insight: WorkspaceInsight) -> RecurringChargeInsightDetail? {

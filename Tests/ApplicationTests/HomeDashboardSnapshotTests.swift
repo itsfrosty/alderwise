@@ -81,7 +81,7 @@ func homeDashboardSuppressesCreateTargetPromptWhileReviewIsPending() {
 }
 
 @Test
-func homeDashboardUsesMonthlyReportPendingReviewCountAsReviewSourceOfTruth() throws {
+func homeDashboardShowsVisibleSpendReviewQualifierFromMonthlyReport() throws {
     let report = homeDashboardReport(
         pendingReviewCount: 7,
         targets: [],
@@ -530,6 +530,25 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedCategoryGroupFil
 }
 
 @Test
+func transactionDrilldownFilterBuilderBuildsCurrentMonthIncludedVisibleCategoryGroupFilter() {
+    let monthStart = homeDashboardUTCDate(year: 2026, month: 4, day: 1)
+    let foodGroupID = homeDashboardID("00000000-0000-0000-0000-000000000215")
+
+    let filter = TransactionDrilldownFilterBuilder.currentMonthIncludedVisibleExpenses(
+        monthStart: monthStart,
+        scope: TargetScope.categoryGroup(foodGroupID)
+    )
+
+    #expect(filter == TransactionLedgerFilter(
+        startDate: monthStart,
+        endDate: homeDashboardEndOfMonth(monthStart),
+        categoryID: nil,
+        categoryGroupID: foodGroupID,
+        direction: .expense
+    ))
+}
+
+@Test
 func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedCategoryFilter() {
     let monthStart = homeDashboardUTCDate(year: 2026, month: 4, day: 1)
     let categoryID = homeDashboardID("00000000-0000-0000-0000-000000000114")
@@ -570,6 +589,7 @@ private func homeDashboardReport(
     targets: [TargetProgress] = [],
     currentMonthAcceptedSpend: Decimal = 0,
     lastMonthAcceptedSpend: Decimal = 0,
+    expenseBasis: ReportingExpenseBasis = .includedVisibleExpenses,
     hasActiveTargets: Bool = false,
     totalMonthlyTargetLimit: Decimal = 0,
     expectedPaceSpend: Decimal = 0,
@@ -582,6 +602,7 @@ private func homeDashboardReport(
         monthStart: homeDashboardUTCDate(year: 2026, month: 4, day: 1),
         currentMonthAcceptedSpend: currentMonthAcceptedSpend,
         lastMonthAcceptedSpend: lastMonthAcceptedSpend,
+        expenseBasis: expenseBasis,
         pendingReviewCount: pendingReviewCount,
         targets: targets,
         hasActiveTargets: hasActiveTargets,
