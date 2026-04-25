@@ -5,46 +5,29 @@ import SwiftUI
 struct AnalysisMerchantsView: View {
     let snapshot: AnalysisMerchantsSnapshot
     @Binding var selection: AnalysisMerchantsSelection?
-    var showsInspector: Bool = true
+    var inspectorPresentation: AnalysisInspectorPresentation = .persistent
+    var onDismissTransientInspector: (() -> Void)?
     let onShowTransactions: (TransactionLedgerFilter) -> Void
     let onShowRules: (String) -> Void
 
     var body: some View {
         Group {
-            if showsInspector {
+            if inspectorPresentation == .persistent {
                 HStack(spacing: 0) {
                     content
 
                     Divider()
 
-                    AnalysisInspectorView(
-                        selection: selection,
-                        noSelectionDescription: "Select a merchant or recurring series to inspect its evidence, open matching transactions, or hand off to Rules for merchant cleanup."
-                    ) { selected in
-                        VStack(alignment: .leading, spacing: 10) {
-                            Button {
-                                onShowTransactions(snapshot.transactionFilter(for: selected))
-                            } label: {
-                                Label("Show Transactions", systemImage: "list.bullet.rectangle")
-                            }
-                            .buttonStyle(.borderedProminent)
-
-                            if let merchantName = merchantName(for: selected) {
-                                Button {
-                                    onShowRules(merchantName)
-                                } label: {
-                                    Label("Open Rules", systemImage: "slider.horizontal.3")
-                                }
-                                .buttonStyle(.bordered)
-                            }
-                        }
-                    }
+                    inspectorView
                 }
             } else {
                 content
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .sheet(isPresented: transientInspectorBinding) {
+            inspectorView
+        }
     }
 
     private var content: some View {
@@ -66,6 +49,42 @@ struct AnalysisMerchantsView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var transientInspectorBinding: Binding<Bool> {
+        Binding(
+            get: { inspectorPresentation == .transient },
+            set: { isPresented in
+                if isPresented == false {
+                    onDismissTransientInspector?()
+                }
+            }
+        )
+    }
+
+    private var inspectorView: some View {
+        AnalysisInspectorView(
+            selection: selection,
+            noSelectionDescription: "Select a merchant or recurring series to inspect its evidence, open matching transactions, or hand off to Rules for merchant cleanup."
+        ) { selected in
+            VStack(alignment: .leading, spacing: 10) {
+                Button {
+                    onShowTransactions(snapshot.transactionFilter(for: selected))
+                } label: {
+                    Label("Show Transactions", systemImage: "list.bullet.rectangle")
+                }
+                .buttonStyle(.borderedProminent)
+
+                if let merchantName = merchantName(for: selected) {
+                    Button {
+                        onShowRules(merchantName)
+                    } label: {
+                        Label("Open Rules", systemImage: "slider.horizontal.3")
+                    }
+                    .buttonStyle(.bordered)
+                }
+            }
+        }
     }
 
     private var merchantsSection: some View {

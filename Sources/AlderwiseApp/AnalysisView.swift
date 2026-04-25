@@ -2,14 +2,25 @@ import Application
 import Domain
 import SwiftUI
 
-struct AnalysisView: View {
-    enum InspectorPresentation: Equatable {
-        case hidden
-        case persistent
-        case transient
-    }
+enum AnalysisInspectorPresentation: Equatable {
+    case hidden
+    case persistent
+    case transient
 
-    nonisolated static let inspectorVisibilityWidth = WorkspaceLayout.minimumWindowWidth - WorkspaceLayout.sidebarIdealWidth
+    static func resolve(
+        isRequested: Bool,
+        availableWidth: CGFloat
+    ) -> AnalysisInspectorPresentation {
+        guard isRequested else {
+            return .hidden
+        }
+
+        return availableWidth > AnalysisView.persistentInspectorMinimumWidth ? .persistent : .transient
+    }
+}
+
+struct AnalysisView: View {
+    nonisolated static let persistentInspectorMinimumWidth = WorkspaceLayout.minimumWindowWidth - WorkspaceLayout.sidebarIdealWidth
 
     @ObservedObject var model: WorkspaceShellModel
 
@@ -24,7 +35,7 @@ struct AnalysisView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            let inspectorPresentation = Self.inspectorPresentation(
+            let inspectorPresentation = AnalysisInspectorPresentation.resolve(
                 isRequested: model.analysisToolbarState.isInspectorVisible,
                 availableWidth: proxy.size.width
             )
@@ -46,22 +57,10 @@ struct AnalysisView: View {
                     VStack(spacing: 0) {
                         familyStrip
                         selectedPageView(
-                            showsInspector: inspectorPresentation == .persistent
+                            inspectorPresentation: inspectorPresentation
                         )
                     }
                 }
-            }
-            .sheet(
-                isPresented: Binding(
-                    get: { inspectorPresentation == .transient },
-                    set: { isPresented in
-                        if isPresented == false {
-                            model.setAnalysisInspectorVisible(false)
-                        }
-                    }
-                )
-            ) {
-                narrowInspectorView
             }
         }
         .navigationTitle("Analysis")
@@ -85,32 +84,6 @@ struct AnalysisView: View {
 
     nonisolated static func familyStripPages(in snapshot: AnalysisSnapshot) -> [AnalysisPage] {
         AnalysisToolbarState.availablePages(in: snapshot)
-    }
-
-    nonisolated static func inspectorPresentation(
-        isRequested: Bool,
-        availableWidth: CGFloat
-    ) -> InspectorPresentation {
-        guard isRequested else {
-            return .hidden
-        }
-
-        return availableWidth >= inspectorVisibilityWidth ? .persistent : .transient
-    }
-
-    nonisolated static func showsInspector(isRequested: Bool, availableWidth: CGFloat) -> Bool {
-        inspectorPresentation(
-            isRequested: isRequested,
-            availableWidth: availableWidth
-        ) == .persistent
-    }
-
-    static func makeTransactionsHandler(
-        model: WorkspaceShellModel
-    ) -> (TransactionLedgerFilter) -> Void {
-        { filter in
-            model.showTransactions(filter: filter, clearSelection: false)
-        }
     }
 
     private var familyStrip: some View {
@@ -144,78 +117,7 @@ struct AnalysisView: View {
     }
 
     @ViewBuilder
-    private var narrowInspectorView: some View {
-        switch selectedPage {
-        case .overview:
-            AnalysisInspectorView(
-                selection: model.analysisOverviewSelection,
-                noSelectionDescription: "Select a driver, recurring series, or projected insight to inspect its evidence and drill into matching transactions."
-            ) { selected in
-                Button {
-                    Self.makeTransactionsHandler(model: model)(
-                        model.analysisSnapshot.overview?.transactionFilter(for: selected) ?? .empty
-                    )
-                } label: {
-                    Label("Show Transactions", systemImage: "list.bullet.rectangle")
-                }
-                .buttonStyle(.borderedProminent)
-            }
-        case .categories:
-            AnalysisInspectorView(
-                selection: model.analysisCategoriesSelection,
-                noSelectionDescription: "Select a category or group to inspect its evidence, open matching transactions, or jump into its target if one exists.",
-                onShowTransactions: { selected in
-                    guard let snapshot = model.analysisSnapshot.categories else {
-                        return
-                    }
-                    Self.makeTransactionsHandler(model: model)(
-                        snapshot.transactionFilter(for: selected)
-                    )
-                }
-            ) { selected in
-                if let snapshot = model.analysisSnapshot.categories,
-                   let targetProgress = snapshot.targetProgress(for: selected) {
-                    Button {
-                        model.showTarget(id: targetProgress.id)
-                    } label: {
-                        Label("Open Target", systemImage: "target")
-                    }
-                    .buttonStyle(.bordered)
-                }
-            }
-        case .merchants:
-            AnalysisInspectorView(
-                selection: model.analysisMerchantsSelection,
-                noSelectionDescription: "Select a merchant or recurring series to inspect its evidence, open matching transactions, or hand off to Rules for merchant cleanup."
-            ) { selected in
-                VStack(alignment: .leading, spacing: 10) {
-                    if let snapshot = model.analysisSnapshot.merchants {
-                        Button {
-                            Self.makeTransactionsHandler(model: model)(
-                                snapshot.transactionFilter(for: selected)
-                            )
-                        } label: {
-                            Label("Show Transactions", systemImage: "list.bullet.rectangle")
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
-
-                    if let merchantName = merchantsInspectorMerchantName(for: selected) {
-                        Button {
-                            model.showLearnedRules()
-                        } label: {
-                            Label("Open Rules", systemImage: "slider.horizontal.3")
-                        }
-                        .buttonStyle(.bordered)
-                        .help(merchantName)
-                    }
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func selectedPageView(showsInspector: Bool) -> some View {
+    private func selectedPageView(inspectorPresentation: AnalysisInspectorPresentation) -> some View {
         switch selectedPage {
         case .overview:
             if let overview = model.analysisSnapshot.overview {
@@ -225,8 +127,13 @@ struct AnalysisView: View {
                         get: { model.analysisOverviewSelection },
                         set: { model.setAnalysisOverviewSelection($0) }
                     ),
-                    showsInspector: showsInspector,
-                    onShowTransactions: Self.makeTransactionsHandler(model: model)
+                    inspectorPresentation: inspectorPresentation,
+                    onDismissTransientInspector: {
+                        model.setAnalysisInspectorVisible(false)
+                    },
+                    onShowTransactions: {
+                        model.showAnalysisTransactions(filter: $0)
+                    }
                 )
             }
         case .categories:
@@ -237,8 +144,13 @@ struct AnalysisView: View {
                         get: { model.analysisCategoriesSelection },
                         set: { model.setAnalysisCategoriesSelection($0) }
                     ),
-                    showsInspector: showsInspector,
-                    onShowTransactions: Self.makeTransactionsHandler(model: model),
+                    inspectorPresentation: inspectorPresentation,
+                    onDismissTransientInspector: {
+                        model.setAnalysisInspectorVisible(false)
+                    },
+                    onShowTransactions: {
+                        model.showAnalysisTransactions(filter: $0)
+                    },
                     onShowTarget: { targetID in
                         model.showTarget(id: targetID)
                     }
@@ -252,24 +164,18 @@ struct AnalysisView: View {
                         get: { model.analysisMerchantsSelection },
                         set: { model.setAnalysisMerchantsSelection($0) }
                     ),
-                    showsInspector: showsInspector,
-                    onShowTransactions: Self.makeTransactionsHandler(model: model),
+                    inspectorPresentation: inspectorPresentation,
+                    onDismissTransientInspector: {
+                        model.setAnalysisInspectorVisible(false)
+                    },
+                    onShowTransactions: {
+                        model.showAnalysisTransactions(filter: $0)
+                    },
                     onShowRules: { _ in
                         model.showLearnedRules()
                     }
                 )
             }
         }
-    }
-}
-
-private func merchantsInspectorMerchantName(
-    for selection: AnalysisMerchantsSelection
-) -> String? {
-    switch selection {
-    case .merchant(let row):
-        row.key.normalizedName
-    case .recurring(let row):
-        row.detail.normalizedMerchantName
     }
 }

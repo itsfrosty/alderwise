@@ -292,7 +292,12 @@ func analysisInspectorPlaceholderRemainsAvailableOnWideScreensWhenSelectionClear
     model.setAnalysisMerchantsSelection(selection)
     model.setAnalysisMerchantsSelection(nil)
 
-    #expect(AnalysisView.showsInspector(isRequested: true, availableWidth: AnalysisView.inspectorVisibilityWidth) == true)
+    #expect(
+        AnalysisInspectorPresentation.resolve(
+            isRequested: true,
+            availableWidth: AnalysisView.persistentInspectorMinimumWidth + 1
+        ) == .persistent
+    )
     #expect(AnalysisInspectorView<AnalysisMerchantsSelection, EmptyView>.showsPlaceholder(for: model.analysisMerchantsSelection))
 }
 
@@ -333,9 +338,9 @@ func analysisSelectionDoesNotRevealInspectorWhenCommittedWhileHidden() {
 @Test
 func analysisNarrowWidthsUseTransientInspectorPresentationWhenRequested() {
     #expect(
-        AnalysisView.inspectorPresentation(
+        AnalysisInspectorPresentation.resolve(
             isRequested: true,
-            availableWidth: AnalysisView.inspectorVisibilityWidth - 1
+            availableWidth: AnalysisView.persistentInspectorMinimumWidth
         ) == .transient
     )
 }
@@ -343,16 +348,16 @@ func analysisNarrowWidthsUseTransientInspectorPresentationWhenRequested() {
 @Test
 func analysisWideWidthsUsePersistentInspectorPresentationWhenRequested() {
     #expect(
-        AnalysisView.inspectorPresentation(
+        AnalysisInspectorPresentation.resolve(
             isRequested: true,
-            availableWidth: AnalysisView.inspectorVisibilityWidth
+            availableWidth: AnalysisView.persistentInspectorMinimumWidth + 1
         ) == .persistent
     )
 }
 
 @Test
 @MainActor
-func analysisViewTransactionsHandlerRetainsMerchantSelectionForDrilldown() {
+func analysisDrivenMerchantDrilldownRetainsSelection() {
     let model = WorkspaceShellModel(store: nil, service: nil)
     let selection = AnalysisMerchantsSelection.merchant(
         MerchantAnalysisRow(
@@ -378,7 +383,7 @@ func analysisViewTransactionsHandlerRetainsMerchantSelectionForDrilldown() {
     )
 
     model.setAnalysisMerchantsSelection(selection)
-    AnalysisView.makeTransactionsHandler(model: model)(
+    model.showAnalysisTransactions(filter:
         TransactionLedgerFilter(
             normalizedMerchantName: "blue bottle",
             direction: .expense,
@@ -393,7 +398,7 @@ func analysisViewTransactionsHandlerRetainsMerchantSelectionForDrilldown() {
 
 @Test
 @MainActor
-func analysisViewTransactionsHandlerRetainsRecurringOverviewSelectionForDrilldown() {
+func analysisDrivenRecurringOverviewDrilldownRetainsSelection() {
     let model = WorkspaceShellModel(store: nil, service: nil)
     let selection = AnalysisOverviewSelection.recurring(
         MerchantRecurringReportRow(
@@ -427,7 +432,7 @@ func analysisViewTransactionsHandlerRetainsRecurringOverviewSelectionForDrilldow
     )
 
     model.setAnalysisOverviewSelection(selection)
-    AnalysisView.makeTransactionsHandler(model: model)(
+    model.showAnalysisTransactions(filter:
         TransactionLedgerFilter(
             normalizedMerchantName: "netflix",
             direction: .expense,

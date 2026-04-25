@@ -31,6 +31,9 @@ struct AnalysisScreenState: Equatable, Sendable {
     var categories = CategoriesState()
     var merchants = MerchantsState()
 
+    // Family switches retain each page's last valid selection for the lifetime of the window.
+    // Selection is only repaired or cleared when the underlying snapshot changes.
+
     mutating func setOverviewSelection(_ selection: AnalysisOverviewSelection?) {
         overview.selection = selection
     }
@@ -58,11 +61,6 @@ struct AnalysisScreenState: Equatable, Sendable {
         case .merchants:
             merchants.selection = nil
         }
-    }
-
-    mutating func prepareForPageChange(from currentPage: AnalysisPage, to nextPage: AnalysisPage) {
-        _ = currentPage
-        _ = nextPage
     }
 
     mutating func repairSelections(for snapshot: AnalysisSnapshot) {

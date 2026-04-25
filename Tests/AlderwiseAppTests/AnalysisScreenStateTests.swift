@@ -98,9 +98,7 @@ func analysisScreenStateRetainsPageLocalSelectionWhenChangingFamilies() {
     )
 
     state.setCategoriesSelection(categoriesSelection)
-    state.prepareForPageChange(from: .categories, to: .merchants)
     state.setMerchantsSelection(merchantsSelection)
-    state.prepareForPageChange(from: .merchants, to: .categories)
 
     #expect(state.categories.selection == categoriesSelection)
     #expect(state.merchants.selection == merchantsSelection)

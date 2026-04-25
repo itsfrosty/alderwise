@@ -5,30 +5,28 @@ import SwiftUI
 struct AnalysisOverviewView: View {
     let snapshot: AnalysisOverviewSnapshot
     @Binding var selection: AnalysisOverviewSelection?
-    var showsInspector: Bool = true
+    var inspectorPresentation: AnalysisInspectorPresentation = .persistent
+    var onDismissTransientInspector: (() -> Void)?
     let onShowTransactions: (TransactionLedgerFilter) -> Void
 
     var body: some View {
         Group {
-            if showsInspector {
+            if inspectorPresentation == .persistent {
                 HStack(spacing: 0) {
                     content
 
                     Divider()
 
-                    AnalysisInspectorView(
-                        selection: selection,
-                        noSelectionDescription: "Select a driver, recurring series, or projected insight to inspect its evidence and drill into matching transactions.",
-                        onShowTransactions: { selected in
-                            onShowTransactions(snapshot.transactionFilter(for: selected))
-                        }
-                    )
+                    inspectorView
                 }
             } else {
                 content
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .sheet(isPresented: transientInspectorBinding) {
+            inspectorView
+        }
     }
 
     private var content: some View {
@@ -55,6 +53,27 @@ struct AnalysisOverviewView: View {
             }
             Spacer()
         }
+    }
+
+    private var transientInspectorBinding: Binding<Bool> {
+        Binding(
+            get: { inspectorPresentation == .transient },
+            set: { isPresented in
+                if isPresented == false {
+                    onDismissTransientInspector?()
+                }
+            }
+        )
+    }
+
+    private var inspectorView: some View {
+        AnalysisInspectorView(
+            selection: selection,
+            noSelectionDescription: "Select a driver, recurring series, or projected insight to inspect its evidence and drill into matching transactions.",
+            onShowTransactions: { selected in
+                onShowTransactions(snapshot.transactionFilter(for: selected))
+            }
+        )
     }
 
     private var spendTrendCard: some View {

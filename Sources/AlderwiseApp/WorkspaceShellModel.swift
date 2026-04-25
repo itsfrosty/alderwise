@@ -403,6 +403,10 @@ final class WorkspaceShellModel: ObservableObject {
         updateTransactionFilter(filter)
     }
 
+    func showAnalysisTransactions(filter: TransactionLedgerFilter) {
+        showTransactions(filter: filter, clearSelection: false)
+    }
+
     func presentAnalysisOverview() {
         isPresentingAnalysisOverview = true
     }
@@ -435,11 +439,7 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func selectAnalysisPage(_ page: AnalysisPage) {
-        let currentPage = analysisToolbarState.selectedPage
         analysisToolbarState = analysisToolbarState.selecting(page: page)
-        updateAnalysisScreenState {
-            $0.prepareForPageChange(from: currentPage, to: page)
-        }
     }
 
     func setAnalysisInspectorVisible(_ isVisible: Bool) {

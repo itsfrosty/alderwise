@@ -5,40 +5,29 @@ import SwiftUI
 struct AnalysisCategoriesView: View {
     let snapshot: AnalysisCategoriesSnapshot
     @Binding var selection: AnalysisCategoriesSelection?
-    var showsInspector: Bool = true
+    var inspectorPresentation: AnalysisInspectorPresentation = .persistent
+    var onDismissTransientInspector: (() -> Void)?
     let onShowTransactions: (TransactionLedgerFilter) -> Void
     let onShowTarget: (UUID) -> Void
 
     var body: some View {
         Group {
-            if showsInspector {
+            if inspectorPresentation == .persistent {
                 HStack(spacing: 0) {
                     content
 
                     Divider()
 
-                    AnalysisInspectorView(
-                        selection: selection,
-                        noSelectionDescription: "Select a category or group to inspect its evidence, open matching transactions, or jump into its target if one exists.",
-                        onShowTransactions: { selected in
-                            onShowTransactions(snapshot.transactionFilter(for: selected))
-                        }
-                    ) { selected in
-                        if let targetProgress = snapshot.targetProgress(for: selected) {
-                            Button {
-                                onShowTarget(targetProgress.id)
-                            } label: {
-                                Label("Open Target", systemImage: "target")
-                            }
-                            .buttonStyle(.bordered)
-                        }
-                    }
+                    inspectorView
                 }
             } else {
                 content
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .sheet(isPresented: transientInspectorBinding) {
+            inspectorView
+        }
     }
 
     private var content: some View {
@@ -49,6 +38,36 @@ struct AnalysisCategoriesView: View {
                 targetAlignmentSection
             }
             .padding(24)
+        }
+    }
+
+    private var transientInspectorBinding: Binding<Bool> {
+        Binding(
+            get: { inspectorPresentation == .transient },
+            set: { isPresented in
+                if isPresented == false {
+                    onDismissTransientInspector?()
+                }
+            }
+        )
+    }
+
+    private var inspectorView: some View {
+        AnalysisInspectorView(
+            selection: selection,
+            noSelectionDescription: "Select a category or group to inspect its evidence, open matching transactions, or jump into its target if one exists.",
+            onShowTransactions: { selected in
+                onShowTransactions(snapshot.transactionFilter(for: selected))
+            }
+        ) { selected in
+            if let targetProgress = snapshot.targetProgress(for: selected) {
+                Button {
+                    onShowTarget(targetProgress.id)
+                } label: {
+                    Label("Open Target", systemImage: "target")
+                }
+                .buttonStyle(.bordered)
+            }
         }
     }
 
