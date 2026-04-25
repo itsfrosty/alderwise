@@ -79,6 +79,7 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
     public var uncategorizedOnly: Bool
     public var direction: TransactionDirection?
     public var reviewStatus: TransactionReviewStatus?
+    public var reviewStatuses: Set<TransactionReviewStatus>?
     public var visibility: TransactionVisibilityFilter?
     public var importSessionID: Int64?
     public var ruleFilterIntent: TransactionLedgerRuleFilterIntent?
@@ -94,6 +95,7 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         uncategorizedOnly: Bool = false,
         direction: TransactionDirection? = nil,
         reviewStatus: TransactionReviewStatus? = nil,
+        reviewStatuses: Set<TransactionReviewStatus>? = nil,
         visibility: TransactionVisibilityFilter? = nil,
         importSessionID: Int64? = nil,
         ruleFilterIntent: TransactionLedgerRuleFilterIntent? = nil
@@ -108,6 +110,7 @@ public struct TransactionLedgerFilter: Equatable, Sendable {
         self.uncategorizedOnly = uncategorizedOnly
         self.direction = direction
         self.reviewStatus = reviewStatus
+        self.reviewStatuses = reviewStatuses
         self.visibility = visibility
         self.importSessionID = importSessionID
         self.ruleFilterIntent = ruleFilterIntent

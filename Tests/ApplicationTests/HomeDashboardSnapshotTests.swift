@@ -172,6 +172,7 @@ func homeDashboardProjectsTopRecurringInsightIntoDedicatedSection() throws {
             endDate: homeDashboardEndOfDay(year: 2026, month: 4, day: 9),
             normalizedMerchantName: "netflix",
             direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
             visibility: .active
         )
     ))
@@ -407,7 +408,8 @@ func homeDashboardUsesLargestPositiveDriverWhenReviewAndTargetPressureAreEmpty()
             endDate: homeDashboardEndOfMonth(report.monthStart),
             categoryID: nil,
             categoryGroupID: foodGroupID,
-            direction: .expense
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending])
         )
     ))
     #expect(dashboard.primaryAction?.title == "Inspect Food")
@@ -474,7 +476,8 @@ func homeDashboardBuildsStructuralRowsAndChartFromMonthlyReport() throws {
             endDate: homeDashboardEndOfMonth(report.monthStart),
             categoryID: nil,
             categoryGroupID: foodGroupID,
-            direction: .expense
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending])
         )
     ))
 }
@@ -525,7 +528,8 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedCategoryGroupFil
         endDate: homeDashboardEndOfMonth(monthStart),
         categoryID: nil,
         categoryGroupID: foodGroupID,
-        direction: .expense
+        direction: .expense,
+        reviewStatuses: Set([.accepted, .pending])
     ))
 }
 
@@ -544,7 +548,8 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthIncludedVisibleCategoryG
         endDate: homeDashboardEndOfMonth(monthStart),
         categoryID: nil,
         categoryGroupID: foodGroupID,
-        direction: .expense
+        direction: .expense,
+        reviewStatuses: Set([.accepted, .pending])
     ))
 }
 
@@ -563,7 +568,8 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedCategoryFilter()
         endDate: homeDashboardEndOfMonth(monthStart),
         categoryID: categoryID,
         categoryGroupID: nil,
-        direction: .expense
+        direction: .expense,
+        reviewStatuses: Set([.accepted, .pending])
     ))
 }
 
@@ -580,7 +586,8 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedUncategorizedFil
         startDate: monthStart,
         endDate: homeDashboardEndOfMonth(monthStart),
         uncategorizedOnly: true,
-        direction: .expense
+        direction: .expense,
+        reviewStatuses: Set([.accepted, .pending])
     ))
 }
 

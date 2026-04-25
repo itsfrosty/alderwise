@@ -43,6 +43,7 @@ public struct AnalysisQualifiers: Equatable, Sendable {
 
 public struct AnalysisContext: Equatable, Sendable {
     public var range: AnalysisRange
+    public var referenceDate: Date?
     public var resolvedInterval: DateInterval?
     public var scope: AnalysisScope
     public var comparison: AnalysisComparisonMode
@@ -51,6 +52,7 @@ public struct AnalysisContext: Equatable, Sendable {
 
     public init(
         range: AnalysisRange = .monthToDate,
+        referenceDate: Date? = nil,
         resolvedInterval: DateInterval? = nil,
         scope: AnalysisScope = .workspace,
         comparison: AnalysisComparisonMode = .none,
@@ -58,6 +60,7 @@ public struct AnalysisContext: Equatable, Sendable {
         qualifiers: AnalysisQualifiers = AnalysisQualifiers()
     ) {
         self.range = range
+        self.referenceDate = referenceDate
         self.resolvedInterval = resolvedInterval
         self.scope = scope
         self.comparison = comparison

@@ -5,7 +5,7 @@ import GRDB
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, MerchantRecommendationEligibilityReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, WorkspaceInsightReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, MerchantRecommendationEligibilityReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, AnalysisReportReading, WorkspaceInsightReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -2076,6 +2076,78 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
     }
 
+    public func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport {
+        let resolvedContext = resolvedAnalysisContext(from: context)
+        let resolution = resolvedAnalysisInterval(from: resolvedContext)
+        let recurring = merchantRecurringRows(
+            from: try fetchWorkspaceInsightSummary(referenceDate: resolvedContext.referenceDate ?? resolution.currentInterval.end)
+        )
+
+        return try databaseQueue.read { db in
+            OverviewReport(
+                context: resolvedContext,
+                currentSpend: try analysisExpenseSpend(
+                    db: db,
+                    interval: resolution.currentInterval,
+                    context: resolvedContext
+                ),
+                comparisonSpend: try analysisComparisonSpend(
+                    db: db,
+                    comparison: resolution.comparison,
+                    context: resolvedContext
+                ),
+                drivers: try analysisSpendRows(
+                    db: db,
+                    currentInterval: resolution.currentInterval,
+                    comparison: resolution.comparison,
+                    grouping: .categoryDrivers,
+                    context: resolvedContext
+                ),
+                recurring: recurring
+            )
+        }
+    }
+
+    public func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport {
+        let resolvedContext = resolvedAnalysisContext(from: context)
+        let resolution = resolvedAnalysisInterval(from: resolvedContext)
+
+        return try databaseQueue.read { db in
+            CategoryAnalysisReport(
+                context: resolvedContext,
+                rows: try analysisSpendRows(
+                    db: db,
+                    currentInterval: resolution.currentInterval,
+                    comparison: resolution.comparison,
+                    grouping: .categoryDrivers,
+                    context: resolvedContext
+                )
+            )
+        }
+    }
+
+    public func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport {
+        let resolvedContext = resolvedAnalysisContext(from: context)
+        let resolution = resolvedAnalysisInterval(from: resolvedContext)
+        let recurring = merchantRecurringRows(
+            from: try fetchWorkspaceInsightSummary(referenceDate: resolvedContext.referenceDate ?? resolution.currentInterval.end)
+        )
+
+        return try databaseQueue.read { db in
+            MerchantAnalysisReport(
+                context: resolvedContext,
+                merchants: try analysisSpendRows(
+                    db: db,
+                    currentInterval: resolution.currentInterval,
+                    comparison: resolution.comparison,
+                    grouping: .merchant,
+                    context: resolvedContext
+                ),
+                recurring: recurring
+            )
+        }
+    }
+
     public func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget] {
         let interval = monthInterval(containing: referenceDate)
         let paceRatio = monthElapsedRatio(referenceDate: referenceDate, interval: interval)
@@ -2881,7 +2953,13 @@ private func transactionLedgerQuery(
         predicates.append("transactions.direction = ?")
         appendArgument(direction.rawValue, to: &arguments)
     }
-    if let reviewStatus = filter.reviewStatus {
+    if let reviewStatuses = filter.reviewStatuses, reviewStatuses.isEmpty == false {
+        let placeholders = Array(repeating: "?", count: reviewStatuses.count).joined(separator: ", ")
+        predicates.append("transactions.review_status IN (\(placeholders))")
+        for reviewStatus in reviewStatuses.sorted(by: { $0.rawValue < $1.rawValue }) {
+            appendArgument(reviewStatus.rawValue, to: &arguments)
+        }
+    } else if let reviewStatus = filter.reviewStatus {
         predicates.append("transactions.review_status = ?")
         appendArgument(reviewStatus.rawValue, to: &arguments)
     }
@@ -3358,6 +3436,277 @@ private func elapsedComparisonInterval(for referenceDate: Date, monthInterval: D
     )
     let comparisonEnd = calendar.date(byAdding: .day, value: day, to: lastMonthStart) ?? lastMonthEnd
     return DateInterval(start: lastMonthStart, end: min(comparisonEnd, lastMonthEnd))
+}
+
+private enum AnalysisSpendGrouping {
+    case categoryDrivers
+    case merchant
+}
+
+private func resolvedAnalysisContext(from context: AnalysisContext) -> AnalysisContext {
+    let referenceDate = context.referenceDate ?? Date()
+    let resolution = AnalysisIntervalResolver.resolve(
+        range: context.range,
+        comparison: context.comparison,
+        referenceDate: referenceDate
+    )
+
+    var resolvedContext = context
+    resolvedContext.referenceDate = referenceDate
+    resolvedContext.resolvedInterval = resolution.currentInterval
+    return resolvedContext
+}
+
+private func resolvedAnalysisInterval(from context: AnalysisContext) -> AnalysisIntervalResolution {
+    AnalysisIntervalResolver.resolve(
+        range: context.range,
+        comparison: context.comparison,
+        referenceDate: context.referenceDate ?? Date()
+    )
+}
+
+private func merchantRecurringRows(from summary: WorkspaceInsightSummary) -> [MerchantRecurringReportRow] {
+    return summary.insights.compactMap { insight in
+        guard case .recurringCharge(let detail) = insight.kind else {
+            return nil
+        }
+        let interval = DateInterval(
+            start: Calendar.alderwiseUTC.startOfDay(for: detail.firstObservedDate ?? detail.lastObservedDate),
+            end: Calendar.alderwiseUTC.date(
+                byAdding: DateComponents(day: 1),
+                to: Calendar.alderwiseUTC.startOfDay(for: detail.lastObservedDate)
+            ) ?? detail.lastObservedDate
+        )
+        let evidence = InsightEvidence(
+            metricBasis: .includedVisibleExpenses,
+            resolvedInterval: interval,
+            scope: .merchant(detail.normalizedMerchantName),
+            reconciliationRule: .recurringObservationSet,
+            destination: InsightEvidenceDestination(scope: .merchant(detail.normalizedMerchantName))
+        )
+        return MerchantRecurringReportRow(detail: detail, evidence: evidence)
+    }
+}
+
+private func analysisExpenseSpend(
+    db: Database,
+    interval: DateInterval,
+    context: AnalysisContext
+) throws -> Decimal {
+    switch context.metricBasis {
+    case .includedVisibleExpenses:
+        return try includedVisibleExpenseSpend(
+            db: db,
+            interval: interval,
+            categoryID: categoryID(for: context.scope),
+            categoryGroupID: categoryGroupID(for: context.scope)
+        )
+    case .acceptedExpenses:
+        return try acceptedExpenseSpend(
+            db: db,
+            interval: interval,
+            categoryID: categoryID(for: context.scope),
+            categoryGroupID: categoryGroupID(for: context.scope)
+        )
+    }
+}
+
+private func analysisComparisonSpend(
+    db: Database,
+    comparison: AnalysisResolvedComparison,
+    context: AnalysisContext
+) throws -> Decimal? {
+    switch comparison {
+    case .none, .unsupported:
+        return nil
+    case .interval(let interval, _):
+        return try analysisExpenseSpend(db: db, interval: interval, context: context)
+    case .rollingAverage(let intervals, _):
+        guard intervals.isEmpty == false else {
+            return nil
+        }
+        let totals = try intervals.map { interval in
+            try analysisExpenseSpend(db: db, interval: interval, context: context)
+        }
+        return totals.reduce(Decimal.zero, +) / Decimal(intervals.count)
+    }
+}
+
+private func analysisSpendRows(
+    db: Database,
+    currentInterval: DateInterval,
+    comparison: AnalysisResolvedComparison,
+    grouping: AnalysisSpendGrouping,
+    context: AnalysisContext
+) throws -> [AnalysisSpendRow] {
+    let comparisonInterval: DateInterval
+    switch comparison {
+    case .interval(let interval, _):
+        comparisonInterval = interval
+    default:
+        comparisonInterval = DateInterval(start: currentInterval.start, end: currentInterval.start)
+    }
+
+    switch grouping {
+    case .categoryDrivers:
+        return try spendingDrivers(
+            db: db,
+            currentInterval: currentInterval,
+            comparisonInterval: comparisonInterval
+        ).map { driver in
+            let scope = insightEvidenceScope(for: driver.scope)
+            return AnalysisSpendRow(
+                title: driver.title,
+                scope: scope,
+                currentSpend: driver.currentPeriodSpend,
+                comparisonSpend: driver.comparisonPeriodSpend,
+                delta: driver.delta,
+                evidence: InsightEvidence(
+                    metricBasis: context.metricBasis,
+                    resolvedInterval: currentInterval,
+                    scope: scope,
+                    reconciliationRule: .exactTransactionSum,
+                    destination: InsightEvidenceDestination(scope: scope)
+                )
+            )
+        }
+    case .merchant:
+        let currentRows = try merchantSpendRows(db: db, interval: currentInterval, context: context)
+        let comparisonRows = try merchantSpendRows(db: db, interval: comparisonInterval, context: context)
+        let comparisonByMerchant = Dictionary(uniqueKeysWithValues: comparisonRows.map { ($0.title, $0.currentSpend) })
+        return currentRows.map { currentRow in
+            let comparisonSpend = comparisonByMerchant[currentRow.title] ?? .zero
+            return AnalysisSpendRow(
+                title: currentRow.title,
+                scope: currentRow.scope,
+                currentSpend: currentRow.currentSpend,
+                comparisonSpend: comparisonSpend,
+                delta: currentRow.currentSpend - comparisonSpend,
+                evidence: currentRow.evidence
+            )
+        }
+    }
+}
+
+private func merchantSpendRows(
+    db: Database,
+    interval: DateInterval,
+    context: AnalysisContext
+) throws -> [AnalysisSpendRow] {
+    let rows = try Row.fetchAll(
+        db,
+        sql: """
+        SELECT
+            LOWER(COALESCE(transactions.normalized_merchant_name, '')) AS normalized_merchant_name,
+            COALESCE(SUM(-transactions.amount), 0) AS spend
+        FROM transactions
+        WHERE transactions.is_hidden = 0
+            AND transactions.direction = ?
+            AND transactions.review_status IN (?, ?)
+            AND transactions.amount < 0
+            AND transactions.transaction_date >= ?
+            AND transactions.transaction_date < ?
+            AND COALESCE(transactions.normalized_merchant_name, '') != ''
+        GROUP BY normalized_merchant_name
+        ORDER BY spend DESC, normalized_merchant_name ASC
+        """,
+        arguments: [
+            TransactionDirection.expense.rawValue,
+            TransactionReviewStatus.accepted.rawValue,
+            TransactionReviewStatus.pending.rawValue,
+            interval.start,
+            interval.end,
+        ]
+    )
+
+    return rows.map { row in
+        let merchantName: String = row["normalized_merchant_name"]
+        let spend = Decimal(row["spend"] as Double)
+        let scope = InsightEvidenceScope.merchant(merchantName)
+        return AnalysisSpendRow(
+            title: merchantName,
+            scope: scope,
+            currentSpend: spend,
+            comparisonSpend: .zero,
+            delta: spend,
+            evidence: InsightEvidence(
+                metricBasis: context.metricBasis,
+                resolvedInterval: interval,
+                scope: scope,
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(scope: scope)
+            )
+        )
+    }
+}
+
+private func insightEvidenceScope(for scope: SpendingDriverScope) -> InsightEvidenceScope {
+    switch scope {
+    case .category(let id):
+        .category(id)
+    case .categoryGroup(let id):
+        .categoryGroup(id)
+    case .uncategorized:
+        .uncategorized
+    }
+}
+
+private func categoryID(for scope: AnalysisScope) -> UUID? {
+    if case .category(let categoryID) = scope {
+        return categoryID
+    }
+    return nil
+}
+
+private func categoryGroupID(for scope: AnalysisScope) -> UUID? {
+    if case .categoryGroup(let categoryGroupID) = scope {
+        return categoryGroupID
+    }
+    return nil
+}
+
+private func acceptedExpenseSpend(
+    db: Database,
+    interval: DateInterval,
+    categoryID: UUID? = nil,
+    categoryGroupID: UUID? = nil
+) throws -> Decimal {
+    var predicates = [
+        "transactions.is_hidden = 0",
+        "transactions.direction = ?",
+        "transactions.review_status = ?",
+        "transactions.amount < 0",
+        "transactions.transaction_date >= ?",
+        "transactions.transaction_date < ?",
+    ]
+    var arguments = StatementArguments()
+    appendArgument(TransactionDirection.expense.rawValue, to: &arguments)
+    appendArgument(TransactionReviewStatus.accepted.rawValue, to: &arguments)
+    appendArgument(interval.start, to: &arguments)
+    appendArgument(interval.end, to: &arguments)
+
+    var joinClause = ""
+    if let categoryID {
+        predicates.append("transactions.category_id = ?")
+        appendArgument(categoryID.uuidString, to: &arguments)
+    }
+    if let categoryGroupID {
+        joinClause = "JOIN categories ON categories.id = transactions.category_id"
+        predicates.append("categories.category_group_id = ?")
+        appendArgument(categoryGroupID.uuidString, to: &arguments)
+    }
+
+    let sum = try Double.fetchOne(
+        db,
+        sql: """
+        SELECT COALESCE(SUM(-transactions.amount), 0)
+        FROM transactions
+        \(joinClause)
+        WHERE \(predicates.joined(separator: " AND "))
+        """,
+        arguments: arguments
+    ) ?? 0
+    return Decimal(sum)
 }
 
 private func includedVisibleExpenseSpend(

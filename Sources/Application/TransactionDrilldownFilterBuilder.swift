@@ -36,6 +36,7 @@ public enum TransactionDrilldownFilterBuilder {
             endDate: endOfDay(detail.lastObservedDate),
             normalizedMerchantName: detail.normalizedMerchantName,
             direction: .expense,
+            reviewStatuses: [.accepted, .pending],
             visibility: .active
         )
     }
@@ -52,7 +53,8 @@ public enum TransactionDrilldownFilterBuilder {
             categoryID: categoryID,
             categoryGroupID: categoryGroupID,
             uncategorizedOnly: uncategorizedOnly,
-            direction: .expense
+            direction: .expense,
+            reviewStatuses: [.accepted, .pending]
         )
     }
 
