@@ -22,10 +22,34 @@ DIST_DIR="$ROOT_DIR/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
+APP_RESOURCES="$APP_CONTENTS/Resources"
 APP_BINARY="$APP_MACOS/$APP_NAME"
 INFO_PLIST="$APP_CONTENTS/Info.plist"
+LOGO_SOURCE="$ROOT_DIR/logo.png"
+ICON_NAME="AppIcon"
+ICONSET_DIR="$DIST_DIR/$ICON_NAME.iconset"
+ICON_FILE="$APP_RESOURCES/$ICON_NAME.icns"
 
 cd "$ROOT_DIR"
+
+generate_app_icon() {
+  if [[ ! -f "$LOGO_SOURCE" ]]; then
+    return 0
+  fi
+
+  rm -rf "$ICONSET_DIR"
+  mkdir -p "$ICONSET_DIR"
+
+  for size in 16 32 128 256 512; do
+    sips -z "$size" "$size" "$LOGO_SOURCE" --out "$ICONSET_DIR/icon_${size}x${size}.png" >/dev/null
+
+    local retina_size=$((size * 2))
+    sips -z "$retina_size" "$retina_size" "$LOGO_SOURCE" --out "$ICONSET_DIR/icon_${size}x${size}@2x.png" >/dev/null
+  done
+
+  mkdir -p "$APP_RESOURCES"
+  iconutil -c icns "$ICONSET_DIR" -o "$ICON_FILE"
+}
 
 print_help() {
   cat <<EOF
@@ -81,6 +105,7 @@ rm -rf "$APP_BUNDLE"
 mkdir -p "$APP_MACOS"
 cp "$BUILD_BINARY" "$APP_BINARY"
 chmod +x "$APP_BINARY"
+generate_app_icon
 
 cat >"$INFO_PLIST" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -91,6 +116,8 @@ cat >"$INFO_PLIST" <<PLIST
   <string>$APP_NAME</string>
   <key>CFBundleIdentifier</key>
   <string>$BUNDLE_ID</string>
+  <key>CFBundleIconFile</key>
+  <string>$ICON_NAME</string>
   <key>CFBundleName</key>
   <string>$APP_NAME</string>
   <key>CFBundlePackageType</key>
