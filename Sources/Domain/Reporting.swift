@@ -174,3 +174,74 @@ public struct TargetProgress: Identifiable, Equatable, Sendable {
         self.paceDelta = paceDelta
     }
 }
+
+public struct TargetHistoryMonth: Equatable, Sendable {
+    public var monthStart: Date
+    public var spent: Decimal
+    public var monthlyLimit: Decimal
+
+    public init(monthStart: Date, spent: Decimal, monthlyLimit: Decimal) {
+        self.monthStart = monthStart
+        self.spent = spent
+        self.monthlyLimit = monthlyLimit
+    }
+
+    public var overshoot: Decimal {
+        max(spent - monthlyLimit, .zero)
+    }
+
+    public var hit: Bool {
+        spent <= monthlyLimit
+    }
+}
+
+public struct TargetHistorySummary: Equatable, Sendable {
+    public var months: [TargetHistoryMonth]
+    public var hitRate: Decimal
+    public var overshootRate: Decimal
+    public var averageSpend: Decimal
+    public var averageOvershoot: Decimal
+
+    public init(
+        months: [TargetHistoryMonth],
+        hitRate: Decimal,
+        overshootRate: Decimal,
+        averageSpend: Decimal,
+        averageOvershoot: Decimal
+    ) {
+        self.months = months
+        self.hitRate = hitRate
+        self.overshootRate = overshootRate
+        self.averageSpend = averageSpend
+        self.averageOvershoot = averageOvershoot
+    }
+
+    public static let empty = TargetHistorySummary(
+        months: [],
+        hitRate: .zero,
+        overshootRate: .zero,
+        averageSpend: .zero,
+        averageOvershoot: .zero
+    )
+}
+
+public enum TargetCalibrationDirection: Equatable, Sendable {
+    case increase
+    case decrease
+}
+
+public struct TargetCalibrationSuggestion: Equatable, Sendable {
+    public var recommendedMonthlyLimit: Decimal
+    public var direction: TargetCalibrationDirection
+    public var delta: Decimal
+
+    public init(
+        recommendedMonthlyLimit: Decimal,
+        direction: TargetCalibrationDirection,
+        delta: Decimal
+    ) {
+        self.recommendedMonthlyLimit = recommendedMonthlyLimit
+        self.direction = direction
+        self.delta = delta
+    }
+}

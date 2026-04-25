@@ -150,6 +150,16 @@ struct TargetsManagementView: View {
                 )
             }
 
+            historySummary(target)
+
+            if let suggestion = target.calibrationSuggestion {
+                calibrationSummary(suggestion)
+            } else if target.history.months.isEmpty == false {
+                Text("Calibration needs at least 3 closed months before Alderwise suggests a new limit.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             HStack {
                 Button("Edit") {
                     selectedTargetID = target.id
@@ -194,6 +204,64 @@ struct TargetsManagementView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
+    private func historySummary(_ target: ManagedMonthlyTarget) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("History")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            if target.history.months.isEmpty {
+                Text("No closed-month history yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                HStack(spacing: 16) {
+                    metric(title: "Hit Rate", value: percentage(target.history.hitRate))
+                    metric(title: "Overshoot", value: percentage(target.history.overshootRate))
+                    metric(title: "Avg Overshoot", value: currency(target.history.averageOvershoot))
+                }
+
+                HStack(spacing: 8) {
+                    ForEach(Array(target.history.months.suffix(3).enumerated()), id: \.offset) { _, month in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(monthLabel(month.monthStart))
+                                .font(.caption2.weight(.semibold))
+                            Text(currency(month.spent))
+                                .font(.caption2.monospacedDigit())
+                                .foregroundStyle(month.hit ? Color.secondary : Color.red)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    }
+                }
+            }
+        }
+    }
+
+    private func calibrationSummary(_ suggestion: TargetCalibrationSuggestion) -> some View {
+        let directionText: String
+        switch suggestion.direction {
+        case .increase:
+            directionText = "Consider raising this target"
+        case .decrease:
+            directionText = "Consider lowering this target"
+        }
+
+        return VStack(alignment: .leading, spacing: 4) {
+            Text("Calibration")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text("\(directionText) to \(currency(suggestion.recommendedMonthlyLimit)) based on recent closed months.")
+                .font(.caption)
+            Text("Suggested change \(currency(suggestion.delta)).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
     private func scrollToSelection(using proxy: ScrollViewProxy) {
         guard let selectedTargetID else {
             return
@@ -217,6 +285,19 @@ struct TargetsManagementView: View {
             monthStart: monthStart,
             scope: target.scope
         )
+    }
+
+    private func percentage(_ value: Decimal) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .percent
+        formatter.maximumFractionDigits = 0
+        return formatter.string(from: NSDecimalNumber(decimal: value)) ?? "\(value)"
+    }
+
+    private func monthLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MMM"
+        return formatter.string(from: date)
     }
 
     private func currency(_ amount: Decimal) -> String {

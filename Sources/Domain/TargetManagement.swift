@@ -8,6 +8,8 @@ public struct ManagedMonthlyTarget: Identifiable, Equatable, Sendable {
     public var spent: Decimal
     public var remaining: Decimal
     public var paceDelta: Decimal
+    public var history: TargetHistorySummary
+    public var calibrationSuggestion: TargetCalibrationSuggestion?
     public var createdAt: Date
 
     public init(
@@ -18,6 +20,8 @@ public struct ManagedMonthlyTarget: Identifiable, Equatable, Sendable {
         spent: Decimal,
         remaining: Decimal,
         paceDelta: Decimal,
+        history: TargetHistorySummary = .empty,
+        calibrationSuggestion: TargetCalibrationSuggestion? = nil,
         createdAt: Date
     ) {
         self.id = id
@@ -27,6 +31,8 @@ public struct ManagedMonthlyTarget: Identifiable, Equatable, Sendable {
         self.spent = spent
         self.remaining = remaining
         self.paceDelta = paceDelta
+        self.history = history
+        self.calibrationSuggestion = calibrationSuggestion
         self.createdAt = createdAt
     }
 }

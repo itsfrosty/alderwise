@@ -4347,6 +4347,13 @@ private func managedMonthlyTarget(
 ) throws -> ManagedMonthlyTarget {
     let progress = try targetProgress(from: row, db: db, interval: interval, paceRatio: paceRatio)
     let createdAt: Date = row["created_at"]
+    let history = try targetHistorySummary(
+        scope: progress.scope,
+        monthlyLimit: progress.monthlyLimit,
+        createdAt: createdAt,
+        currentMonthStart: interval.start,
+        db: db
+    )
     return ManagedMonthlyTarget(
         id: progress.id,
         name: progress.name,
@@ -4355,8 +4362,112 @@ private func managedMonthlyTarget(
         spent: progress.spent,
         remaining: progress.remaining,
         paceDelta: progress.paceDelta,
+        history: history,
+        calibrationSuggestion: targetCalibrationSuggestion(
+            monthlyLimit: progress.monthlyLimit,
+            history: history
+        ),
         createdAt: createdAt
     )
+}
+
+private func targetHistorySummary(
+    scope: TargetScope,
+    monthlyLimit: Decimal,
+    createdAt: Date,
+    currentMonthStart: Date,
+    db: Database
+) throws -> TargetHistorySummary {
+    let createdMonthStart = monthInterval(containing: createdAt).start
+    let calendar = Calendar.alderwiseUTC
+    var monthStart = calendar.date(byAdding: .month, value: -1, to: currentMonthStart)
+    var months: [TargetHistoryMonth] = []
+
+    while let historyMonthStart = monthStart, months.count < 6 {
+        guard historyMonthStart >= createdMonthStart else {
+            break
+        }
+
+        let interval = monthInterval(containing: historyMonthStart)
+        let spent = try targetScopeSpend(db: db, interval: interval, scope: scope)
+        months.append(
+            TargetHistoryMonth(
+                monthStart: interval.start,
+                spent: spent,
+                monthlyLimit: monthlyLimit
+            )
+        )
+        if let previousMonth = calendar.date(byAdding: .month, value: -1, to: historyMonthStart) {
+            monthStart = previousMonth
+        } else {
+            break
+        }
+    }
+
+    let orderedMonths = months.reversed()
+    guard orderedMonths.isEmpty == false else {
+        return .empty
+    }
+
+    let totalCount = Decimal(orderedMonths.count)
+    let hitCount = Decimal(orderedMonths.filter(\.hit).count)
+    let overshootMonths = orderedMonths.filter { $0.overshoot > .zero }
+    let overshootCount = Decimal(overshootMonths.count)
+    let averageSpend = orderedMonths.reduce(.zero) { $0 + $1.spent } / totalCount
+    let averageOvershoot: Decimal
+    if overshootMonths.isEmpty {
+        averageOvershoot = .zero
+    } else {
+        averageOvershoot = overshootMonths.reduce(.zero) { $0 + $1.overshoot } / Decimal(overshootMonths.count)
+    }
+
+    return TargetHistorySummary(
+        months: Array(orderedMonths),
+        hitRate: hitCount / totalCount,
+        overshootRate: overshootCount / totalCount,
+        averageSpend: averageSpend,
+        averageOvershoot: averageOvershoot
+    )
+}
+
+private func targetCalibrationSuggestion(
+    monthlyLimit: Decimal,
+    history: TargetHistorySummary
+) -> TargetCalibrationSuggestion? {
+    guard history.months.count >= 3 else {
+        return nil
+    }
+
+    let recommendedLimit = roundedTargetCalibrationLimit(history.averageSpend)
+    let delta = recommendedLimit - monthlyLimit
+    let threshold = max(Decimal(25), monthlyLimit * Decimal(string: "0.10")!)
+    guard abs(delta) >= threshold else {
+        return nil
+    }
+
+    return TargetCalibrationSuggestion(
+        recommendedMonthlyLimit: recommendedLimit,
+        direction: delta >= .zero ? .increase : .decrease,
+        delta: abs(delta)
+    )
+}
+
+private func roundedTargetCalibrationLimit(_ value: Decimal) -> Decimal {
+    let rounded = ceil((NSDecimalNumber(decimal: value).doubleValue / 10.0)) * 10.0
+    return Decimal(rounded)
+}
+
+private func targetScopeSpend(
+    db: Database,
+    interval: DateInterval,
+    scope: TargetScope
+) throws -> Decimal {
+    switch scope {
+    case .category(let categoryID):
+        return try includedVisibleExpenseSpend(db: db, interval: interval, categoryID: categoryID)
+    case .categoryGroup(let categoryGroupID):
+        return try includedVisibleExpenseSpend(db: db, interval: interval, categoryGroupID: categoryGroupID)
+    }
 }
 
 private func validateMonthlyTargetDraft(

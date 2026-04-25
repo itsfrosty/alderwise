@@ -256,6 +256,65 @@ func monthlyReportLeavesDriversEmptyWhenNoPriorComparisonExists() throws {
 }
 
 @Test
+func managedTargetsExposeClosedMonthHistoryAndCalibrationSuggestion() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000814")!
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+
+    try homeDashboardInsertAcceptedExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-160),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 1, day: 12)
+    )
+    try homeDashboardInsertAcceptedExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-140),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 2, day: 12)
+    )
+    try homeDashboardInsertAcceptedExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-150),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 3, day: 12)
+    )
+    try homeDashboardInsertAcceptedExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-60),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 10)
+    )
+
+    _ = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(100)),
+        createdAt: homeDashboardUTCDate(year: 2026, month: 1, day: 1)
+    )
+
+    let targets = try store.fetchManagedTargets(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
+    let target = try #require(targets.first)
+
+    #expect(target.spent == Decimal(60))
+    #expect(target.history.months.map(\.spent) == [Decimal(160), Decimal(140), Decimal(150)])
+    #expect(target.history.hitRate == Decimal(0))
+    #expect(target.history.overshootRate == Decimal(1))
+    #expect(target.history.averageOvershoot == Decimal(50))
+    #expect(target.calibrationSuggestion == TargetCalibrationSuggestion(
+        recommendedMonthlyLimit: Decimal(150),
+        direction: .increase,
+        delta: Decimal(50)
+    ))
+}
+
+@Test
 func monthlyReportBuildsDriversWhenCurrentMonthOnlyHasAcceptedSpend() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

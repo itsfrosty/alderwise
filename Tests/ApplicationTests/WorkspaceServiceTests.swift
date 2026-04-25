@@ -1684,6 +1684,24 @@ func fetchManagedTargetsReturnsManagedTargets() throws {
             spent: Decimal(40),
             remaining: Decimal(85),
             paceDelta: Decimal(5),
+            history: TargetHistorySummary(
+                months: [
+                    TargetHistoryMonth(
+                        monthStart: Date(timeIntervalSince1970: 1_772_841_600),
+                        spent: Decimal(100),
+                        monthlyLimit: Decimal(125)
+                    ),
+                ],
+                hitRate: Decimal(1),
+                overshootRate: Decimal(0),
+                averageSpend: Decimal(100),
+                averageOvershoot: Decimal(0)
+            ),
+            calibrationSuggestion: TargetCalibrationSuggestion(
+                recommendedMonthlyLimit: Decimal(150),
+                direction: .increase,
+                delta: Decimal(25)
+            ),
             createdAt: Date(timeIntervalSince1970: 1_775_171_260)
         ),
     ]
