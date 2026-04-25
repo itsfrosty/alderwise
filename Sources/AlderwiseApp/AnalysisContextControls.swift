@@ -32,7 +32,6 @@ struct AnalysisContextControls: ToolbarContent {
         case monthToDate
         case lastFullMonth
         case yearToDate
-        case custom
 
         var id: String { rawValue }
 
@@ -44,12 +43,10 @@ struct AnalysisContextControls: ToolbarContent {
                 "Last Full Month"
             case .yearToDate:
                 "Year to Date"
-            case .custom:
-                "Custom"
             }
         }
 
-        var analysisRange: AnalysisRange? {
+        var analysisRange: AnalysisRange {
             switch self {
             case .monthToDate:
                 .monthToDate
@@ -57,8 +54,6 @@ struct AnalysisContextControls: ToolbarContent {
                 .lastFullMonth
             case .yearToDate:
                 .yearToDate
-            case .custom:
-                nil
             }
         }
 
@@ -80,8 +75,6 @@ struct AnalysisContextControls: ToolbarContent {
         case previousPeriod
         case samePeriodLastYear
         case none
-        case rollingAverage3Months
-        case rollingAverage12Months
 
         var id: String { rawValue }
 
@@ -93,14 +86,10 @@ struct AnalysisContextControls: ToolbarContent {
                 "Same Period Last Year"
             case .none:
                 "None"
-            case .rollingAverage3Months:
-                "Rolling 3-Month Average"
-            case .rollingAverage12Months:
-                "Rolling 12-Month Average"
             }
         }
 
-        var analysisComparison: AnalysisComparisonMode? {
+        var analysisComparison: AnalysisComparisonMode {
             switch self {
             case .previousPeriod:
                 .previousPeriod
@@ -108,8 +97,6 @@ struct AnalysisContextControls: ToolbarContent {
                 .samePeriodLastYear
             case .none:
                 AnalysisComparisonMode.none
-            case .rollingAverage3Months, .rollingAverage12Months:
-                nil
             }
         }
 
@@ -155,7 +142,7 @@ struct AnalysisContextControls: ToolbarContent {
                 setRange: setRange
             ).swiftUIBinding) {
                 ForEach(Self.supportedRanges) { option in
-                    Text(option.title).tag(option)
+                    Text(option.title).tag(Optional.some(option))
                 }
             }
             .pickerStyle(.menu)
@@ -165,7 +152,7 @@ struct AnalysisContextControls: ToolbarContent {
                 setComparison: setComparison
             ).swiftUIBinding) {
                 ForEach(Self.supportedComparisons) { option in
-                    Text(option.title).tag(option)
+                    Text(option.title).tag(Optional.some(option))
                 }
             }
             .pickerStyle(.menu)
@@ -188,16 +175,16 @@ struct AnalysisContextControls: ToolbarContent {
     nonisolated static func rangeSelection(
         getContext: @escaping () -> AnalysisContext,
         setRange: @escaping (AnalysisRange) -> Void
-    ) -> SelectionBinding<RangeOption> {
+    ) -> SelectionBinding<RangeOption?> {
         SelectionBinding(
             getValue: {
-                RangeOption(range: getContext().range) ?? .monthToDate
+                RangeOption(range: getContext().range)
             },
             setValue: { option in
-                guard let range = option.analysisRange else {
+                guard let option else {
                     return
                 }
-                setRange(range)
+                setRange(option.analysisRange)
             }
         )
     }
@@ -205,16 +192,16 @@ struct AnalysisContextControls: ToolbarContent {
     nonisolated static func comparisonSelection(
         getContext: @escaping () -> AnalysisContext,
         setComparison: @escaping (AnalysisComparisonMode) -> Void
-    ) -> SelectionBinding<ComparisonOption> {
+    ) -> SelectionBinding<ComparisonOption?> {
         SelectionBinding(
             getValue: {
-                ComparisonOption(comparison: getContext().comparison) ?? .previousPeriod
+                ComparisonOption(comparison: getContext().comparison)
             },
             setValue: { option in
-                guard let comparison = option.analysisComparison else {
+                guard let option else {
                     return
                 }
-                setComparison(comparison)
+                setComparison(option.analysisComparison)
             }
         )
     }

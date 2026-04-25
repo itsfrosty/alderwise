@@ -34,11 +34,11 @@ func analysisContextControlsBindSelectionsThroughAnalysisContext() {
         setComparison: { context.comparison = $0 }
     )
 
-    #expect(rangeBinding.wrappedValue == .lastFullMonth)
-    #expect(comparisonBinding.wrappedValue == .samePeriodLastYear)
+    #expect(rangeBinding.wrappedValue == .some(.lastFullMonth))
+    #expect(comparisonBinding.wrappedValue == .some(.samePeriodLastYear))
 
     rangeBinding.wrappedValue = .yearToDate
-    comparisonBinding.wrappedValue = .none
+    comparisonBinding.wrappedValue = .some(.none)
 
     #expect(context.range == .yearToDate)
     #expect(context.comparison == .none)
@@ -46,11 +46,38 @@ func analysisContextControlsBindSelectionsThroughAnalysisContext() {
 
 @Test
 func analysisContextControlsDoNotExposeDeferredControls() {
-    #expect(AnalysisContextControls.supportedRanges.contains(.custom) == false)
-    #expect(AnalysisContextControls.supportedComparisons.contains(.rollingAverage3Months) == false)
-    #expect(AnalysisContextControls.supportedComparisons.contains(.rollingAverage12Months) == false)
+    #expect(AnalysisContextControls.RangeOption.allCases == AnalysisContextControls.supportedRanges)
+    #expect(AnalysisContextControls.ComparisonOption.allCases == AnalysisContextControls.supportedComparisons)
     #expect(AnalysisContextControls.supportsInteractiveScope == false)
     #expect(AnalysisContextControls.supportsAdvancedQualifiers == false)
+}
+
+@Test
+func analysisContextControlsDoNotCoerceUnsupportedSourceOfTruthValues() {
+    let rangeBinding = AnalysisContextControls.rangeSelection(
+        getContext: {
+            AnalysisContext(
+                range: .custom(
+                    DateInterval(
+                        start: Date(timeIntervalSince1970: 0),
+                        end: Date(timeIntervalSince1970: 60)
+                    )
+                )
+            )
+        },
+        setRange: { _ in }
+    )
+    let comparisonBinding = AnalysisContextControls.comparisonSelection(
+        getContext: {
+            AnalysisContext(
+                comparison: .rollingAverage(months: 3)
+            )
+        },
+        setComparison: { _ in }
+    )
+
+    #expect(rangeBinding.wrappedValue == nil)
+    #expect(comparisonBinding.wrappedValue == nil)
 }
 
 @Test
