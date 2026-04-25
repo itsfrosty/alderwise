@@ -25,9 +25,11 @@ struct AnalysisOverviewView: View {
             Divider()
 
             AnalysisInspectorView(
-                snapshot: snapshot,
                 selection: selection,
-                onShowTransactions: onShowTransactions
+                noSelectionDescription: "Select a driver, recurring series, or projected insight to inspect its evidence and drill into matching transactions.",
+                onShowTransactions: { selected in
+                    onShowTransactions(snapshot.transactionFilter(for: selected))
+                }
             )
         }
         .frame(minWidth: 960, minHeight: 620)

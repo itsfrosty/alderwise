@@ -102,6 +102,42 @@ func analysisOverviewSelectionSurvivesTransactionDrilldownAndReopen() {
     #expect(model.analysisOverviewSelection == selection)
 }
 
+@Test
+@MainActor
+func analysisCategoriesSelectionPersistsWhenShowingTarget() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+    let targetID = analysisViewStateID("00000000-0000-0000-0000-000000000601")
+    let selection = AnalysisCategoriesSelection.row(
+        AnalysisSpendRow(
+            title: "Food",
+            scope: .categoryGroup(analysisViewStateID("00000000-0000-0000-0000-000000000602")),
+            currentSpend: Decimal(320),
+            comparisonSpend: Decimal(260),
+            delta: Decimal(60),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                    end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+                ),
+                scope: .categoryGroup(analysisViewStateID("00000000-0000-0000-0000-000000000602")),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: .categoryGroup(analysisViewStateID("00000000-0000-0000-0000-000000000602")),
+                    direction: .expense
+                )
+            )
+        )
+    )
+
+    model.setAnalysisCategoriesSelection(selection)
+    model.showTarget(id: targetID)
+
+    #expect(model.analysisCategoriesSelection == selection)
+    #expect(model.selectedTargetID == targetID)
+    #expect(model.pendingAppSectionNavigation == .targets)
+}
+
 private func analysisViewStateUTCDate(year: Int, month: Int, day: Int) -> Date {
     var components = DateComponents()
     components.year = year

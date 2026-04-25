@@ -152,6 +152,7 @@ public struct WorkspaceService: Sendable {
             comparison: .previousPeriod
         )
         let overviewReport = try analysisReader?.fetchOverviewReport(context: overviewContext)
+        let categoryReport = try analysisReader?.fetchCategoryAnalysisReport(context: overviewContext)
         let analysis = AnalysisSnapshot(
             overview: overviewReport.map {
                 AnalysisOverviewSnapshot(
@@ -159,6 +160,13 @@ public struct WorkspaceService: Sendable {
                     report: $0,
                     monthlyReport: monthlyReport,
                     projectedInsights: insights.homeProjectedInsights
+                )
+            },
+            categories: categoryReport.map {
+                AnalysisCategoriesSnapshot(
+                    context: $0.context,
+                    report: $0,
+                    targetProgress: monthlyReport.targets
                 )
             }
         )

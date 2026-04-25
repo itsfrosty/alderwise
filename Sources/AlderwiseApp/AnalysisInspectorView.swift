@@ -2,10 +2,43 @@ import Application
 import Domain
 import SwiftUI
 
-struct AnalysisInspectorView: View {
-    let snapshot: AnalysisOverviewSnapshot
-    let selection: AnalysisOverviewSelection?
-    let onShowTransactions: (TransactionLedgerFilter) -> Void
+protocol AnalysisInspectorPresentable {
+    var title: String { get }
+    var summaryText: String { get }
+    var evidence: InsightEvidence { get }
+}
+
+struct AnalysisInspectorView<Selection: AnalysisInspectorPresentable, Actions: View>: View {
+    let selection: Selection?
+    let noSelectionDescription: String
+    let onShowTransactions: ((Selection) -> Void)?
+    @ViewBuilder let actions: (Selection) -> Actions
+
+    init(
+        selection: Selection?,
+        noSelectionDescription: String,
+        onShowTransactions: ((Selection) -> Void)? = nil,
+        @ViewBuilder actions: @escaping (Selection) -> Actions
+    ) {
+        self.selection = selection
+        self.noSelectionDescription = noSelectionDescription
+        self.onShowTransactions = onShowTransactions
+        self.actions = actions
+    }
+
+    init(
+        selection: Selection?,
+        noSelectionDescription: String,
+        onShowTransactions: ((Selection) -> Void)? = nil
+    ) where Actions == EmptyView {
+        self.init(
+            selection: selection,
+            noSelectionDescription: noSelectionDescription,
+            onShowTransactions: onShowTransactions
+        ) { _ in
+            EmptyView()
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -25,14 +58,14 @@ struct AnalysisInspectorView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Inspector")
                 .font(.headline)
-            Text("Select a driver, recurring series, or projected insight to inspect its evidence and drill into matching transactions.")
+            Text(noSelectionDescription)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
     }
 
     @ViewBuilder
-    private func selectedContent(_ selection: AnalysisOverviewSelection) -> some View {
+    private func selectedContent(_ selection: Selection) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Inspector")
                 .font(.headline)
@@ -40,7 +73,7 @@ struct AnalysisInspectorView: View {
             Text(selection.title)
                 .font(.title3.weight(.semibold))
 
-            Text(selectionSummary(selection))
+            Text(selection.summaryText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
@@ -54,17 +87,31 @@ struct AnalysisInspectorView: View {
             .padding(12)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-            Button {
-                onShowTransactions(snapshot.transactionFilter(for: selection))
-            } label: {
-                Label("Show Transactions", systemImage: "list.bullet.rectangle")
+            if let onShowTransactions {
+                Button {
+                    onShowTransactions(selection)
+                } label: {
+                    Label("Show Transactions", systemImage: "list.bullet.rectangle")
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(.borderedProminent)
+
+            actions(selection)
         }
     }
 
-    private func selectionSummary(_ selection: AnalysisOverviewSelection) -> String {
-        switch selection {
+    private func evidenceSummary(_ evidence: InsightEvidence) -> String {
+        let formatter = DateIntervalFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .none
+        let intervalText = formatter.string(from: evidence.resolvedInterval.start, to: evidence.resolvedInterval.end)
+        return "\(intervalText) • \(evidence.reconciliationRuleLabel)"
+    }
+}
+
+extension AnalysisOverviewSelection: AnalysisInspectorPresentable {
+    var summaryText: String {
+        switch self {
         case .insight(let insight):
             switch insight.kind {
             case .recurringCharge(let detail):
@@ -78,17 +125,21 @@ struct AnalysisInspectorView: View {
             return "\(row.detail.observationCount) observations, \(row.detail.cadence.rawValue.capitalized) cadence."
         }
     }
+}
 
-    private func evidenceSummary(_ evidence: InsightEvidence) -> String {
-        let formatter = DateIntervalFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        let intervalText = formatter.string(from: evidence.resolvedInterval.start, to: evidence.resolvedInterval.end)
-        return "\(intervalText) • \(evidence.reconciliationRuleLabel)"
+extension AnalysisCategoriesSelection: AnalysisInspectorPresentable {
+    var title: String {
+        switch self {
+        case .row(let row):
+            row.title
+        }
     }
 
-    private func currency(_ amount: Decimal) -> String {
-        CurrencyFormatter.shared.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
+    var summaryText: String {
+        switch self {
+        case .row(let row):
+            return "Current \(currency(row.currentSpend)) vs \(currency(row.comparisonSpend)), delta \(currency(abs(row.delta)))."
+        }
     }
 }
 
@@ -101,6 +152,10 @@ private extension InsightEvidence {
             "Recurring observation set"
         }
     }
+}
+
+private func currency(_ amount: Decimal) -> String {
+    CurrencyFormatter.shared.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
 }
 
 private enum CurrencyFormatter {

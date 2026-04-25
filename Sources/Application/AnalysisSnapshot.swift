@@ -3,9 +3,14 @@ import Foundation
 
 public struct AnalysisSnapshot: Equatable, Sendable {
     public var overview: AnalysisOverviewSnapshot?
+    public var categories: AnalysisCategoriesSnapshot?
 
-    public init(overview: AnalysisOverviewSnapshot? = nil) {
+    public init(
+        overview: AnalysisOverviewSnapshot? = nil,
+        categories: AnalysisCategoriesSnapshot? = nil
+    ) {
         self.overview = overview
+        self.categories = categories
     }
 
     public static let empty = AnalysisSnapshot()
@@ -69,5 +74,63 @@ public enum AnalysisOverviewSelection: Equatable, Sendable {
         case .recurring(let row):
             row.detail.normalizedMerchantName.localizedCapitalized
         }
+    }
+}
+
+public struct AnalysisCategoriesSnapshot: Equatable, Sendable {
+    public var context: AnalysisContext
+    public var report: CategoryAnalysisReport
+    public var targetProgress: [TargetProgress]
+
+    public init(
+        context: AnalysisContext,
+        report: CategoryAnalysisReport,
+        targetProgress: [TargetProgress]
+    ) {
+        self.context = context
+        self.report = report
+        self.targetProgress = targetProgress
+    }
+
+    public func transactionFilter(
+        for selection: AnalysisCategoriesSelection
+    ) -> TransactionLedgerFilter {
+        AnalysisDrilldownTranslator.translate(context: context, evidence: selection.evidence)
+    }
+
+    public func targetProgress(
+        for selection: AnalysisCategoriesSelection
+    ) -> TargetProgress? {
+        switch selection {
+        case .row(let row):
+            return targetProgress.first(where: { target in
+                analysisTargetScopeMatches(target.scope, evidenceScope: row.scope)
+            })
+        }
+    }
+}
+
+public enum AnalysisCategoriesSelection: Equatable, Sendable {
+    case row(AnalysisSpendRow)
+
+    public var evidence: InsightEvidence {
+        switch self {
+        case .row(let row):
+            row.evidence
+        }
+    }
+}
+
+private func analysisTargetScopeMatches(
+    _ targetScope: TargetScope,
+    evidenceScope: InsightEvidenceScope
+) -> Bool {
+    switch (targetScope, evidenceScope) {
+    case (.category(let lhs), .category(let rhs)):
+        return lhs == rhs
+    case (.categoryGroup(let lhs), .categoryGroup(let rhs)):
+        return lhs == rhs
+    default:
+        return false
     }
 }

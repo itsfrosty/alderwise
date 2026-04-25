@@ -249,6 +249,7 @@ private struct StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, Stag
     var base: StubWorkspaceStore
     var insights: WorkspaceInsightSummary
     var overview: OverviewReport
+    var categories: CategoryAnalysisReport
 
     func fetchSummary() throws -> WorkspaceSummary { try base.fetchSummary() }
     func fetchAccounts() throws -> [Account] { try base.fetchAccounts() }
@@ -285,9 +286,7 @@ private struct StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, Stag
     }
     func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary { insights }
     func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport { overview }
-    func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport {
-        CategoryAnalysisReport(context: context, rows: [])
-    }
+    func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport { categories }
     func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport {
         MerchantAnalysisReport(context: context, merchants: [], recurring: [])
     }
@@ -1386,15 +1385,42 @@ func loadSnapshotThreadsIncubatedOverviewWhenStoreImplementsAnalysisReader() thr
         ],
         recurring: []
     )
+    let categories = CategoryAnalysisReport(
+        context: overview.context,
+        rows: [
+            AnalysisSpendRow(
+                title: "Food",
+                scope: .categoryGroup(UUID(uuidString: "00000000-0000-0000-0000-000000000812")!),
+                currentSpend: Decimal(220),
+                comparisonSpend: Decimal(140),
+                delta: Decimal(80),
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_775_001_600),
+                        end: Date(timeIntervalSince1970: 1_776_297_600)
+                    ),
+                    scope: .categoryGroup(UUID(uuidString: "00000000-0000-0000-0000-000000000812")!),
+                    reconciliationRule: .exactTransactionSum,
+                    destination: InsightEvidenceDestination(
+                        scope: .categoryGroup(UUID(uuidString: "00000000-0000-0000-0000-000000000812")!),
+                        direction: .expense
+                    )
+                )
+            ),
+        ]
+    )
     let store = StubWorkspaceStoreWithInsightsAndAnalysis(
         base: baseStore,
         insights: insights,
-        overview: overview
+        overview: overview,
+        categories: categories
     )
 
     let snapshot = try WorkspaceService(store: store).loadSnapshot()
 
     #expect(snapshot.analysis.overview?.report == overview)
+    #expect(snapshot.analysis.categories?.report == categories)
     #expect(snapshot.analysis.overview?.projectedInsights == insights.homeProjectedInsights)
 }
 
