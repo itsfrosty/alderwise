@@ -159,8 +159,7 @@ struct AnalysisContextControls: ToolbarContent {
 
             if let scopeLabel = Self.scopeLabel(
                 for: page,
-                snapshot: snapshot,
-                fallbackContext: context
+                snapshot: snapshot
             ) {
                 HStack(spacing: 6) {
                     Text("Scope")
@@ -208,8 +207,7 @@ struct AnalysisContextControls: ToolbarContent {
 
     nonisolated static func scopeLabel(
         for page: AnalysisPage,
-        snapshot: AnalysisSnapshot,
-        fallbackContext: AnalysisContext
+        snapshot: AnalysisSnapshot
     ) -> String? {
         let context: AnalysisContext?
         switch page {
@@ -225,15 +223,12 @@ struct AnalysisContextControls: ToolbarContent {
             return nil
         }
 
-        return scopeLabel(for: context, fallbackContext: fallbackContext)
+        return scopeLabel(for: context)
     }
 
     private nonisolated static func scopeLabel(
-        for context: AnalysisContext,
-        fallbackContext: AnalysisContext
+        for context: AnalysisContext
     ) -> String {
-        _ = fallbackContext
-
         return switch context.scope {
         case .workspace:
             basisLabel(for: context.metricBasis)

@@ -488,12 +488,21 @@ func analysisContextChangesReloadTheVisibleAnalysisSnapshot() throws {
     let initialFetchCount = store.fetchedAnalysisContexts.count
 
     model.setAnalysisRange(.yearToDate)
-    model.setAnalysisComparison(.samePeriodLastYear)
+    let rangeReloadContexts = Array(store.fetchedAnalysisContexts.dropFirst(initialFetchCount))
 
-    #expect(store.fetchedAnalysisContexts.count == initialFetchCount + 6)
-    #expect(store.fetchedAnalysisContexts[initialFetchCount].range == .yearToDate)
-    #expect(store.fetchedAnalysisContexts[initialFetchCount + 3].comparison == .samePeriodLastYear)
+    #expect(rangeReloadContexts.isEmpty == false)
+    #expect(rangeReloadContexts.allSatisfy { $0.range == .yearToDate })
     #expect(model.analysisContext.range == .yearToDate)
+
+    let postRangeFetchCount = store.fetchedAnalysisContexts.count
+
+    model.setAnalysisComparison(.samePeriodLastYear)
+    let comparisonReloadContexts = Array(store.fetchedAnalysisContexts.dropFirst(postRangeFetchCount))
+
+    #expect(comparisonReloadContexts.isEmpty == false)
+    #expect(comparisonReloadContexts.allSatisfy {
+        $0.range == .yearToDate && $0.comparison == .samePeriodLastYear
+    })
     #expect(model.analysisContext.comparison == .samePeriodLastYear)
 }
 

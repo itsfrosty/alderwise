@@ -116,22 +116,19 @@ func analysisContextControlsShowTheReadOnlyScopeLabelForTheVisiblePageOnly() {
     #expect(
         AnalysisContextControls.scopeLabel(
             for: .overview,
-            snapshot: snapshot,
-            fallbackContext: AnalysisContext()
+            snapshot: snapshot
         ) == "All visible spending"
     )
     #expect(
         AnalysisContextControls.scopeLabel(
             for: .categories,
-            snapshot: snapshot,
-            fallbackContext: AnalysisContext()
+            snapshot: snapshot
         ) == "Accepted spending"
     )
     #expect(
         AnalysisContextControls.scopeLabel(
             for: .merchants,
-            snapshot: snapshot,
-            fallbackContext: AnalysisContext()
+            snapshot: snapshot
         ) == nil
     )
 }
