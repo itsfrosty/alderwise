@@ -61,11 +61,8 @@ struct AnalysisScreenState: Equatable, Sendable {
     }
 
     mutating func prepareForPageChange(from currentPage: AnalysisPage, to nextPage: AnalysisPage) {
-        guard currentPage != nextPage else {
-            return
-        }
-
-        clearSelection(for: currentPage)
+        _ = currentPage
+        _ = nextPage
     }
 
     mutating func repairSelections(for snapshot: AnalysisSnapshot) {

@@ -78,20 +78,32 @@ func analysisScreenStateClearsSelectionWhenTheEntityDisappears() {
 }
 
 @Test
-func analysisScreenStateClearsSelectionWhenChangingPageFamilies() {
+func analysisScreenStateRetainsPageLocalSelectionWhenChangingFamilies() {
     var state = AnalysisScreenState()
-
-    state.setCategoriesSelection(.row(
+    let categoriesSelection = AnalysisCategoriesSelection.row(
         analysisScreenCategoriesRow(
             title: "Food",
             scope: .category(analysisScreenStateID("00000000-0000-0000-0000-000000000903")),
             currentSpend: Decimal(240),
             comparisonSpend: Decimal(150)
         )
-    ))
-    state.prepareForPageChange(from: .categories, to: .merchants)
+    )
+    let merchantsSelection = AnalysisMerchantsSelection.merchant(
+        analysisScreenMerchantRow(
+            name: "Blue Bottle",
+            normalizedName: "blue bottle",
+            currentSpend: Decimal(90),
+            comparisonSpend: Decimal(40)
+        )
+    )
 
-    #expect(state.categories.selection == nil)
+    state.setCategoriesSelection(categoriesSelection)
+    state.prepareForPageChange(from: .categories, to: .merchants)
+    state.setMerchantsSelection(merchantsSelection)
+    state.prepareForPageChange(from: .merchants, to: .categories)
+
+    #expect(state.categories.selection == categoriesSelection)
+    #expect(state.merchants.selection == merchantsSelection)
 }
 
 @Test

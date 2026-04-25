@@ -182,9 +182,9 @@ func analysisMerchantsSelectionSurvivesTransactionDrilldown() {
 
 @Test
 @MainActor
-func analysisFamilyStripRoutingClearsThePreviousFamilySelection() {
+func analysisFamilyStripRoutingRetainsPageLocalSelectionWhenSwitchingAwayAndBack() {
     let model = WorkspaceShellModel(store: nil, service: nil)
-    let selection = AnalysisCategoriesSelection.row(
+    let categoriesSelection = AnalysisCategoriesSelection.row(
         AnalysisSpendRow(
             title: "Food",
             scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000701")),
@@ -206,13 +206,38 @@ func analysisFamilyStripRoutingClearsThePreviousFamilySelection() {
             )
         )
     )
+    let merchantsSelection = AnalysisMerchantsSelection.merchant(
+        MerchantAnalysisRow(
+            key: MerchantReportKey(normalizedName: "blue bottle"),
+            title: "blue bottle",
+            currentSpend: Decimal(48),
+            comparisonSpend: Decimal(12),
+            delta: Decimal(36),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                    end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+                ),
+                scope: .merchant("blue bottle"),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: .merchant("blue bottle"),
+                    direction: .expense
+                )
+            )
+        )
+    )
 
     model.selectAnalysisPage(.categories)
-    model.setAnalysisCategoriesSelection(selection)
+    model.setAnalysisCategoriesSelection(categoriesSelection)
     model.selectAnalysisPage(.merchants)
+    model.setAnalysisMerchantsSelection(merchantsSelection)
+    model.selectAnalysisPage(.categories)
 
-    #expect(model.analysisToolbarState.selectedPage == .merchants)
-    #expect(model.analysisCategoriesSelection == nil)
+    #expect(model.analysisToolbarState.selectedPage == .categories)
+    #expect(model.analysisCategoriesSelection == categoriesSelection)
+    #expect(model.analysisMerchantsSelection == merchantsSelection)
 }
 
 @Test
@@ -306,11 +331,113 @@ func analysisSelectionDoesNotRevealInspectorWhenCommittedWhileHidden() {
 }
 
 @Test
-func analysisNarrowWidthsCollapseTheInspectorEvenWhenRequested() {
-    #expect(AnalysisView.showsInspector(
-        isRequested: true,
-        availableWidth: AnalysisView.inspectorVisibilityWidth - 1
-    ) == false)
+func analysisNarrowWidthsUseTransientInspectorPresentationWhenRequested() {
+    #expect(
+        AnalysisView.inspectorPresentation(
+            isRequested: true,
+            availableWidth: AnalysisView.inspectorVisibilityWidth - 1
+        ) == .transient
+    )
+}
+
+@Test
+func analysisWideWidthsUsePersistentInspectorPresentationWhenRequested() {
+    #expect(
+        AnalysisView.inspectorPresentation(
+            isRequested: true,
+            availableWidth: AnalysisView.inspectorVisibilityWidth
+        ) == .persistent
+    )
+}
+
+@Test
+@MainActor
+func analysisViewTransactionsHandlerRetainsMerchantSelectionForDrilldown() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+    let selection = AnalysisMerchantsSelection.merchant(
+        MerchantAnalysisRow(
+            key: MerchantReportKey(normalizedName: "blue bottle"),
+            title: "blue bottle",
+            currentSpend: Decimal(48),
+            comparisonSpend: Decimal(12),
+            delta: Decimal(36),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                    end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+                ),
+                scope: .merchant("blue bottle"),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: .merchant("blue bottle"),
+                    direction: .expense
+                )
+            )
+        )
+    )
+
+    model.setAnalysisMerchantsSelection(selection)
+    AnalysisView.makeTransactionsHandler(model: model)(
+        TransactionLedgerFilter(
+            normalizedMerchantName: "blue bottle",
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
+            visibility: .active
+        )
+    )
+
+    #expect(model.analysisMerchantsSelection == selection)
+    #expect(model.pendingAppSectionNavigation == .transactions)
+}
+
+@Test
+@MainActor
+func analysisViewTransactionsHandlerRetainsRecurringOverviewSelectionForDrilldown() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+    let selection = AnalysisOverviewSelection.recurring(
+        MerchantRecurringReportRow(
+            detail: RecurringChargeInsightDetail(
+                accountID: analysisViewStateID("00000000-0000-0000-0000-000000000841"),
+                normalizedMerchantName: "netflix",
+                cadence: .monthly,
+                observationCount: 3,
+                amountRange: RecurringChargeAmountRange(minimum: Decimal(15.49), maximum: Decimal(15.49)),
+                supportingTransactionIDs: [
+                    analysisViewStateID("00000000-0000-0000-0000-000000000851")
+                ],
+                firstObservedDate: analysisViewStateUTCDate(year: 2026, month: 2, day: 9),
+                lastObservedDate: analysisViewStateUTCDate(year: 2026, month: 4, day: 9),
+                nextExpectedDateWindow: nil
+            ),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisViewStateUTCDate(year: 2026, month: 2, day: 9),
+                    end: analysisViewStateUTCDate(year: 2026, month: 4, day: 10)
+                ),
+                scope: .merchant("netflix"),
+                reconciliationRule: .recurringObservationSet,
+                destination: InsightEvidenceDestination(
+                    scope: .merchant("netflix"),
+                    direction: .expense
+                )
+            )
+        )
+    )
+
+    model.setAnalysisOverviewSelection(selection)
+    AnalysisView.makeTransactionsHandler(model: model)(
+        TransactionLedgerFilter(
+            normalizedMerchantName: "netflix",
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
+            visibility: .active
+        )
+    )
+
+    #expect(model.analysisOverviewSelection == selection)
+    #expect(model.pendingAppSectionNavigation == .transactions)
 }
 
 @Test
