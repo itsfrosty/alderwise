@@ -245,12 +245,27 @@ private struct StubWorkspaceStoreWithInsights: WorkspaceStoring, StagedImportWri
     }
 }
 
-private struct StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, LearnedRuleReading, WorkspaceInsightReading, AnalysisReportReading {
+private final class StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, LearnedRuleReading, WorkspaceInsightReading, AnalysisReportReading, @unchecked Sendable {
     var base: StubWorkspaceStore
     var insights: WorkspaceInsightSummary
     var overview: OverviewReport
     var categories: CategoryAnalysisReport
     var merchants: MerchantAnalysisReport
+    private(set) var fetchedAnalysisContexts: [AnalysisContext] = []
+
+    init(
+        base: StubWorkspaceStore,
+        insights: WorkspaceInsightSummary,
+        overview: OverviewReport,
+        categories: CategoryAnalysisReport,
+        merchants: MerchantAnalysisReport
+    ) {
+        self.base = base
+        self.insights = insights
+        self.overview = overview
+        self.categories = categories
+        self.merchants = merchants
+    }
 
     func fetchSummary() throws -> WorkspaceSummary { try base.fetchSummary() }
     func fetchAccounts() throws -> [Account] { try base.fetchAccounts() }
@@ -286,9 +301,18 @@ private struct StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, Stag
         try base.fetchLikelyDuplicateTransactions(accountID: accountID, candidates: candidates)
     }
     func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary { insights }
-    func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport { overview }
-    func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport { categories }
-    func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport { merchants }
+    func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport {
+        fetchedAnalysisContexts.append(context)
+        return overview
+    }
+    func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport {
+        fetchedAnalysisContexts.append(context)
+        return categories
+    }
+    func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport {
+        fetchedAnalysisContexts.append(context)
+        return merchants
+    }
 }
 
 private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, MerchantRecommendationEligibilityReading, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
@@ -1445,10 +1469,115 @@ func loadSnapshotThreadsIncubatedOverviewWhenStoreImplementsAnalysisReader() thr
 
     let snapshot = try WorkspaceService(store: store).loadSnapshot()
 
-    #expect(snapshot.analysis.overview?.report == overview)
-    #expect(snapshot.analysis.categories?.report == categories)
-    #expect(snapshot.analysis.merchants?.report == merchants)
-    #expect(snapshot.analysis.overview?.projectedInsights == insights.homeProjectedInsights)
+    #expect(snapshot.analysis == .empty)
+    #expect(store.fetchedAnalysisContexts.isEmpty)
+}
+
+@Test
+func loadAnalysisSnapshotThreadsReportsForRequestedContextOnly() throws {
+    let baseStore = StubWorkspaceStore(
+        summary: WorkspaceSummary(
+            accountCount: 2,
+            transactionCount: 0,
+            reviewCount: 0,
+            targetCount: 1
+        ),
+        accounts: [
+            Account(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000811")!,
+                name: "Checking",
+                kind: .checking,
+                institutionName: "Local Bank"
+            ),
+        ]
+    )
+    let recurringEvidence = InsightEvidence(
+        metricBasis: .includedVisibleExpenses,
+        resolvedInterval: DateInterval(
+            start: Date(timeIntervalSince1970: 1_775_001_600),
+            end: Date(timeIntervalSince1970: 1_776_297_600)
+        ),
+        scope: .merchant("netflix"),
+        reconciliationRule: .recurringObservationSet,
+        destination: InsightEvidenceDestination(
+            scope: .merchant("netflix"),
+            direction: .expense
+        )
+    )
+    let recurringDetail = RecurringChargeInsightDetail(
+        accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000813")!,
+        normalizedMerchantName: "netflix",
+        cadence: .monthly,
+        observationCount: 3,
+        amountRange: RecurringChargeAmountRange(minimum: Decimal(15), maximum: Decimal(15)),
+        supportingTransactionIDs: [
+            UUID(uuidString: "00000000-0000-0000-0000-000000000814")!,
+            UUID(uuidString: "00000000-0000-0000-0000-000000000815")!,
+            UUID(uuidString: "00000000-0000-0000-0000-000000000816")!,
+        ],
+        firstObservedDate: Date(timeIntervalSince1970: 1_770_076_800),
+        lastObservedDate: Date(timeIntervalSince1970: 1_775_260_800),
+        nextExpectedDateWindow: nil
+    )
+    let recurringInsight = WorkspaceInsight(
+        kind: .recurringCharge(recurringDetail),
+        confidence: 0.92,
+        rank: 1,
+        score: 90,
+        suppressionKey: "recurring:netflix",
+        evidence: recurringEvidence,
+        tieBreaker: WorkspaceInsightTieBreaker(
+            primaryDate: Date(timeIntervalSince1970: 1_775_260_800),
+            secondaryKey: "netflix",
+            tertiaryKey: "recurring:netflix"
+        )
+    )
+    let insights = WorkspaceInsightSummary(insights: [recurringInsight], homeProjectedInsights: [recurringInsight])
+    let overviewContext = AnalysisContext(
+        range: .lastFullMonth,
+        referenceDate: Date(timeIntervalSince1970: 1_776_211_200),
+        scope: .workspace,
+        comparison: .samePeriodLastYear
+    )
+    let overview = OverviewReport(
+        context: overviewContext,
+        currentSpend: Decimal(320),
+        comparisonSpend: Decimal(180),
+        drivers: [],
+        recurring: []
+    )
+    let categories = CategoryAnalysisReport(context: overviewContext, rows: [])
+    let merchants = MerchantAnalysisReport(context: overviewContext, merchants: [], recurring: [])
+    let store = StubWorkspaceStoreWithInsightsAndAnalysis(
+        base: baseStore,
+        insights: insights,
+        overview: overview,
+        categories: categories,
+        merchants: merchants
+    )
+    let service = WorkspaceService(store: store)
+
+    let snapshot = try service.loadAnalysisSnapshot(context: overviewContext)
+
+    #expect(snapshot.overview?.report == OverviewReport(
+        context: overview.context,
+        currentSpend: overview.currentSpend,
+        comparisonSpend: overview.comparisonSpend,
+        drivers: overview.drivers,
+        recurring: [
+            MerchantRecurringReportRow(detail: recurringDetail, evidence: recurringEvidence),
+        ]
+    ))
+    #expect(snapshot.categories?.report == categories)
+    #expect(snapshot.merchants?.report == MerchantAnalysisReport(
+        context: merchants.context,
+        merchants: merchants.merchants,
+        recurring: [
+            MerchantRecurringReportRow(detail: recurringDetail, evidence: recurringEvidence),
+        ]
+    ))
+    #expect(snapshot.overview?.projectedInsights == insights.homeProjectedInsights)
+    #expect(store.fetchedAnalysisContexts == [overviewContext, overviewContext, overviewContext])
 }
 
 @Test

@@ -9,11 +9,16 @@ public enum AnalysisDrilldownTranslator {
         TransactionLedgerFilter(
             startDate: evidence.resolvedInterval.start,
             endDate: inclusiveEndDate(for: evidence.resolvedInterval.end),
-            normalizedMerchantName: merchantName(for: evidence.destination.scope),
-            accountID: accountID(for: evidence.destination.scope),
-            categoryID: categoryID(for: evidence.destination.scope),
-            categoryGroupID: categoryGroupID(for: evidence.destination.scope),
-            uncategorizedOnly: isUncategorized(evidence.destination.scope),
+            normalizedMerchantName: merchantName(for: evidence.destination.scope)
+                ?? merchantName(for: context.scope),
+            accountID: accountID(for: evidence.destination.scope)
+                ?? accountID(for: context.scope),
+            categoryID: categoryID(for: evidence.destination.scope)
+                ?? categoryID(for: context.scope),
+            categoryGroupID: categoryGroupID(for: evidence.destination.scope)
+                ?? categoryGroupID(for: context.scope),
+            uncategorizedOnly: isUncategorized(evidence.destination.scope)
+                || isUncategorized(context.scope),
             direction: evidence.destination.direction,
             reviewStatuses: resolvedReviewStatuses(context: context, basis: evidence.metricBasis),
             visibility: context.qualifiers.visibility
@@ -47,7 +52,21 @@ public enum AnalysisDrilldownTranslator {
         return nil
     }
 
+    private static func merchantName(for scope: AnalysisScope) -> String? {
+        if case .merchant(let merchantName) = scope {
+            return merchantName
+        }
+        return nil
+    }
+
     private static func accountID(for scope: InsightEvidenceScope) -> UUID? {
+        if case .account(let accountID) = scope {
+            return accountID
+        }
+        return nil
+    }
+
+    private static func accountID(for scope: AnalysisScope) -> UUID? {
         if case .account(let accountID) = scope {
             return accountID
         }
@@ -61,7 +80,21 @@ public enum AnalysisDrilldownTranslator {
         return nil
     }
 
+    private static func categoryID(for scope: AnalysisScope) -> UUID? {
+        if case .category(let categoryID) = scope {
+            return categoryID
+        }
+        return nil
+    }
+
     private static func categoryGroupID(for scope: InsightEvidenceScope) -> UUID? {
+        if case .categoryGroup(let categoryGroupID) = scope {
+            return categoryGroupID
+        }
+        return nil
+    }
+
+    private static func categoryGroupID(for scope: AnalysisScope) -> UUID? {
         if case .categoryGroup(let categoryGroupID) = scope {
             return categoryGroupID
         }
@@ -73,6 +106,10 @@ public enum AnalysisDrilldownTranslator {
             return true
         }
         return false
+    }
+
+    private static func isUncategorized(_ scope: AnalysisScope) -> Bool {
+        false
     }
 }
 

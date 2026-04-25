@@ -2053,9 +2053,6 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
     public func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport {
         let resolvedContext = resolvedAnalysisContext(from: context)
         let resolution = resolvedAnalysisInterval(from: resolvedContext)
-        let recurring = merchantRecurringRows(
-            from: try fetchWorkspaceInsightSummary(referenceDate: resolvedContext.referenceDate ?? resolution.currentInterval.end)
-        )
 
         return try databaseQueue.read { db in
             OverviewReport(
@@ -2077,7 +2074,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                     grouping: .categoryDrivers,
                     context: resolvedContext
                 ),
-                recurring: recurring
+                recurring: []
             )
         }
     }
@@ -2103,9 +2100,6 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
     public func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport {
         let resolvedContext = resolvedAnalysisContext(from: context)
         let resolution = resolvedAnalysisInterval(from: resolvedContext)
-        let recurring = merchantRecurringRows(
-            from: try fetchWorkspaceInsightSummary(referenceDate: resolvedContext.referenceDate ?? resolution.currentInterval.end)
-        )
 
         return try databaseQueue.read { db in
             MerchantAnalysisReport(
@@ -2116,7 +2110,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                     comparison: resolution.comparison,
                     context: resolvedContext
                 ),
-                recurring: recurring
+                recurring: []
             )
         }
     }
@@ -4378,13 +4372,20 @@ private func targetHistorySummary(
     currentMonthStart: Date,
     db: Database
 ) throws -> TargetHistorySummary {
-    let createdMonthStart = monthInterval(containing: createdAt).start
     let calendar = Calendar.alderwiseUTC
+    let createdMonthInterval = monthInterval(containing: createdAt)
+    let firstFullHistoryMonthStart: Date
+    if createdAt == createdMonthInterval.start {
+        firstFullHistoryMonthStart = createdMonthInterval.start
+    } else {
+        firstFullHistoryMonthStart = calendar.date(byAdding: .month, value: 1, to: createdMonthInterval.start)
+            ?? createdMonthInterval.end
+    }
     var monthStart = calendar.date(byAdding: .month, value: -1, to: currentMonthStart)
     var months: [TargetHistoryMonth] = []
 
     while let historyMonthStart = monthStart, months.count < 6 {
-        guard historyMonthStart >= createdMonthStart else {
+        guard historyMonthStart >= firstFullHistoryMonthStart else {
             break
         }
 

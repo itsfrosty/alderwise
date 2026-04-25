@@ -135,48 +135,17 @@ public struct WorkspaceService: Sendable {
         self.classifier = classifier
     }
 
-    public func loadSnapshot(filter: TransactionLedgerFilter = .empty) throws -> WorkspaceSnapshot {
+    public func loadSnapshot(
+        filter: TransactionLedgerFilter = .empty,
+        referenceDate: Date = .now
+    ) throws -> WorkspaceSnapshot {
         let ledgerReader = store as? any TransactionLedgerReading
         let reportingReader = store as? any ReportingReading
         let insightReader = store as? any WorkspaceInsightReading
-        let analysisReader = store as? any AnalysisReportReading
         let reviewReader = store as? any ReviewQueueReading
-        let referenceDate = Date()
         let summary = try store.fetchSummary()
         let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: referenceDate) ?? .empty
         let insights = try insightReader?.fetchWorkspaceInsightSummary(referenceDate: referenceDate) ?? .empty
-        let overviewContext = AnalysisContext(
-            range: .monthToDate,
-            referenceDate: referenceDate,
-            scope: .workspace,
-            comparison: .previousPeriod
-        )
-        let overviewReport = try analysisReader?.fetchOverviewReport(context: overviewContext)
-        let categoryReport = try analysisReader?.fetchCategoryAnalysisReport(context: overviewContext)
-        let merchantReport = try analysisReader?.fetchMerchantAnalysisReport(context: overviewContext)
-        let analysis = AnalysisSnapshot(
-            overview: overviewReport.map {
-                AnalysisOverviewSnapshot(
-                    context: $0.context,
-                    report: $0,
-                    monthlyReport: monthlyReport,
-                    projectedInsights: insights.homeProjectedInsights
-                )
-            },
-            categories: categoryReport.map {
-                AnalysisCategoriesSnapshot(
-                    context: $0.context,
-                    report: $0,
-                    targetProgress: monthlyReport.targets
-                )
-            },
-            merchants: merchantReport.map {
-                AnalysisMerchantsSnapshot(
-                    context: $0.context,
-                    report: $0
-                )
-            }
-        )
         let managementAccounts = try store.fetchManagementAccounts()
         let importEligibleAccounts = try store.fetchImportEligibleAccounts()
         let ledgerFilterAccounts = try store.fetchLedgerFilterAccounts()
@@ -194,11 +163,55 @@ public struct WorkspaceService: Sendable {
             transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
             monthlyReport: monthlyReport,
             insights: insights,
-            analysis: analysis,
+            analysis: .empty,
             homeDashboard: HomeDashboardSnapshot.make(
                 summary: summary,
                 monthlyReport: monthlyReport,
                 insights: insights
+            )
+        )
+    }
+
+    public func loadAnalysisSnapshot(context: AnalysisContext) throws -> AnalysisSnapshot {
+        guard let analysisReader = store as? any AnalysisReportReading else {
+            return .empty
+        }
+
+        let reportingReader = store as? any ReportingReading
+        let insightReader = store as? any WorkspaceInsightReading
+        let referenceDate = context.referenceDate ?? .now
+        let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: referenceDate) ?? .empty
+        let insights = try insightReader?.fetchWorkspaceInsightSummary(referenceDate: referenceDate) ?? .empty
+        let recurring = recurringRows(from: insights)
+        let overviewReport = try analysisReader.fetchOverviewReport(context: context)
+        let categoryReport = try analysisReader.fetchCategoryAnalysisReport(context: context)
+        let merchantReport = try analysisReader.fetchMerchantAnalysisReport(context: context)
+
+        return AnalysisSnapshot(
+            overview: AnalysisOverviewSnapshot(
+                context: overviewReport.context,
+                report: OverviewReport(
+                    context: overviewReport.context,
+                    currentSpend: overviewReport.currentSpend,
+                    comparisonSpend: overviewReport.comparisonSpend,
+                    drivers: overviewReport.drivers,
+                    recurring: recurring
+                ),
+                monthlyReport: monthlyReport,
+                projectedInsights: insights.homeProjectedInsights
+            ),
+            categories: AnalysisCategoriesSnapshot(
+                context: categoryReport.context,
+                report: categoryReport,
+                targetProgress: monthlyReport.targets
+            ),
+            merchants: AnalysisMerchantsSnapshot(
+                context: merchantReport.context,
+                report: MerchantAnalysisReport(
+                    context: merchantReport.context,
+                    merchants: merchantReport.merchants,
+                    recurring: recurring
+                )
             )
         )
     }
@@ -949,6 +962,18 @@ public struct WorkspaceService: Sendable {
 
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedValue.isEmpty ? nil : trimmedValue
+    }
+}
+
+private func recurringRows(from summary: WorkspaceInsightSummary) -> [MerchantRecurringReportRow] {
+    summary.insights.compactMap { insight in
+        guard case .recurringCharge(let detail) = insight.kind else {
+            return nil
+        }
+        return MerchantRecurringReportRow(
+            detail: detail,
+            evidence: insight.evidence
+        )
     }
 }
 

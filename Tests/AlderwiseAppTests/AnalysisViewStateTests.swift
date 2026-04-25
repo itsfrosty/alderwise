@@ -179,6 +179,33 @@ func analysisMerchantsSelectionSurvivesTransactionDrilldown() {
     #expect(model.pendingAppSectionNavigation == .transactions)
 }
 
+@Test
+@MainActor
+func showAnalysisLoadsAnalysisSnapshotLazilyUsingTheSharedReferenceDate() throws {
+    let now = analysisViewStateUTCDate(year: 2026, month: 4, day: 15)
+    let store = AnalysisLoadingWorkspaceStore(referenceDate: now)
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: service,
+        referenceDateProvider: { now }
+    )
+
+    #expect(store.fetchedAnalysisContexts.isEmpty)
+    #expect(store.fetchManagedTargetsReferenceDates == [now])
+    #expect(model.analysisSnapshot == .empty)
+
+    model.showAnalysis(page: .categories)
+
+    let context = try #require(store.fetchedAnalysisContexts.first)
+    #expect(context.referenceDate == now)
+    #expect(context.range == .monthToDate)
+    #expect(context.scope == .workspace)
+    #expect(context.comparison == .previousPeriod)
+    #expect(model.analysisToolbarState.selectedPage == .categories)
+    #expect(model.analysisSnapshot.categories?.report.rows.isEmpty == true)
+}
+
 private func analysisViewStateUTCDate(year: Int, month: Int, day: Int) -> Date {
     var components = DateComponents()
     components.year = year
@@ -196,4 +223,116 @@ private let analysisViewStateUTCCalendar: Calendar = {
 
 private func analysisViewStateID(_ value: String) -> UUID {
     UUID(uuidString: value)!
+}
+
+private final class AnalysisLoadingWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, AnalysisReportReading, ReportingReading, TargetManaging, @unchecked Sendable {
+    let referenceDate: Date
+    var fetchedAnalysisContexts: [AnalysisContext] = []
+    var fetchManagedTargetsReferenceDates: [Date] = []
+
+    init(referenceDate: Date) {
+        self.referenceDate = referenceDate
+    }
+
+    func fetchSummary() throws -> WorkspaceSummary { .empty }
+    func fetchAccounts() throws -> [Account] { [] }
+    func fetchManagementAccounts() throws -> [Account] { [] }
+    func fetchImportEligibleAccounts() throws -> [Account] { [] }
+    func fetchLedgerFilterAccounts() throws -> [Account] { [] }
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> { [] }
+    func fetchCategories() throws -> [BudgetCategory] { [] }
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] { [] }
+    func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(name: named, kind: kind, institutionName: institutionName)
+    }
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        Account(id: id, name: named, kind: kind, institutionName: institutionName)
+    }
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account {
+        Account(id: id, name: "Archived", kind: .checking, institutionName: nil, archivedAt: archivedAt)
+    }
+    func restoreAccount(id: UUID) throws -> Account {
+        Account(id: id, name: "Restored", kind: .checking, institutionName: nil)
+    }
+    func deleteAccountPermanently(id: UUID) throws {}
+
+    func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
+        StagedImportSession(
+            id: 1,
+            sourceFile: StagedSourceFile(
+                id: 1,
+                accountID: draft.accountID,
+                originalFilename: draft.originalFilename,
+                contentHash: draft.contentHash,
+                importedAt: draft.importedAt,
+                rowCount: draft.rows.count
+            ),
+            mapping: draft.mapping,
+            validRowCount: draft.validRowCount,
+            invalidRowCount: draft.invalidRowCount,
+            status: draft.status,
+            rows: []
+        )
+    }
+
+    func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> { [] }
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String : Int] { [:] }
+    func fetchLikelyDuplicateTransactions(
+        accountID: UUID,
+        candidates: [NormalizedImportCandidate]
+    ) throws -> [LikelyDuplicateCandidate] { [] }
+
+    func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport {
+        fetchedAnalysisContexts.append(context)
+        return OverviewReport(
+            context: context,
+            currentSpend: Decimal(120),
+            comparisonSpend: Decimal(80),
+            drivers: [],
+            recurring: []
+        )
+    }
+
+    func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport {
+        fetchedAnalysisContexts.append(context)
+        return CategoryAnalysisReport(context: context, rows: [])
+    }
+
+    func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport {
+        fetchedAnalysisContexts.append(context)
+        return MerchantAnalysisReport(context: context, merchants: [], recurring: [])
+    }
+
+    func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {
+        MonthlyReport(
+            monthStart: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+            currentMonthAcceptedSpend: 0,
+            lastMonthAcceptedSpend: 0,
+            expenseBasis: .includedVisibleExpenses,
+            pendingReviewCount: 0,
+            targets: [],
+            hasActiveTargets: false,
+            totalMonthlyTargetLimit: 0,
+            expectedPaceSpend: 0,
+            paceDelta: 0,
+            paceSeries: [],
+            drivers: [],
+            biggestShift: nil
+        )
+    }
+
+    func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget] {
+        fetchManagedTargetsReferenceDates.append(referenceDate)
+        return []
+    }
+
+    func createMonthlyTarget(_ draft: MonthlyTargetDraft, createdAt: Date) throws -> MonthlyTarget {
+        MonthlyTarget(id: UUID(), scope: draft.scope, monthlyLimit: draft.monthlyLimit, createdAt: createdAt)
+    }
+
+    func updateMonthlyTarget(id: UUID, _ draft: MonthlyTargetDraft) throws -> MonthlyTarget {
+        MonthlyTarget(id: id, scope: draft.scope, monthlyLimit: draft.monthlyLimit, createdAt: referenceDate)
+    }
+
+    func deleteMonthlyTarget(id: UUID) throws {}
 }

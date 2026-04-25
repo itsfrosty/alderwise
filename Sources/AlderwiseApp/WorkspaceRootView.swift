@@ -422,7 +422,7 @@ struct WorkspaceRootView: View {
                     navigate: routeHomeDestination
                 )
             } else if section == .analysis {
-                AnalysisView(snapshot: snapshot, model: model)
+                AnalysisView(model: model)
             } else if WorkspaceDetailRoute.make(for: section) == .transactions {
                 TransactionLedgerView(snapshot: snapshot, model: model)
             } else if WorkspaceDetailRoute.make(for: section) == .review {

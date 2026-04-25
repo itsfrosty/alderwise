@@ -4,7 +4,7 @@ import Persistence
 import Testing
 
 @Test
-func merchantAnalysisReportReconcilesMerchantRowAndRecurringEvidence() throws {
+func merchantAnalysisReportReconcilesMerchantRowEvidenceToLedgerSlice() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
@@ -64,14 +64,10 @@ func merchantAnalysisReportReconcilesMerchantRowAndRecurringEvidence() throws {
     let merchant = try #require(report.merchants.first(where: { $0.title == "blue bottle" }))
     let merchantFilter = ledgerFilter(for: merchant.evidence)
     let merchantLedger = try store.fetchTransactionLedger(filter: merchantFilter)
-    let recurring = try #require(report.recurring.first(where: { $0.detail.normalizedMerchantName == "netflix" }))
-    let recurringFilter = ledgerFilter(for: recurring.evidence)
-
     #expect(merchant.currentSpend == Decimal(8))
     #expect(merchant.key == MerchantReportKey(normalizedName: "blue bottle"))
     #expect(ledgerExpenseTotal(merchantLedger) == merchant.currentSpend)
-    #expect(recurringFilter.normalizedMerchantName == "netflix")
-    #expect(recurringFilter.reviewStatuses == Set<TransactionReviewStatus>([.accepted, .pending]))
+    #expect(report.recurring.isEmpty)
 }
 
 @Test

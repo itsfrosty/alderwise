@@ -3,21 +3,26 @@ import Domain
 import SwiftUI
 
 struct AnalysisView: View {
-    let snapshot: WorkspaceSnapshot
     @ObservedObject var model: WorkspaceShellModel
 
     private var availablePages: [AnalysisPage] {
-        AnalysisToolbarState.availablePages(in: snapshot.analysis)
+        AnalysisToolbarState.availablePages(in: model.analysisSnapshot)
     }
 
     private var selectedPage: AnalysisPage {
-        let repairedState = model.analysisToolbarState.repaired(for: snapshot.analysis)
+        let repairedState = model.analysisToolbarState.repaired(for: model.analysisSnapshot)
         return repairedState.selectedPage
     }
 
     var body: some View {
         Group {
-            if availablePages.isEmpty {
+            if let errorMessage = model.analysisErrorMessage {
+                ContentUnavailableView(
+                    "Analysis Unavailable",
+                    systemImage: AppSection.analysis.systemImage,
+                    description: Text(errorMessage)
+                )
+            } else if availablePages.isEmpty {
                 ContentUnavailableView(
                     "Analysis Not Ready",
                     systemImage: AppSection.analysis.systemImage,
@@ -54,6 +59,7 @@ struct AnalysisView: View {
             }
         }
         .onAppear {
+            model.ensureAnalysisLoaded()
             model.selectAnalysisPage(selectedPage)
         }
     }
@@ -62,7 +68,7 @@ struct AnalysisView: View {
     private var selectedPageView: some View {
         switch selectedPage {
         case .overview:
-            if let overview = snapshot.analysis.overview {
+            if let overview = model.analysisSnapshot.overview {
                 AnalysisOverviewView(
                     snapshot: overview,
                     selection: Binding(
@@ -76,7 +82,7 @@ struct AnalysisView: View {
                 )
             }
         case .categories:
-            if let categories = snapshot.analysis.categories {
+            if let categories = model.analysisSnapshot.categories {
                 AnalysisCategoriesView(
                     snapshot: categories,
                     selection: Binding(
@@ -93,7 +99,7 @@ struct AnalysisView: View {
                 )
             }
         case .merchants:
-            if let merchants = snapshot.analysis.merchants {
+            if let merchants = model.analysisSnapshot.merchants {
                 AnalysisMerchantsView(
                     snapshot: merchants,
                     selection: Binding(

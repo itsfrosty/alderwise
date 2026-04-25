@@ -99,6 +99,37 @@ func analysisDrilldownTranslatorBuildsRecurringMerchantFilter() {
     #expect(filter.startDate == interval.start)
 }
 
+@Test
+func analysisDrilldownTranslatorPreservesParentScopedAccountWhenEvidenceNarrowsWithinIt() {
+    let interval = DateInterval(
+        start: analysisUTCDate(year: 2026, month: 4, day: 1),
+        end: analysisUTCDate(year: 2026, month: 4, day: 16)
+    )
+    let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000902")!
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000903")!
+    let context = AnalysisContext(
+        range: .monthToDate,
+        referenceDate: analysisUTCDate(year: 2026, month: 4, day: 15),
+        resolvedInterval: interval,
+        scope: .account(accountID),
+        comparison: .previousPeriod,
+        metricBasis: .includedVisibleExpenses
+    )
+    let evidence = InsightEvidence(
+        metricBasis: .includedVisibleExpenses,
+        resolvedInterval: interval,
+        scope: .category(categoryID),
+        reconciliationRule: .exactTransactionSum,
+        destination: InsightEvidenceDestination(scope: .category(categoryID))
+    )
+
+    let filter = AnalysisDrilldownTranslator.translate(context: context, evidence: evidence)
+
+    #expect(filter.accountID == accountID)
+    #expect(filter.categoryID == categoryID)
+    #expect(filter.reviewStatuses == Set([.accepted, .pending]))
+}
+
 private func analysisUTCDate(
     year: Int,
     month: Int,
