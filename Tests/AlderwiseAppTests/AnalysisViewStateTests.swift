@@ -489,6 +489,28 @@ func analysisDrivenRecurringOverviewDrilldownRetainsSelection() {
 
 @Test
 @MainActor
+func analysisSectionRoutingAfterPageChangesPreservesInspectorState() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+
+    model.showAnalysis(page: .categories)
+    model.setAnalysisInspectorVisible(true)
+    model.showAnalysisTransactions(filter:
+        TransactionLedgerFilter(
+            categoryID: analysisViewStateID("00000000-0000-0000-0000-000000000861"),
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
+            visibility: .active
+        )
+    )
+    model.showAnalysis(page: .merchants)
+
+    #expect(model.pendingAppSectionNavigation == .analysis)
+    #expect(model.analysisToolbarState.selectedPage == .merchants)
+    #expect(model.analysisToolbarState.isInspectorVisible)
+}
+
+@Test
+@MainActor
 func showAnalysisLoadsAnalysisSnapshotLazilyUsingTheSharedReferenceDate() throws {
     let now = analysisViewStateUTCDate(year: 2026, month: 4, day: 15)
     let store = AnalysisLoadingWorkspaceStore(referenceDate: now)

@@ -1,5 +1,34 @@
 import SwiftUI
 
+struct AnalysisInspectorCommandContext {
+    let toggle: @MainActor () -> Void
+}
+
+private struct AnalysisInspectorCommandContextKey: FocusedValueKey {
+    typealias Value = AnalysisInspectorCommandContext
+}
+
+extension FocusedValues {
+    var analysisInspectorCommandContext: AnalysisInspectorCommandContext? {
+        get { self[AnalysisInspectorCommandContextKey.self] }
+        set { self[AnalysisInspectorCommandContextKey.self] = newValue }
+    }
+}
+
+struct WorkspaceCommandMenu: Commands {
+    @FocusedValue(\.analysisInspectorCommandContext) private var analysisInspectorCommandContext
+
+    var body: some Commands {
+        CommandGroup(after: .sidebar) {
+            Button("Toggle Analysis Inspector") {
+                analysisInspectorCommandContext?.toggle()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .option])
+            .disabled(analysisInspectorCommandContext == nil)
+        }
+    }
+}
+
 @main
 struct AlderwiseApp: App {
     @NSApplicationDelegateAdaptor(AppActivationDelegate.self) private var appDelegate
@@ -19,6 +48,9 @@ struct AlderwiseApp: App {
                 )
         }
         .windowResizability(.contentSize)
+        .commands {
+            WorkspaceCommandMenu()
+        }
     }
 }
 
