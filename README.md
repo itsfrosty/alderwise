@@ -1,6 +1,8 @@
 # Alderwise
 
-![Alderwise logo](logo.png)
+<p align="center">
+  <img src="https://github.com/itsfrosty/alderwise/blob/main/logo.png" width="200">
+</p>
 
 **See where your money goes, without giving up your privacy.**
 
