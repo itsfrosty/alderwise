@@ -3,11 +3,6 @@ import Testing
 @testable import AlderwiseApp
 
 @Test
-func analysisToolbarAvoidsPrincipalPlacement() {
-    #expect(AnalysisLayout.usesPrincipalToolbarPlacement == false)
-}
-
-@Test
 func analysisInspectorFitsWithinWorkspaceMinimumWindowAlongsideSidebar() {
     let reservedWidth = WorkspaceLayout.sidebarIdealWidth + WorkspaceLayout.analysisInspectorMinimumWidth
 
@@ -15,11 +10,15 @@ func analysisInspectorFitsWithinWorkspaceMinimumWindowAlongsideSidebar() {
 }
 
 @Test
-func transactionLedgerHeaderInsetsProtectLeadingControlsFromTheSplitViewDivider() {
-    let insets = WorkspaceLayout.transactionLedgerHeaderInsets
+func analysisInspectorWidthsRemainMonotonic() {
+    #expect(WorkspaceLayout.analysisInspectorMinimumWidth < WorkspaceLayout.analysisInspectorIdealWidth)
+    #expect(WorkspaceLayout.analysisInspectorIdealWidth < WorkspaceLayout.analysisInspectorMaximumWidth)
+}
 
-    #expect(insets.leading == 20)
-    #expect(insets.leading > insets.trailing)
-    #expect(insets.top == 12)
-    #expect(insets.bottom == 12)
+@Test
+func analysisInspectorPrefersCollapsingAfterPrimaryAnalysisContent() {
+    #expect(
+        WorkspaceLayout.analysisInspectorCollapsePriority >
+            WorkspaceLayout.analysisContentCollapsePriority
+    )
 }

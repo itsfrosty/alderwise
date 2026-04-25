@@ -13,6 +13,8 @@ enum WorkspaceLayout {
     static let analysisInspectorMinimumWidth: CGFloat = 280
     static let analysisInspectorIdealWidth: CGFloat = 320
     static let analysisInspectorMaximumWidth: CGFloat = 360
+    static let analysisContentCollapsePriority = 0.0
+    static let analysisInspectorCollapsePriority = 1.0
 
     static let transactionLedgerHeaderInsets = EdgeInsets(
         top: 12,
