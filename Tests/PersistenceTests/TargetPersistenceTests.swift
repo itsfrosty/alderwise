@@ -220,6 +220,66 @@ func deleteMonthlyTargetRemovesManagedTarget() throws {
 }
 
 @Test
+func managedTargetHistorySkipsThePartialMonthWhenTargetWasCreatedMidMonth() throws {
+    let databaseURL = try targetTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000731")!
+    try targetInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+
+    try targetInsertLedgerTransaction(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-110),
+        reviewStatus: "accepted",
+        transactionDate: targetUTCDate(year: 2026, month: 1, day: 12)
+    )
+    try targetInsertLedgerTransaction(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-125),
+        reviewStatus: "accepted",
+        transactionDate: targetUTCDate(year: 2026, month: 2, day: 12)
+    )
+    try targetInsertLedgerTransaction(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-140),
+        reviewStatus: "accepted",
+        transactionDate: targetUTCDate(year: 2026, month: 3, day: 12)
+    )
+    try targetInsertLedgerTransaction(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-60),
+        reviewStatus: "accepted",
+        transactionDate: targetUTCDate(year: 2026, month: 4, day: 10)
+    )
+
+    _ = try store.createMonthlyTarget(
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(100)),
+        createdAt: targetUTCDate(year: 2026, month: 1, day: 20)
+    )
+
+    let managedTarget = try #require(
+        try store.fetchManagedTargets(referenceDate: targetUTCDate(year: 2026, month: 4, day: 15)).first
+    )
+
+    #expect(managedTarget.history.months.map(\.monthStart) == [
+        targetUTCDate(year: 2026, month: 2, day: 1),
+        targetUTCDate(year: 2026, month: 3, day: 1),
+    ])
+    #expect(managedTarget.history.months.map(\.spent) == [Decimal(125), Decimal(140)])
+    #expect(managedTarget.calibrationSuggestion == nil)
+}
+
+@Test
 func createMonthlyTargetRejectsNonPositiveLimits() throws {
     let databaseURL = try targetTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -279,12 +339,27 @@ private func targetInsertCategory(
     }
 }
 
+private func targetUTCDate(
+    year: Int,
+    month: Int,
+    day: Int
+) -> Date {
+    var components = DateComponents()
+    components.calendar = Calendar(identifier: .gregorian)
+    components.timeZone = TimeZone(secondsFromGMT: 0)
+    components.year = year
+    components.month = month
+    components.day = day
+    return components.date!
+}
+
 private func targetInsertLedgerTransaction(
     databaseURL: URL,
     accountID: UUID,
     categoryID: UUID,
     amount: Decimal,
-    reviewStatus: String
+    reviewStatus: String,
+    transactionDate: Date = Date(timeIntervalSince1970: 1_775_171_200)
 ) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
@@ -313,7 +388,7 @@ private func targetInsertLedgerTransaction(
                 "Target test",
                 "target test",
                 NSDecimalNumber(decimal: amount).doubleValue,
-                Date(timeIntervalSince1970: 1_775_171_200),
+                transactionDate,
                 amount < 0 ? "expense" : "income",
                 "user",
                 1.0,

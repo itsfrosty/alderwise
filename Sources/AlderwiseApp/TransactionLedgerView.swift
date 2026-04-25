@@ -90,7 +90,7 @@ struct TransactionLedgerView: View {
         HSplitView {
             VStack(spacing: 0) {
                 ledgerHeader
-                    .padding(12)
+                    .padding(WorkspaceLayout.transactionLedgerHeaderInsets)
 
                 Divider()
 

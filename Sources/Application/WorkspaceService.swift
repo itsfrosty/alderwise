@@ -135,12 +135,14 @@ public struct WorkspaceService: Sendable {
         self.classifier = classifier
     }
 
-    public func loadSnapshot(filter: TransactionLedgerFilter = .empty) throws -> WorkspaceSnapshot {
+    public func loadSnapshot(
+        filter: TransactionLedgerFilter = .empty,
+        referenceDate: Date = .now
+    ) throws -> WorkspaceSnapshot {
         let ledgerReader = store as? any TransactionLedgerReading
         let reportingReader = store as? any ReportingReading
         let insightReader = store as? any WorkspaceInsightReading
         let reviewReader = store as? any ReviewQueueReading
-        let referenceDate = Date()
         let summary = try store.fetchSummary()
         let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: referenceDate) ?? .empty
         let insights = try insightReader?.fetchWorkspaceInsightSummary(referenceDate: referenceDate) ?? .empty
@@ -161,10 +163,55 @@ public struct WorkspaceService: Sendable {
             transactionImportOrigins: try ledgerReader?.fetchTransactionImportOrigins() ?? [],
             monthlyReport: monthlyReport,
             insights: insights,
+            analysis: .empty,
             homeDashboard: HomeDashboardSnapshot.make(
                 summary: summary,
                 monthlyReport: monthlyReport,
                 insights: insights
+            )
+        )
+    }
+
+    public func loadAnalysisSnapshot(context: AnalysisContext) throws -> AnalysisSnapshot {
+        guard let analysisReader = store as? any AnalysisReportReading else {
+            return .empty
+        }
+
+        let reportingReader = store as? any ReportingReading
+        let insightReader = store as? any WorkspaceInsightReading
+        let referenceDate = context.referenceDate ?? .now
+        let monthlyReport = try reportingReader?.fetchMonthlyReport(referenceDate: referenceDate) ?? .empty
+        let insights = try insightReader?.fetchWorkspaceInsightSummary(referenceDate: referenceDate) ?? .empty
+        let recurring = recurringRows(from: insights)
+        let overviewReport = try analysisReader.fetchOverviewReport(context: context)
+        let categoryReport = try analysisReader.fetchCategoryAnalysisReport(context: context)
+        let merchantReport = try analysisReader.fetchMerchantAnalysisReport(context: context)
+
+        return AnalysisSnapshot(
+            overview: AnalysisOverviewSnapshot(
+                context: overviewReport.context,
+                report: OverviewReport(
+                    context: overviewReport.context,
+                    currentSpend: overviewReport.currentSpend,
+                    comparisonSpend: overviewReport.comparisonSpend,
+                    drivers: overviewReport.drivers,
+                    recurring: recurring
+                ),
+                monthlyReport: monthlyReport,
+                projectedInsights: insights.homeProjectedInsights
+            ),
+            categories: AnalysisCategoriesSnapshot(
+                context: categoryReport.context,
+                report: categoryReport,
+                targetProgress: monthlyReport.targets
+            ),
+            merchants: AnalysisMerchantsSnapshot(
+                context: merchantReport.context,
+                report: MerchantAnalysisReport(
+                    context: merchantReport.context,
+                    merchants: merchantReport.merchants,
+                    recurring: recurring
+                )
             )
         )
     }
@@ -915,6 +962,18 @@ public struct WorkspaceService: Sendable {
 
         let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmedValue.isEmpty ? nil : trimmedValue
+    }
+}
+
+private func recurringRows(from summary: WorkspaceInsightSummary) -> [MerchantRecurringReportRow] {
+    summary.insights.compactMap { insight in
+        guard case .recurringCharge(let detail) = insight.kind else {
+            return nil
+        }
+        return MerchantRecurringReportRow(
+            detail: detail,
+            evidence: insight.evidence
+        )
     }
 }
 

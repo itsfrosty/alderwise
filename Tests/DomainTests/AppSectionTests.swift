@@ -19,6 +19,7 @@ func rulesSectionIsPromotedAheadOfTargetsInSidebarOrder() {
     #expect(
         AppSection.allCases == [
             .home,
+            .analysis,
             .transactions,
             .review,
             .rules,
@@ -27,6 +28,8 @@ func rulesSectionIsPromotedAheadOfTargetsInSidebarOrder() {
             .settings,
         ]
     )
+    #expect(AppSection.analysis.title == "Analysis")
+    #expect(AppSection.analysis.systemImage == "chart.bar.xaxis")
     #expect(AppSection.rules.title == "Rules")
     #expect(AppSection.rules.systemImage == "slider.horizontal.3")
 }

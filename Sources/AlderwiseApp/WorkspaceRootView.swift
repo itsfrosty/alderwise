@@ -292,7 +292,10 @@ struct WorkspaceRootView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+        .navigationSplitViewColumnWidth(
+            min: WorkspaceLayout.sidebarMinimumWidth,
+            ideal: WorkspaceLayout.sidebarIdealWidth
+        )
     }
 
     @ViewBuilder
@@ -353,6 +356,8 @@ struct WorkspaceRootView: View {
                 Label("Import CSV", systemImage: "square.and.arrow.down")
             }
             .keyboardShortcut("i", modifiers: [.command])
+        case .analysis:
+            EmptyView()
         case .rules:
             EmptyView()
         case .targets:
@@ -419,6 +424,8 @@ struct WorkspaceRootView: View {
                     snapshot: snapshot,
                     navigate: routeHomeDestination
                 )
+            } else if section == .analysis {
+                AnalysisView(model: model)
             } else if WorkspaceDetailRoute.make(for: section) == .transactions {
                 TransactionLedgerView(snapshot: snapshot, model: model)
             } else if WorkspaceDetailRoute.make(for: section) == .review {

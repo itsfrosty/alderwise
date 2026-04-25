@@ -101,6 +101,18 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var learnedRuleManagerSnapshot: LearnedRuleManagerSnapshot?
     @Published private(set) var reviewCreatedLearnedRuleAction: ReviewCreatedLearnedRuleAction?
     @Published private(set) var pendingAppSectionNavigation: AppSection?
+    @Published private(set) var analysisToolbarState = AnalysisToolbarState()
+    @Published private(set) var analysisContext = AnalysisContext(
+        range: .monthToDate,
+        scope: .workspace,
+        comparison: .previousPeriod
+    )
+    @Published private(set) var analysisSnapshot = AnalysisSnapshot.empty
+    @Published var analysisErrorMessage: String?
+    @Published private(set) var isPresentingAnalysisOverview = false
+    @Published private(set) var analysisOverviewSelection: AnalysisOverviewSelection?
+    @Published private(set) var analysisCategoriesSelection: AnalysisCategoriesSelection?
+    @Published private(set) var analysisMerchantsSelection: AnalysisMerchantsSelection?
     @Published var learnedRuleManagerActionErrorMessage: String?
     @Published var importErrorMessage: String?
     @Published var importResultMessage: String?
@@ -127,6 +139,7 @@ final class WorkspaceShellModel: ObservableObject {
     private let reviewRulePreviewScheduler: ReviewRulePreviewScheduler
     private let reviewRulePreviewLoader: @MainActor @Sendable (ReviewRulePreviewKey) async throws -> LearnedRuleImpactPreviewState
     private let reviewRulePreviewDebounceDelay: Duration
+    private let referenceDateProvider: @Sendable () -> Date
     private var scheduledReviewRulePreview: ReviewRulePreviewScheduleToken?
     private var scheduledLearnedRuleDraftPreview: ReviewRulePreviewScheduleToken?
     private var preservesClearedTransactionSelectionOnNextReload = false
@@ -142,11 +155,13 @@ final class WorkspaceShellModel: ObservableObject {
         merchantRecommendationEligibilityLoader: (@MainActor @Sendable (String) throws -> MerchantRecommendationEligibility?)? = nil,
         reviewRulePreviewScheduler: ReviewRulePreviewScheduler = .live,
         reviewRulePreviewLoader: (@MainActor @Sendable (ReviewRulePreviewKey) async throws -> LearnedRuleImpactPreviewState)? = nil,
-        reviewRulePreviewDebounceDelay: Duration = .milliseconds(250)
+        reviewRulePreviewDebounceDelay: Duration = .milliseconds(250),
+        referenceDateProvider: @escaping @Sendable () -> Date = Date.init
     ) {
         self.store = store
         self.service = service
         self.csvImportPreviewService = csvImportPreviewService
+        self.referenceDateProvider = referenceDateProvider
         self.merchantRecommendationEligibilityLoader = merchantRecommendationEligibilityLoader ?? { [store] normalizedMerchantName in
             guard let store else {
                 return nil
@@ -158,6 +173,7 @@ final class WorkspaceShellModel: ObservableObject {
         }
         self.reviewRulePreviewScheduler = reviewRulePreviewScheduler
         self.reviewRulePreviewDebounceDelay = reviewRulePreviewDebounceDelay
+        self.analysisContext = Self.defaultAnalysisContext(referenceDate: referenceDateProvider())
         self.reviewRulePreviewLoader = reviewRulePreviewLoader ?? { [service] key in
             guard let service else {
                 return .unavailable
@@ -377,6 +393,67 @@ final class WorkspaceShellModel: ObservableObject {
         updateTransactionFilter(filter)
     }
 
+    func presentAnalysisOverview() {
+        isPresentingAnalysisOverview = true
+    }
+
+    func dismissAnalysisOverview() {
+        isPresentingAnalysisOverview = false
+    }
+
+    func setAnalysisOverviewSelection(_ selection: AnalysisOverviewSelection?) {
+        analysisOverviewSelection = selection
+    }
+
+    func setAnalysisCategoriesSelection(_ selection: AnalysisCategoriesSelection?) {
+        analysisCategoriesSelection = selection
+    }
+
+    func setAnalysisMerchantsSelection(_ selection: AnalysisMerchantsSelection?) {
+        analysisMerchantsSelection = selection
+    }
+
+    func showTarget(id: UUID?) {
+        selectedTargetID = id
+        pendingAppSectionNavigation = .targets
+    }
+
+    func selectAnalysisPage(_ page: AnalysisPage) {
+        analysisToolbarState.selectedPage = page
+    }
+
+    func setAnalysisInspectorVisible(_ isVisible: Bool) {
+        analysisToolbarState.isInspectorVisible = isVisible
+    }
+
+    func toggleAnalysisInspector() {
+        analysisToolbarState.isInspectorVisible.toggle()
+    }
+
+    func showAnalysis(page: AnalysisPage? = nil) {
+        if let page {
+            analysisToolbarState.selectedPage = page
+        }
+        ensureAnalysisLoaded()
+        pendingAppSectionNavigation = .analysis
+    }
+
+    func ensureAnalysisLoaded() {
+        guard let service else {
+            return
+        }
+
+        do {
+            analysisSnapshot = try service.loadAnalysisSnapshot(context: analysisContext)
+            analysisErrorMessage = nil
+            repairAnalysisState()
+        } catch {
+            analysisSnapshot = .empty
+            analysisErrorMessage = error.localizedDescription
+            repairAnalysisState()
+        }
+    }
+
     func matchingTransactions(in rows: [TransactionLedgerRow]) -> [TransactionLedgerRow] {
         guard let ruleFilterIntent = transactionFilter.ruleFilterIntent else {
             return rows
@@ -491,6 +568,8 @@ final class WorkspaceShellModel: ObservableObject {
             directSettingsSidebarEntry()
         case .rules:
             directRulesSidebarEntry()
+        case .analysis:
+            ensureAnalysisLoaded()
         case .home, .transactions, .review, .targets, .accounts:
             break
         }
@@ -960,8 +1039,12 @@ final class WorkspaceShellModel: ObservableObject {
             return
         }
 
-        let snapshot = try service.loadSnapshot(filter: transactionFilter)
-        let managedTargets = try service.fetchManagedTargets(referenceDate: snapshot.monthlyReport.monthStart)
+        let referenceDate = referenceDateProvider()
+        let snapshot = try service.loadSnapshot(
+            filter: transactionFilter,
+            referenceDate: referenceDate
+        )
+        let managedTargets = try service.fetchManagedTargets(referenceDate: referenceDate)
         let metadata = try? service.loadWorkspaceMetadata()
         let preferences = (try? service.loadWorkspacePreferences()) ?? .default
         let learnedRuleManagerSnapshot = try? service.loadLearnedRuleManagerSnapshot()
@@ -975,6 +1058,18 @@ final class WorkspaceShellModel: ObservableObject {
         workspacePreferences = preferences
         self.learnedRuleManagerSnapshot = learnedRuleManagerSnapshot
         self.merchantRecommendationEligibilityByReviewItemID = merchantRecommendationEligibilityByReviewItemID
+        analysisContext.referenceDate = referenceDate
+
+        if analysisSnapshot != .empty {
+            do {
+                analysisSnapshot = try service.loadAnalysisSnapshot(context: analysisContext)
+                analysisErrorMessage = nil
+            } catch {
+                analysisSnapshot = .empty
+                analysisErrorMessage = error.localizedDescription
+            }
+        }
+        repairAnalysisState()
 
         if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
             self.selectedTargetID = nil
@@ -1009,9 +1104,34 @@ final class WorkspaceShellModel: ObservableObject {
         learnedRuleManagerSnapshot = nil
         reviewCreatedLearnedRuleAction = nil
         pendingAppSectionNavigation = nil
+        analysisToolbarState = AnalysisToolbarState()
+        analysisContext = Self.defaultAnalysisContext(referenceDate: referenceDateProvider())
+        analysisSnapshot = .empty
+        analysisErrorMessage = nil
+        isPresentingAnalysisOverview = false
+        analysisOverviewSelection = nil
+        analysisCategoriesSelection = nil
+        analysisMerchantsSelection = nil
         merchantRecommendationEligibilityByReviewItemID = [:]
         state = .failed(message)
         workspaceStatus = .failedToOpen(message)
+    }
+
+    private func repairAnalysisState() {
+        analysisToolbarState = analysisToolbarState.repaired(for: analysisSnapshot)
+
+        if analysisSnapshot.overview == nil {
+            isPresentingAnalysisOverview = false
+            analysisOverviewSelection = nil
+        }
+
+        if analysisSnapshot.categories == nil {
+            analysisCategoriesSelection = nil
+        }
+
+        if analysisSnapshot.merchants == nil {
+            analysisMerchantsSelection = nil
+        }
     }
 
     private func loadMerchantRecommendationEligibility(
@@ -1159,5 +1279,16 @@ final class WorkspaceShellModel: ObservableObject {
                 phase: .error(error.localizedDescription)
             )
         }
+    }
+}
+
+private extension WorkspaceShellModel {
+    static func defaultAnalysisContext(referenceDate: Date) -> AnalysisContext {
+        AnalysisContext(
+            range: .monthToDate,
+            referenceDate: referenceDate,
+            scope: .workspace,
+            comparison: .previousPeriod
+        )
     }
 }

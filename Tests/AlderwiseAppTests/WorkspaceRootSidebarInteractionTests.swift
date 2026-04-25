@@ -1,3 +1,4 @@
+import Application
 import Domain
 import Testing
 
@@ -11,4 +12,12 @@ func directSidebarTapOverrideAppliesOnlyToSettings() {
     }
 
     #expect(WorkspaceRootView.requiresDirectSidebarTapOverride(for: .settings))
+}
+
+@Test
+@MainActor
+func analysisSectionUsesThePrimarySidebarRoutingPath() {
+    #expect(AppSection.allCases.contains(.analysis))
+    #expect(WorkspaceDetailRoute.make(for: .analysis) == .analysis)
+    #expect(WorkspaceRootView.requiresDirectSidebarTapOverride(for: .analysis) == false)
 }

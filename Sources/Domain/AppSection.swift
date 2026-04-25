@@ -1,5 +1,6 @@
 public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, Sendable {
     case home
+    case analysis
     case transactions
     case review
     case rules
@@ -13,6 +14,8 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
         switch self {
         case .home:
             "Home"
+        case .analysis:
+            "Analysis"
         case .transactions:
             "Transactions"
         case .review:
@@ -32,6 +35,8 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
         switch self {
         case .home:
             "house"
+        case .analysis:
+            "chart.bar.xaxis"
         case .transactions:
             "list.bullet.rectangle"
         case .review:
@@ -51,6 +56,8 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
         switch self {
         case .home:
             "Build your local spending workspace"
+        case .analysis:
+            "Analysis becomes available once Alderwise can explain your spending history"
         case .transactions:
             "Import a bank CSV to build your local ledger"
         case .review:
@@ -70,6 +77,8 @@ public enum AppSection: String, CaseIterable, Codable, Hashable, Identifiable, S
         switch self {
         case .home:
             "Start with Import CSV or create an account to prepare your first import."
+        case .analysis:
+            "Analysis brings together trends, category drivers, and merchant commitments once your workspace has activity."
         case .transactions:
             "Transactions become your canonical ledger after import."
         case .review:

@@ -2,7 +2,7 @@ import Domain
 import Foundation
 
 public enum TransactionDrilldownFilterBuilder {
-    public static func currentMonthAcceptedExpenses(monthStart: Date, scope: TargetScope) -> TransactionLedgerFilter {
+    public static func currentMonthIncludedVisibleExpenses(monthStart: Date, scope: TargetScope) -> TransactionLedgerFilter {
         currentMonthIncludedExpenses(
             monthStart: monthStart,
             categoryID: categoryID(for: scope),
@@ -11,7 +11,7 @@ public enum TransactionDrilldownFilterBuilder {
         )
     }
 
-    public static func currentMonthAcceptedExpenses(monthStart: Date, scope: SpendingDriverScope) -> TransactionLedgerFilter {
+    public static func currentMonthIncludedVisibleExpenses(monthStart: Date, scope: SpendingDriverScope) -> TransactionLedgerFilter {
         currentMonthIncludedExpenses(
             monthStart: monthStart,
             categoryID: categoryID(for: scope),
@@ -20,12 +20,23 @@ public enum TransactionDrilldownFilterBuilder {
         )
     }
 
+    // Compatibility wrapper for pre-Analysis callers still using the legacy accepted terminology.
+    public static func currentMonthAcceptedExpenses(monthStart: Date, scope: TargetScope) -> TransactionLedgerFilter {
+        currentMonthIncludedVisibleExpenses(monthStart: monthStart, scope: scope)
+    }
+
+    // Compatibility wrapper for pre-Analysis callers still using the legacy accepted terminology.
+    public static func currentMonthAcceptedExpenses(monthStart: Date, scope: SpendingDriverScope) -> TransactionLedgerFilter {
+        currentMonthIncludedVisibleExpenses(monthStart: monthStart, scope: scope)
+    }
+
     public static func recurringChargeEvidence(detail: RecurringChargeInsightDetail) -> TransactionLedgerFilter {
         TransactionLedgerFilter(
             startDate: recurringWindowStart(detail: detail),
             endDate: endOfDay(detail.lastObservedDate),
             normalizedMerchantName: detail.normalizedMerchantName,
             direction: .expense,
+            reviewStatuses: [.accepted, .pending],
             visibility: .active
         )
     }
@@ -42,7 +53,8 @@ public enum TransactionDrilldownFilterBuilder {
             categoryID: categoryID,
             categoryGroupID: categoryGroupID,
             uncategorizedOnly: uncategorizedOnly,
-            direction: .expense
+            direction: .expense,
+            reviewStatuses: [.accepted, .pending]
         )
     }
 

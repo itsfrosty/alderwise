@@ -1,9 +1,15 @@
 import Foundation
 
+public enum ReportingExpenseBasis: String, Equatable, Sendable {
+    case includedVisibleExpenses
+    case acceptedExpenses
+}
+
 public struct MonthlyReport: Equatable, Sendable {
     public var monthStart: Date
     public var currentMonthAcceptedSpend: Decimal
     public var lastMonthAcceptedSpend: Decimal
+    public var expenseBasis: ReportingExpenseBasis
     public var pendingReviewCount: Int
     public var targets: [TargetProgress]
     public var hasActiveTargets: Bool
@@ -18,6 +24,7 @@ public struct MonthlyReport: Equatable, Sendable {
         monthStart: Date,
         currentMonthAcceptedSpend: Decimal,
         lastMonthAcceptedSpend: Decimal,
+        expenseBasis: ReportingExpenseBasis = .includedVisibleExpenses,
         pendingReviewCount: Int,
         targets: [TargetProgress],
         hasActiveTargets: Bool,
@@ -31,6 +38,7 @@ public struct MonthlyReport: Equatable, Sendable {
         self.monthStart = monthStart
         self.currentMonthAcceptedSpend = currentMonthAcceptedSpend
         self.lastMonthAcceptedSpend = lastMonthAcceptedSpend
+        self.expenseBasis = expenseBasis
         self.pendingReviewCount = pendingReviewCount
         self.targets = targets
         self.hasActiveTargets = hasActiveTargets
@@ -42,10 +50,19 @@ public struct MonthlyReport: Equatable, Sendable {
         self.biggestShift = biggestShift
     }
 
+    public var currentMonthIncludedVisibleSpend: Decimal {
+        currentMonthAcceptedSpend
+    }
+
+    public var lastMonthIncludedVisibleSpend: Decimal {
+        lastMonthAcceptedSpend
+    }
+
     public static let empty = MonthlyReport(
         monthStart: Date(timeIntervalSince1970: 0),
         currentMonthAcceptedSpend: 0,
         lastMonthAcceptedSpend: 0,
+        expenseBasis: .includedVisibleExpenses,
         pendingReviewCount: 0,
         targets: [],
         hasActiveTargets: false,
@@ -155,5 +172,76 @@ public struct TargetProgress: Identifiable, Equatable, Sendable {
         self.spent = spent
         self.remaining = remaining
         self.paceDelta = paceDelta
+    }
+}
+
+public struct TargetHistoryMonth: Equatable, Sendable {
+    public var monthStart: Date
+    public var spent: Decimal
+    public var monthlyLimit: Decimal
+
+    public init(monthStart: Date, spent: Decimal, monthlyLimit: Decimal) {
+        self.monthStart = monthStart
+        self.spent = spent
+        self.monthlyLimit = monthlyLimit
+    }
+
+    public var overshoot: Decimal {
+        max(spent - monthlyLimit, .zero)
+    }
+
+    public var hit: Bool {
+        spent <= monthlyLimit
+    }
+}
+
+public struct TargetHistorySummary: Equatable, Sendable {
+    public var months: [TargetHistoryMonth]
+    public var hitRate: Decimal
+    public var overshootRate: Decimal
+    public var averageSpend: Decimal
+    public var averageOvershoot: Decimal
+
+    public init(
+        months: [TargetHistoryMonth],
+        hitRate: Decimal,
+        overshootRate: Decimal,
+        averageSpend: Decimal,
+        averageOvershoot: Decimal
+    ) {
+        self.months = months
+        self.hitRate = hitRate
+        self.overshootRate = overshootRate
+        self.averageSpend = averageSpend
+        self.averageOvershoot = averageOvershoot
+    }
+
+    public static let empty = TargetHistorySummary(
+        months: [],
+        hitRate: .zero,
+        overshootRate: .zero,
+        averageSpend: .zero,
+        averageOvershoot: .zero
+    )
+}
+
+public enum TargetCalibrationDirection: Equatable, Sendable {
+    case increase
+    case decrease
+}
+
+public struct TargetCalibrationSuggestion: Equatable, Sendable {
+    public var recommendedMonthlyLimit: Decimal
+    public var direction: TargetCalibrationDirection
+    public var delta: Decimal
+
+    public init(
+        recommendedMonthlyLimit: Decimal,
+        direction: TargetCalibrationDirection,
+        delta: Decimal
+    ) {
+        self.recommendedMonthlyLimit = recommendedMonthlyLimit
+        self.direction = direction
+        self.delta = delta
     }
 }

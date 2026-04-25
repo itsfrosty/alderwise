@@ -245,6 +245,76 @@ private struct StubWorkspaceStoreWithInsights: WorkspaceStoring, StagedImportWri
     }
 }
 
+private final class StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, LearnedRuleReading, WorkspaceInsightReading, AnalysisReportReading, @unchecked Sendable {
+    var base: StubWorkspaceStore
+    var insights: WorkspaceInsightSummary
+    var overview: OverviewReport
+    var categories: CategoryAnalysisReport
+    var merchants: MerchantAnalysisReport
+    private(set) var fetchedAnalysisContexts: [AnalysisContext] = []
+
+    init(
+        base: StubWorkspaceStore,
+        insights: WorkspaceInsightSummary,
+        overview: OverviewReport,
+        categories: CategoryAnalysisReport,
+        merchants: MerchantAnalysisReport
+    ) {
+        self.base = base
+        self.insights = insights
+        self.overview = overview
+        self.categories = categories
+        self.merchants = merchants
+    }
+
+    func fetchSummary() throws -> WorkspaceSummary { try base.fetchSummary() }
+    func fetchAccounts() throws -> [Account] { try base.fetchAccounts() }
+    func fetchManagementAccounts() throws -> [Account] { try base.fetchManagementAccounts() }
+    func fetchImportEligibleAccounts() throws -> [Account] { try base.fetchImportEligibleAccounts() }
+    func fetchLedgerFilterAccounts() throws -> [Account] { try base.fetchLedgerFilterAccounts() }
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> { try base.fetchPermanentlyDeletableAccountIDs() }
+    func fetchCategories() throws -> [BudgetCategory] { try base.fetchCategories() }
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] { try base.fetchCategoryGroups() }
+    func fetchPendingReviewItems() throws -> [PendingReviewItem] { try base.fetchPendingReviewItems() }
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] { try base.fetchLearnedRuleSummaries() }
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? { try base.fetchLearnedRuleSummary(id: id) }
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? { try base.fetchLearnedRuleDetail(id: id) }
+    func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try base.createAccount(named: named, kind: kind, institutionName: institutionName)
+    }
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try base.updateAccount(id: id, named: named, kind: kind, institutionName: institutionName)
+    }
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account { try base.archiveAccount(id: id, archivedAt: archivedAt) }
+    func restoreAccount(id: UUID) throws -> Account { try base.restoreAccount(id: id) }
+    func deleteAccountPermanently(id: UUID) throws { try base.deleteAccountPermanently(id: id) }
+    func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
+        try base.createStagedImportSession(draft)
+    }
+    func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
+        try base.fetchExistingSourceRowHashes(accountID: accountID, rowHashes: rowHashes)
+    }
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        try base.fetchExistingSourceRowHashCounts(accountID: accountID, rowHashes: rowHashes)
+    }
+    func fetchLikelyDuplicateTransactions(accountID: UUID, candidates: [NormalizedImportCandidate]) throws -> [LikelyDuplicateCandidate] {
+        try base.fetchLikelyDuplicateTransactions(accountID: accountID, candidates: candidates)
+    }
+    func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary { insights }
+    func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport {
+        fetchedAnalysisContexts.append(context)
+        return overview
+    }
+    func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport {
+        fetchedAnalysisContexts.append(context)
+        return categories
+    }
+    func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport {
+        fetchedAnalysisContexts.append(context)
+        return merchants
+    }
+}
+
 private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, MerchantRecommendationEligibilityReading, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
@@ -1158,7 +1228,26 @@ func loadSnapshotThreadsWorkspaceInsightsWhenStoreImplementsInsightsReader() thr
                 ),
                 confidence: 0.92,
                 rank: 1,
-                score: 92
+                score: 92,
+                suppressionKey: "recurring:netflix",
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_771_718_400),
+                        end: Date(timeIntervalSince1970: 1_776_988_800)
+                    ),
+                    scope: .merchant("netflix"),
+                    reconciliationRule: .recurringObservationSet,
+                    destination: InsightEvidenceDestination(
+                        scope: .merchant("netflix"),
+                        direction: .expense
+                    )
+                ),
+                tieBreaker: WorkspaceInsightTieBreaker(
+                    primaryDate: Date(timeIntervalSince1970: 1_776_902_400),
+                    secondaryKey: "netflix",
+                    tertiaryKey: baseStore.accounts[0].id.uuidString
+                )
             ),
         ]
     )
@@ -1207,7 +1296,26 @@ func loadSnapshotProjectsRecurringInsightIntoHomeDashboardWhenStoreImplementsIns
                 ),
                 confidence: 0.92,
                 rank: 1,
-                score: 92
+                score: 92,
+                suppressionKey: "recurring:netflix",
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_771_718_400),
+                        end: Date(timeIntervalSince1970: 1_776_988_800)
+                    ),
+                    scope: .merchant("netflix"),
+                    reconciliationRule: .recurringObservationSet,
+                    destination: InsightEvidenceDestination(
+                        scope: .merchant("netflix"),
+                        direction: .expense
+                    )
+                ),
+                tieBreaker: WorkspaceInsightTieBreaker(
+                    primaryDate: Date(timeIntervalSince1970: 1_776_902_400),
+                    secondaryKey: "netflix",
+                    tertiaryKey: baseStore.accounts[0].id.uuidString
+                )
             ),
         ]
     )
@@ -1223,9 +1331,305 @@ func loadSnapshotProjectsRecurringInsightIntoHomeDashboardWhenStoreImplementsIns
             endDate: Date(timeIntervalSince1970: 1_776_988_799),
             normalizedMerchantName: "netflix",
             direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
             visibility: .active
         )
     ))
+}
+
+@Test
+func loadSnapshotThreadsIncubatedOverviewWhenStoreImplementsAnalysisReader() throws {
+    let baseStore = StubWorkspaceStore(
+        summary: WorkspaceSummary(
+            accountCount: 1,
+            transactionCount: 24,
+            reviewCount: 0,
+            targetCount: 0
+        ),
+        accounts: [
+            Account(name: "Checking", kind: .checking, institutionName: "Local Bank"),
+        ]
+    )
+    let insights = WorkspaceInsightSummary(
+        insights: [
+            WorkspaceInsight(
+                kind: .spendDriverChange(
+                    SpendDriverChangeInsightDetail(
+                        title: "Dining",
+                        scope: .category(UUID(uuidString: "00000000-0000-0000-0000-000000000811")!),
+                        currentSpend: Decimal(180),
+                        comparisonSpend: Decimal(40),
+                        delta: Decimal(140)
+                    )
+                ),
+                confidence: 1,
+                rank: 1,
+                score: 110,
+                suppressionKey: "driver:dining",
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_775_001_600),
+                        end: Date(timeIntervalSince1970: 1_776_297_600)
+                    ),
+                    scope: .category(UUID(uuidString: "00000000-0000-0000-0000-000000000811")!),
+                    reconciliationRule: .exactTransactionSum,
+                    destination: InsightEvidenceDestination(
+                        scope: .category(UUID(uuidString: "00000000-0000-0000-0000-000000000811")!),
+                        direction: .expense
+                    )
+                ),
+                tieBreaker: WorkspaceInsightTieBreaker(
+                    primaryDate: Date(timeIntervalSince1970: 1_776_211_200),
+                    secondaryKey: "Dining",
+                    tertiaryKey: "driver:dining"
+                )
+            ),
+        ]
+    )
+    let overview = OverviewReport(
+        context: AnalysisContext(
+            range: .monthToDate,
+            referenceDate: Date(timeIntervalSince1970: 1_776_211_200),
+            scope: .workspace,
+            comparison: .previousPeriod
+        ),
+        currentSpend: Decimal(320),
+        comparisonSpend: Decimal(180),
+        drivers: [
+            AnalysisSpendRow(
+                title: "Dining",
+                scope: .category(UUID(uuidString: "00000000-0000-0000-0000-000000000811")!),
+                currentSpend: Decimal(180),
+                comparisonSpend: Decimal(40),
+                delta: Decimal(140),
+                evidence: insights.insights[0].evidence
+            ),
+        ],
+        recurring: []
+    )
+    let categories = CategoryAnalysisReport(
+        context: overview.context,
+        rows: [
+            AnalysisSpendRow(
+                title: "Food",
+                scope: .categoryGroup(UUID(uuidString: "00000000-0000-0000-0000-000000000812")!),
+                currentSpend: Decimal(220),
+                comparisonSpend: Decimal(140),
+                delta: Decimal(80),
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_775_001_600),
+                        end: Date(timeIntervalSince1970: 1_776_297_600)
+                    ),
+                    scope: .categoryGroup(UUID(uuidString: "00000000-0000-0000-0000-000000000812")!),
+                    reconciliationRule: .exactTransactionSum,
+                    destination: InsightEvidenceDestination(
+                        scope: .categoryGroup(UUID(uuidString: "00000000-0000-0000-0000-000000000812")!),
+                        direction: .expense
+                    )
+                )
+            ),
+        ]
+    )
+    let merchants = MerchantAnalysisReport(
+        context: overview.context,
+        merchants: [
+            MerchantAnalysisRow(
+                key: MerchantReportKey(normalizedName: "blue bottle"),
+                title: "blue bottle",
+                currentSpend: Decimal(48),
+                comparisonSpend: Decimal(12),
+                delta: Decimal(36),
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_775_001_600),
+                        end: Date(timeIntervalSince1970: 1_776_297_600)
+                    ),
+                    scope: .merchant("blue bottle"),
+                    reconciliationRule: .exactTransactionSum,
+                    destination: InsightEvidenceDestination(
+                        scope: .merchant("blue bottle"),
+                        direction: .expense
+                    )
+                )
+            ),
+        ],
+        recurring: []
+    )
+    let store = StubWorkspaceStoreWithInsightsAndAnalysis(
+        base: baseStore,
+        insights: insights,
+        overview: overview,
+        categories: categories,
+        merchants: merchants
+    )
+
+    let snapshot = try WorkspaceService(store: store).loadSnapshot()
+
+    #expect(snapshot.analysis == .empty)
+    #expect(store.fetchedAnalysisContexts.isEmpty)
+}
+
+@Test
+func loadAnalysisSnapshotThreadsReportsForRequestedContextOnly() throws {
+    let baseStore = StubWorkspaceStore(
+        summary: WorkspaceSummary(
+            accountCount: 2,
+            transactionCount: 0,
+            reviewCount: 0,
+            targetCount: 1
+        ),
+        accounts: [
+            Account(
+                id: UUID(uuidString: "00000000-0000-0000-0000-000000000811")!,
+                name: "Checking",
+                kind: .checking,
+                institutionName: "Local Bank"
+            ),
+        ]
+    )
+    let recurringEvidence = InsightEvidence(
+        metricBasis: .includedVisibleExpenses,
+        resolvedInterval: DateInterval(
+            start: Date(timeIntervalSince1970: 1_775_001_600),
+            end: Date(timeIntervalSince1970: 1_776_297_600)
+        ),
+        scope: .merchant("netflix"),
+        reconciliationRule: .recurringObservationSet,
+        destination: InsightEvidenceDestination(
+            scope: .merchant("netflix"),
+            direction: .expense
+        )
+    )
+    let recurringDetail = RecurringChargeInsightDetail(
+        accountID: UUID(uuidString: "00000000-0000-0000-0000-000000000813")!,
+        normalizedMerchantName: "netflix",
+        cadence: .monthly,
+        observationCount: 3,
+        amountRange: RecurringChargeAmountRange(minimum: Decimal(15), maximum: Decimal(15)),
+        supportingTransactionIDs: [
+            UUID(uuidString: "00000000-0000-0000-0000-000000000814")!,
+            UUID(uuidString: "00000000-0000-0000-0000-000000000815")!,
+            UUID(uuidString: "00000000-0000-0000-0000-000000000816")!,
+        ],
+        firstObservedDate: Date(timeIntervalSince1970: 1_770_076_800),
+        lastObservedDate: Date(timeIntervalSince1970: 1_775_260_800),
+        nextExpectedDateWindow: nil
+    )
+    let recurringInsight = WorkspaceInsight(
+        kind: .recurringCharge(recurringDetail),
+        confidence: 0.92,
+        rank: 1,
+        score: 90,
+        suppressionKey: "recurring:netflix",
+        evidence: recurringEvidence,
+        tieBreaker: WorkspaceInsightTieBreaker(
+            primaryDate: Date(timeIntervalSince1970: 1_775_260_800),
+            secondaryKey: "netflix",
+            tertiaryKey: "recurring:netflix"
+        )
+    )
+    let insights = WorkspaceInsightSummary(insights: [recurringInsight], homeProjectedInsights: [recurringInsight])
+    let overviewContext = AnalysisContext(
+        range: .lastFullMonth,
+        referenceDate: Date(timeIntervalSince1970: 1_776_211_200),
+        scope: .workspace,
+        comparison: .samePeriodLastYear
+    )
+    let overview = OverviewReport(
+        context: overviewContext,
+        currentSpend: Decimal(320),
+        comparisonSpend: Decimal(180),
+        drivers: [],
+        recurring: []
+    )
+    let categories = CategoryAnalysisReport(context: overviewContext, rows: [])
+    let merchants = MerchantAnalysisReport(context: overviewContext, merchants: [], recurring: [])
+    let store = StubWorkspaceStoreWithInsightsAndAnalysis(
+        base: baseStore,
+        insights: insights,
+        overview: overview,
+        categories: categories,
+        merchants: merchants
+    )
+    let service = WorkspaceService(store: store)
+
+    let snapshot = try service.loadAnalysisSnapshot(context: overviewContext)
+
+    #expect(snapshot.overview?.report == OverviewReport(
+        context: overview.context,
+        currentSpend: overview.currentSpend,
+        comparisonSpend: overview.comparisonSpend,
+        drivers: overview.drivers,
+        recurring: [
+            MerchantRecurringReportRow(detail: recurringDetail, evidence: recurringEvidence),
+        ]
+    ))
+    #expect(snapshot.categories?.report == categories)
+    #expect(snapshot.merchants?.report == MerchantAnalysisReport(
+        context: merchants.context,
+        merchants: merchants.merchants,
+        recurring: [
+            MerchantRecurringReportRow(detail: recurringDetail, evidence: recurringEvidence),
+        ]
+    ))
+    #expect(snapshot.overview?.projectedInsights == insights.homeProjectedInsights)
+    #expect(store.fetchedAnalysisContexts == [overviewContext, overviewContext, overviewContext])
+}
+
+@Test
+func incubatedOverviewSnapshotTranslatesDriverSelectionIntoLedgerFilter() throws {
+    let categoryID = UUID(uuidString: "00000000-0000-0000-0000-000000000821")!
+    let context = AnalysisContext(
+        range: .monthToDate,
+        referenceDate: Date(timeIntervalSince1970: 1_776_211_200),
+        scope: .workspace,
+        comparison: .previousPeriod
+    )
+    let driver = AnalysisSpendRow(
+        title: "Dining",
+        scope: .category(categoryID),
+        currentSpend: Decimal(180),
+        comparisonSpend: Decimal(40),
+        delta: Decimal(140),
+        evidence: InsightEvidence(
+            metricBasis: .includedVisibleExpenses,
+            resolvedInterval: DateInterval(
+                start: Date(timeIntervalSince1970: 1_775_001_600),
+                end: Date(timeIntervalSince1970: 1_776_297_600)
+            ),
+            scope: .category(categoryID),
+            reconciliationRule: .exactTransactionSum,
+            destination: InsightEvidenceDestination(
+                scope: .category(categoryID),
+                direction: .expense
+            )
+        )
+    )
+    let overview = AnalysisOverviewSnapshot(
+        context: context,
+        report: OverviewReport(
+            context: context,
+            currentSpend: Decimal(320),
+            comparisonSpend: Decimal(180),
+            drivers: [driver],
+            recurring: []
+        ),
+        monthlyReport: .empty,
+        projectedInsights: []
+    )
+
+    let filter = overview.transactionFilter(for: .driver(driver))
+
+    #expect(filter.startDate == Date(timeIntervalSince1970: 1_775_001_600))
+    #expect(filter.endDate == Date(timeIntervalSince1970: 1_776_297_599))
+    #expect(filter.categoryID == categoryID)
+    #expect(filter.direction == .expense)
+    #expect(filter.reviewStatuses == Set([.accepted, .pending]))
+    #expect(filter.visibility == .active)
 }
 
 @Test
@@ -1409,6 +1813,24 @@ func fetchManagedTargetsReturnsManagedTargets() throws {
             spent: Decimal(40),
             remaining: Decimal(85),
             paceDelta: Decimal(5),
+            history: TargetHistorySummary(
+                months: [
+                    TargetHistoryMonth(
+                        monthStart: Date(timeIntervalSince1970: 1_772_841_600),
+                        spent: Decimal(100),
+                        monthlyLimit: Decimal(125)
+                    ),
+                ],
+                hitRate: Decimal(1),
+                overshootRate: Decimal(0),
+                averageSpend: Decimal(100),
+                averageOvershoot: Decimal(0)
+            ),
+            calibrationSuggestion: TargetCalibrationSuggestion(
+                recommendedMonthlyLimit: Decimal(150),
+                direction: .increase,
+                delta: Decimal(25)
+            ),
             createdAt: Date(timeIntervalSince1970: 1_775_171_260)
         ),
     ]

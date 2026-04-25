@@ -81,7 +81,7 @@ func homeDashboardSuppressesCreateTargetPromptWhileReviewIsPending() {
 }
 
 @Test
-func homeDashboardUsesMonthlyReportPendingReviewCountAsReviewSourceOfTruth() throws {
+func homeDashboardShowsVisibleSpendReviewQualifierFromMonthlyReport() throws {
     let report = homeDashboardReport(
         pendingReviewCount: 7,
         targets: [],
@@ -172,6 +172,7 @@ func homeDashboardProjectsTopRecurringInsightIntoDedicatedSection() throws {
             endDate: homeDashboardEndOfDay(year: 2026, month: 4, day: 9),
             normalizedMerchantName: "netflix",
             direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
             visibility: .active
         )
     ))
@@ -407,7 +408,8 @@ func homeDashboardUsesLargestPositiveDriverWhenReviewAndTargetPressureAreEmpty()
             endDate: homeDashboardEndOfMonth(report.monthStart),
             categoryID: nil,
             categoryGroupID: foodGroupID,
-            direction: .expense
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending])
         )
     ))
     #expect(dashboard.primaryAction?.title == "Inspect Food")
@@ -474,7 +476,8 @@ func homeDashboardBuildsStructuralRowsAndChartFromMonthlyReport() throws {
             endDate: homeDashboardEndOfMonth(report.monthStart),
             categoryID: nil,
             categoryGroupID: foodGroupID,
-            direction: .expense
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending])
         )
     ))
 }
@@ -525,7 +528,28 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedCategoryGroupFil
         endDate: homeDashboardEndOfMonth(monthStart),
         categoryID: nil,
         categoryGroupID: foodGroupID,
-        direction: .expense
+        direction: .expense,
+        reviewStatuses: Set([.accepted, .pending])
+    ))
+}
+
+@Test
+func transactionDrilldownFilterBuilderBuildsCurrentMonthIncludedVisibleCategoryGroupFilter() {
+    let monthStart = homeDashboardUTCDate(year: 2026, month: 4, day: 1)
+    let foodGroupID = homeDashboardID("00000000-0000-0000-0000-000000000215")
+
+    let filter = TransactionDrilldownFilterBuilder.currentMonthIncludedVisibleExpenses(
+        monthStart: monthStart,
+        scope: TargetScope.categoryGroup(foodGroupID)
+    )
+
+    #expect(filter == TransactionLedgerFilter(
+        startDate: monthStart,
+        endDate: homeDashboardEndOfMonth(monthStart),
+        categoryID: nil,
+        categoryGroupID: foodGroupID,
+        direction: .expense,
+        reviewStatuses: Set([.accepted, .pending])
     ))
 }
 
@@ -544,7 +568,8 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedCategoryFilter()
         endDate: homeDashboardEndOfMonth(monthStart),
         categoryID: categoryID,
         categoryGroupID: nil,
-        direction: .expense
+        direction: .expense,
+        reviewStatuses: Set([.accepted, .pending])
     ))
 }
 
@@ -561,7 +586,8 @@ func transactionDrilldownFilterBuilderBuildsCurrentMonthAcceptedUncategorizedFil
         startDate: monthStart,
         endDate: homeDashboardEndOfMonth(monthStart),
         uncategorizedOnly: true,
-        direction: .expense
+        direction: .expense,
+        reviewStatuses: Set([.accepted, .pending])
     ))
 }
 
@@ -570,6 +596,7 @@ private func homeDashboardReport(
     targets: [TargetProgress] = [],
     currentMonthAcceptedSpend: Decimal = 0,
     lastMonthAcceptedSpend: Decimal = 0,
+    expenseBasis: ReportingExpenseBasis = .includedVisibleExpenses,
     hasActiveTargets: Bool = false,
     totalMonthlyTargetLimit: Decimal = 0,
     expectedPaceSpend: Decimal = 0,
@@ -582,6 +609,7 @@ private func homeDashboardReport(
         monthStart: homeDashboardUTCDate(year: 2026, month: 4, day: 1),
         currentMonthAcceptedSpend: currentMonthAcceptedSpend,
         lastMonthAcceptedSpend: lastMonthAcceptedSpend,
+        expenseBasis: expenseBasis,
         pendingReviewCount: pendingReviewCount,
         targets: targets,
         hasActiveTargets: hasActiveTargets,
@@ -626,7 +654,26 @@ private func homeDashboardRecurringInsights(
                 ),
                 confidence: 0.92,
                 rank: 1,
-                score: 92
+                score: 92,
+                suppressionKey: "recurring:\(merchantName)",
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: homeDashboardUTCDate(year: 2026, month: 2, day: 9),
+                        end: homeDashboardUTCDate(year: 2026, month: 4, day: 10)
+                    ),
+                    scope: .merchant(merchantName),
+                    reconciliationRule: .recurringObservationSet,
+                    destination: InsightEvidenceDestination(
+                        scope: .merchant(merchantName),
+                        direction: .expense
+                    )
+                ),
+                tieBreaker: WorkspaceInsightTieBreaker(
+                    primaryDate: homeDashboardUTCDate(year: 2026, month: 4, day: 9),
+                    secondaryKey: merchantName,
+                    tertiaryKey: "home-dashboard"
+                )
             ),
         ]
     )
