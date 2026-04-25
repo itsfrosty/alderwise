@@ -2110,11 +2110,10 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         return try databaseQueue.read { db in
             MerchantAnalysisReport(
                 context: resolvedContext,
-                merchants: try analysisSpendRows(
+                merchants: try merchantAnalysisRows(
                     db: db,
                     currentInterval: resolution.currentInterval,
                     comparison: resolution.comparison,
-                    grouping: .merchant,
                     context: resolvedContext
                 ),
                 recurring: recurring
@@ -3488,7 +3487,6 @@ private func elapsedComparisonInterval(for referenceDate: Date, monthInterval: D
 
 private enum AnalysisSpendGrouping {
     case categoryDrivers
-    case merchant
 }
 
 private func resolvedAnalysisContext(from context: AnalysisContext) -> AnalysisContext {
@@ -3604,21 +3602,36 @@ private func analysisSpendRows(
                 )
             )
         }
-    case .merchant:
-        let currentRows = try merchantSpendRows(db: db, interval: currentInterval, context: context)
-        let comparisonRows = try merchantSpendRows(db: db, interval: comparisonInterval, context: context)
-        let comparisonByMerchant = Dictionary(uniqueKeysWithValues: comparisonRows.map { ($0.title, $0.currentSpend) })
-        return currentRows.map { currentRow in
-            let comparisonSpend = comparisonByMerchant[currentRow.title] ?? .zero
-            return AnalysisSpendRow(
-                title: currentRow.title,
-                scope: currentRow.scope,
-                currentSpend: currentRow.currentSpend,
-                comparisonSpend: comparisonSpend,
-                delta: currentRow.currentSpend - comparisonSpend,
-                evidence: currentRow.evidence
-            )
-        }
+    }
+}
+
+private func merchantAnalysisRows(
+    db: Database,
+    currentInterval: DateInterval,
+    comparison: AnalysisResolvedComparison,
+    context: AnalysisContext
+) throws -> [MerchantAnalysisRow] {
+    let comparisonInterval: DateInterval
+    switch comparison {
+    case .interval(let interval, _):
+        comparisonInterval = interval
+    default:
+        comparisonInterval = DateInterval(start: currentInterval.start, end: currentInterval.start)
+    }
+
+    let currentRows = try merchantSpendRows(db: db, interval: currentInterval, context: context)
+    let comparisonRows = try merchantSpendRows(db: db, interval: comparisonInterval, context: context)
+    let comparisonByMerchant = Dictionary(uniqueKeysWithValues: comparisonRows.map { ($0.key, $0.currentSpend) })
+    return currentRows.map { currentRow in
+        let comparisonSpend = comparisonByMerchant[currentRow.key] ?? .zero
+        return MerchantAnalysisRow(
+            key: currentRow.key,
+            title: currentRow.title,
+            currentSpend: currentRow.currentSpend,
+            comparisonSpend: comparisonSpend,
+            delta: currentRow.currentSpend - comparisonSpend,
+            evidence: currentRow.evidence
+        )
     }
 }
 
@@ -3626,7 +3639,7 @@ private func merchantSpendRows(
     db: Database,
     interval: DateInterval,
     context: AnalysisContext
-) throws -> [AnalysisSpendRow] {
+) throws -> [MerchantAnalysisRow] {
     let rows = try Row.fetchAll(
         db,
         sql: """
@@ -3657,9 +3670,9 @@ private func merchantSpendRows(
         let merchantName: String = row["normalized_merchant_name"]
         let spend = Decimal(row["spend"] as Double)
         let scope = InsightEvidenceScope.merchant(merchantName)
-        return AnalysisSpendRow(
+        return MerchantAnalysisRow(
+            key: MerchantReportKey(normalizedName: merchantName),
             title: merchantName,
-            scope: scope,
             currentSpend: spend,
             comparisonSpend: .zero,
             delta: spend,

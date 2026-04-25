@@ -250,6 +250,7 @@ private struct StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, Stag
     var insights: WorkspaceInsightSummary
     var overview: OverviewReport
     var categories: CategoryAnalysisReport
+    var merchants: MerchantAnalysisReport
 
     func fetchSummary() throws -> WorkspaceSummary { try base.fetchSummary() }
     func fetchAccounts() throws -> [Account] { try base.fetchAccounts() }
@@ -287,9 +288,7 @@ private struct StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, Stag
     func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary { insights }
     func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport { overview }
     func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport { categories }
-    func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport {
-        MerchantAnalysisReport(context: context, merchants: [], recurring: [])
-    }
+    func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport { merchants }
 }
 
 private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, MerchantRecommendationEligibilityReading, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
@@ -1410,17 +1409,45 @@ func loadSnapshotThreadsIncubatedOverviewWhenStoreImplementsAnalysisReader() thr
             ),
         ]
     )
+    let merchants = MerchantAnalysisReport(
+        context: overview.context,
+        merchants: [
+            MerchantAnalysisRow(
+                key: MerchantReportKey(normalizedName: "blue bottle"),
+                title: "blue bottle",
+                currentSpend: Decimal(48),
+                comparisonSpend: Decimal(12),
+                delta: Decimal(36),
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_775_001_600),
+                        end: Date(timeIntervalSince1970: 1_776_297_600)
+                    ),
+                    scope: .merchant("blue bottle"),
+                    reconciliationRule: .exactTransactionSum,
+                    destination: InsightEvidenceDestination(
+                        scope: .merchant("blue bottle"),
+                        direction: .expense
+                    )
+                )
+            ),
+        ],
+        recurring: []
+    )
     let store = StubWorkspaceStoreWithInsightsAndAnalysis(
         base: baseStore,
         insights: insights,
         overview: overview,
-        categories: categories
+        categories: categories,
+        merchants: merchants
     )
 
     let snapshot = try WorkspaceService(store: store).loadSnapshot()
 
     #expect(snapshot.analysis.overview?.report == overview)
     #expect(snapshot.analysis.categories?.report == categories)
+    #expect(snapshot.analysis.merchants?.report == merchants)
     #expect(snapshot.analysis.overview?.projectedInsights == insights.homeProjectedInsights)
 }
 

@@ -138,6 +138,47 @@ func analysisCategoriesSelectionPersistsWhenShowingTarget() {
     #expect(model.pendingAppSectionNavigation == .targets)
 }
 
+@Test
+@MainActor
+func analysisMerchantsSelectionSurvivesTransactionDrilldown() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+    let selection = AnalysisMerchantsSelection.merchant(
+        MerchantAnalysisRow(
+            key: MerchantReportKey(normalizedName: "blue bottle"),
+            title: "blue bottle",
+            currentSpend: Decimal(48),
+            comparisonSpend: Decimal(12),
+            delta: Decimal(36),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                    end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+                ),
+                scope: .merchant("blue bottle"),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: .merchant("blue bottle"),
+                    direction: .expense
+                )
+            )
+        )
+    )
+
+    model.setAnalysisMerchantsSelection(selection)
+    model.showTransactions(
+        filter: TransactionLedgerFilter(
+            normalizedMerchantName: "blue bottle",
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
+            visibility: .active
+        )
+    )
+
+    #expect(model.analysisMerchantsSelection == selection)
+    #expect(model.pendingAppSectionNavigation == .transactions)
+}
+
 private func analysisViewStateUTCDate(year: Int, month: Int, day: Int) -> Date {
     var components = DateComponents()
     components.year = year

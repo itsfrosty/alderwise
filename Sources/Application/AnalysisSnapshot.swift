@@ -4,13 +4,16 @@ import Foundation
 public struct AnalysisSnapshot: Equatable, Sendable {
     public var overview: AnalysisOverviewSnapshot?
     public var categories: AnalysisCategoriesSnapshot?
+    public var merchants: AnalysisMerchantsSnapshot?
 
     public init(
         overview: AnalysisOverviewSnapshot? = nil,
-        categories: AnalysisCategoriesSnapshot? = nil
+        categories: AnalysisCategoriesSnapshot? = nil,
+        merchants: AnalysisMerchantsSnapshot? = nil
     ) {
         self.overview = overview
         self.categories = categories
+        self.merchants = merchants
     }
 
     public static let empty = AnalysisSnapshot()
@@ -116,6 +119,39 @@ public enum AnalysisCategoriesSelection: Equatable, Sendable {
     public var evidence: InsightEvidence {
         switch self {
         case .row(let row):
+            row.evidence
+        }
+    }
+}
+
+public struct AnalysisMerchantsSnapshot: Equatable, Sendable {
+    public var context: AnalysisContext
+    public var report: MerchantAnalysisReport
+
+    public init(
+        context: AnalysisContext,
+        report: MerchantAnalysisReport
+    ) {
+        self.context = context
+        self.report = report
+    }
+
+    public func transactionFilter(
+        for selection: AnalysisMerchantsSelection
+    ) -> TransactionLedgerFilter {
+        AnalysisDrilldownTranslator.translate(context: context, evidence: selection.evidence)
+    }
+}
+
+public enum AnalysisMerchantsSelection: Equatable, Sendable {
+    case merchant(MerchantAnalysisRow)
+    case recurring(MerchantRecurringReportRow)
+
+    public var evidence: InsightEvidence {
+        switch self {
+        case .merchant(let row):
+            row.evidence
+        case .recurring(let row):
             row.evidence
         }
     }

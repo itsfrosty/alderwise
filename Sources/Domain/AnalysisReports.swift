@@ -25,6 +25,44 @@ public struct AnalysisSpendRow: Equatable, Sendable {
     }
 }
 
+/// V1 merchant reporting identity is the normalized merchant name already stored on
+/// transactions. Keep the contract explicit so later aliasing or merged-identity work
+/// can replace this key without rewriting the analysis UI surface.
+public struct MerchantReportKey: Hashable, Equatable, Sendable {
+    public var normalizedName: String
+
+    public init(normalizedName: String) {
+        self.normalizedName = normalizedName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+}
+
+public struct MerchantAnalysisRow: Equatable, Sendable {
+    public var key: MerchantReportKey
+    public var title: String
+    public var currentSpend: Decimal
+    public var comparisonSpend: Decimal
+    public var delta: Decimal
+    public var evidence: InsightEvidence
+
+    public init(
+        key: MerchantReportKey,
+        title: String,
+        currentSpend: Decimal,
+        comparisonSpend: Decimal,
+        delta: Decimal,
+        evidence: InsightEvidence
+    ) {
+        self.key = key
+        self.title = title
+        self.currentSpend = currentSpend
+        self.comparisonSpend = comparisonSpend
+        self.delta = delta
+        self.evidence = evidence
+    }
+}
+
 public struct MerchantRecurringReportRow: Equatable, Sendable {
     public var detail: RecurringChargeInsightDetail
     public var evidence: InsightEvidence
@@ -69,12 +107,12 @@ public struct CategoryAnalysisReport: Equatable, Sendable {
 
 public struct MerchantAnalysisReport: Equatable, Sendable {
     public var context: AnalysisContext
-    public var merchants: [AnalysisSpendRow]
+    public var merchants: [MerchantAnalysisRow]
     public var recurring: [MerchantRecurringReportRow]
 
     public init(
         context: AnalysisContext,
-        merchants: [AnalysisSpendRow],
+        merchants: [MerchantAnalysisRow],
         recurring: [MerchantRecurringReportRow]
     ) {
         self.context = context

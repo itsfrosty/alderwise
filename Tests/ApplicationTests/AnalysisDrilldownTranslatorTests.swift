@@ -69,6 +69,36 @@ func analysisDrilldownTranslatorHonorsExplicitPendingQualifierOverMetricBasis() 
     #expect(filter.visibility == .active)
 }
 
+@Test
+func analysisDrilldownTranslatorBuildsRecurringMerchantFilter() {
+    let interval = DateInterval(
+        start: analysisUTCDate(year: 2026, month: 2, day: 9),
+        end: analysisUTCDate(year: 2026, month: 4, day: 10)
+    )
+    let context = AnalysisContext(
+        range: .custom(interval),
+        referenceDate: analysisUTCDate(year: 2026, month: 4, day: 15),
+        resolvedInterval: interval,
+        scope: .workspace,
+        comparison: .none,
+        metricBasis: .includedVisibleExpenses
+    )
+    let evidence = InsightEvidence(
+        metricBasis: .includedVisibleExpenses,
+        resolvedInterval: interval,
+        scope: .merchant("netflix"),
+        reconciliationRule: .recurringObservationSet,
+        destination: InsightEvidenceDestination(scope: .merchant("netflix"))
+    )
+
+    let filter = AnalysisDrilldownTranslator.translate(context: context, evidence: evidence)
+
+    #expect(filter.normalizedMerchantName == "netflix")
+    #expect(filter.direction == .expense)
+    #expect(filter.reviewStatuses == Set([.accepted, .pending]))
+    #expect(filter.startDate == interval.start)
+}
+
 private func analysisUTCDate(
     year: Int,
     month: Int,

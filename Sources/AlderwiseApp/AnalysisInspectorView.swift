@@ -143,6 +143,26 @@ extension AnalysisCategoriesSelection: AnalysisInspectorPresentable {
     }
 }
 
+extension AnalysisMerchantsSelection: AnalysisInspectorPresentable {
+    var title: String {
+        switch self {
+        case .merchant(let row):
+            row.title.localizedCapitalized
+        case .recurring(let row):
+            row.detail.normalizedMerchantName.localizedCapitalized
+        }
+    }
+
+    var summaryText: String {
+        switch self {
+        case .merchant(let row):
+            return "Current \(currency(row.currentSpend)) vs \(currency(row.comparisonSpend)), delta \(currency(abs(row.delta)))."
+        case .recurring(let row):
+            return "\(row.detail.observationCount) observations, \(row.detail.cadence.rawValue.capitalized) cadence."
+        }
+    }
+}
+
 private extension InsightEvidence {
     var reconciliationRuleLabel: String {
         switch reconciliationRule {

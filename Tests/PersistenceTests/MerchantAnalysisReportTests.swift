@@ -68,9 +68,54 @@ func merchantAnalysisReportReconcilesMerchantRowAndRecurringEvidence() throws {
     let recurringFilter = ledgerFilter(for: recurring.evidence)
 
     #expect(merchant.currentSpend == Decimal(8))
+    #expect(merchant.key == MerchantReportKey(normalizedName: "blue bottle"))
     #expect(ledgerExpenseTotal(merchantLedger) == merchant.currentSpend)
     #expect(recurringFilter.normalizedMerchantName == "netflix")
     #expect(recurringFilter.reviewStatuses == Set<TransactionReviewStatus>([.accepted, .pending]))
+}
+
+@Test
+func merchantAnalysisReportUsesNormalizedMerchantKeyAsStableV1Identity() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+
+    _ = try homeDashboardInsertExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: nil,
+        amount: Decimal(-12),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 2),
+        reviewStatus: "accepted",
+        rawDescription: "Blue Bottle Coffee",
+        normalizedMerchantName: "blue bottle"
+    )
+    _ = try homeDashboardInsertExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: nil,
+        amount: Decimal(-18),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 7),
+        reviewStatus: "pending",
+        rawDescription: "BLUE BOTTLE",
+        normalizedMerchantName: "blue bottle"
+    )
+
+    let context = AnalysisContext(
+        range: .monthToDate,
+        referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15),
+        scope: .workspace,
+        comparison: .none,
+        metricBasis: .includedVisibleExpenses
+    )
+
+    let report = try store.fetchMerchantAnalysisReport(context: context)
+
+    #expect(report.merchants.count == 1)
+    #expect(report.merchants.first?.key == MerchantReportKey(normalizedName: "blue bottle"))
+    #expect(report.merchants.first?.currentSpend == Decimal(30))
 }
 
 private func ledgerExpenseTotal(_ rows: [TransactionLedgerRow]) -> Decimal {

@@ -153,6 +153,7 @@ public struct WorkspaceService: Sendable {
         )
         let overviewReport = try analysisReader?.fetchOverviewReport(context: overviewContext)
         let categoryReport = try analysisReader?.fetchCategoryAnalysisReport(context: overviewContext)
+        let merchantReport = try analysisReader?.fetchMerchantAnalysisReport(context: overviewContext)
         let analysis = AnalysisSnapshot(
             overview: overviewReport.map {
                 AnalysisOverviewSnapshot(
@@ -167,6 +168,12 @@ public struct WorkspaceService: Sendable {
                     context: $0.context,
                     report: $0,
                     targetProgress: monthlyReport.targets
+                )
+            },
+            merchants: merchantReport.map {
+                AnalysisMerchantsSnapshot(
+                    context: $0.context,
+                    report: $0
                 )
             }
         )

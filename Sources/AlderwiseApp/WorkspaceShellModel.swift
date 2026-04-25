@@ -104,6 +104,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var isPresentingAnalysisOverview = false
     @Published private(set) var analysisOverviewSelection: AnalysisOverviewSelection?
     @Published private(set) var analysisCategoriesSelection: AnalysisCategoriesSelection?
+    @Published private(set) var analysisMerchantsSelection: AnalysisMerchantsSelection?
     @Published var learnedRuleManagerActionErrorMessage: String?
     @Published var importErrorMessage: String?
     @Published var importResultMessage: String?
@@ -394,6 +395,10 @@ final class WorkspaceShellModel: ObservableObject {
 
     func setAnalysisCategoriesSelection(_ selection: AnalysisCategoriesSelection?) {
         analysisCategoriesSelection = selection
+    }
+
+    func setAnalysisMerchantsSelection(_ selection: AnalysisMerchantsSelection?) {
+        analysisMerchantsSelection = selection
     }
 
     func showTarget(id: UUID?) {
@@ -1009,6 +1014,10 @@ final class WorkspaceShellModel: ObservableObject {
             analysisCategoriesSelection = nil
         }
 
+        if snapshot.analysis.merchants == nil {
+            analysisMerchantsSelection = nil
+        }
+
         if let selectedTargetID, managedTargets.contains(where: { $0.id == selectedTargetID }) == false {
             self.selectedTargetID = nil
         }
@@ -1045,6 +1054,7 @@ final class WorkspaceShellModel: ObservableObject {
         isPresentingAnalysisOverview = false
         analysisOverviewSelection = nil
         analysisCategoriesSelection = nil
+        analysisMerchantsSelection = nil
         merchantRecommendationEligibilityByReviewItemID = [:]
         state = .failed(message)
         workspaceStatus = .failedToOpen(message)
