@@ -383,6 +383,59 @@ func monthlyReportExposesIncludedVisibleSpendCompatibilityAliases() throws {
 }
 
 @Test
+func monthlyReportExcludesRejectedIncomeAndTransferRowsFromIncludedVisibleExpenseSpend() throws {
+    let databaseURL = try homeDashboardTemporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000831")!
+    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000832")!
+    try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try homeDashboardInsertAcceptedExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-40),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 4)
+    )
+    try homeDashboardInsertRejectedExpense(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        categoryID: groceries,
+        amount: Decimal(-15),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 7)
+    )
+    try homeDashboardInsertIncome(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        amount: Decimal(120),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 9)
+    )
+    try homeDashboardInsertTransfer(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        amount: Decimal(-60),
+        transactionDate: homeDashboardUTCDate(year: 2026, month: 4, day: 10)
+    )
+
+    let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
+
+    #expect(report.currentMonthIncludedVisibleSpend == Decimal(40))
+    #expect(report.currentMonthAcceptedSpend == Decimal(40))
+    #expect(report.drivers == [
+        MonthlySpendingDriver(
+            title: "Food",
+            scope: .categoryGroup(food),
+            currentPeriodSpend: Decimal(40),
+            comparisonPeriodSpend: Decimal(0),
+            delta: Decimal(40)
+        ),
+    ])
+}
+
+@Test
 func monthlyReportSurfacesIncludedUncategorizedExpensesAsDriverRows() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)

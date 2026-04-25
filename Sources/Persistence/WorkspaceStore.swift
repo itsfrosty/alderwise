@@ -2048,12 +2048,15 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 FROM transactions
                 WHERE is_hidden = 0
                     AND direction = ?
+                    AND review_status IN (?, ?)
                     AND amount < 0
                     AND transaction_date <= ?
                 ORDER BY transaction_date ASC, id ASC
                 """,
                 arguments: [
                     TransactionDirection.expense.rawValue,
+                    TransactionReviewStatus.accepted.rawValue,
+                    TransactionReviewStatus.pending.rawValue,
                     cappedReferenceDate,
                 ]
             )
@@ -3366,12 +3369,15 @@ private func includedVisibleExpenseSpend(
     var predicates = [
         "transactions.is_hidden = 0",
         "transactions.direction = ?",
+        "transactions.review_status IN (?, ?)",
         "transactions.amount < 0",
         "transactions.transaction_date >= ?",
         "transactions.transaction_date < ?",
     ]
     var arguments = StatementArguments()
     appendArgument(TransactionDirection.expense.rawValue, to: &arguments)
+    appendArgument(TransactionReviewStatus.accepted.rawValue, to: &arguments)
+    appendArgument(TransactionReviewStatus.pending.rawValue, to: &arguments)
     appendArgument(interval.start, to: &arguments)
     appendArgument(interval.end, to: &arguments)
 
@@ -3418,6 +3424,7 @@ private func monthlySpendSeries(
         FROM transactions
         WHERE transactions.is_hidden = 0
             AND transactions.direction = ?
+            AND transactions.review_status IN (?, ?)
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
             AND transactions.transaction_date < ?
@@ -3426,6 +3433,8 @@ private func monthlySpendSeries(
         """,
         arguments: [
             TransactionDirection.expense.rawValue,
+            TransactionReviewStatus.accepted.rawValue,
+            TransactionReviewStatus.pending.rawValue,
             interval.start,
             interval.end,
         ]
@@ -3466,6 +3475,7 @@ private func spendingDrivers(
         LEFT JOIN category_groups ON category_groups.id = categories.category_group_id
         WHERE transactions.is_hidden = 0
             AND transactions.direction = ?
+            AND transactions.review_status IN (?, ?)
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
             AND transactions.transaction_date < ?
@@ -3477,6 +3487,8 @@ private func spendingDrivers(
         """,
         arguments: [
             TransactionDirection.expense.rawValue,
+            TransactionReviewStatus.accepted.rawValue,
+            TransactionReviewStatus.pending.rawValue,
             currentInterval.start,
             currentInterval.end,
         ]
@@ -3495,6 +3507,7 @@ private func spendingDrivers(
         LEFT JOIN category_groups ON category_groups.id = categories.category_group_id
         WHERE transactions.is_hidden = 0
             AND transactions.direction = ?
+            AND transactions.review_status IN (?, ?)
             AND transactions.amount < 0
             AND transactions.transaction_date >= ?
             AND transactions.transaction_date < ?
@@ -3506,6 +3519,8 @@ private func spendingDrivers(
         """,
         arguments: [
             TransactionDirection.expense.rawValue,
+            TransactionReviewStatus.accepted.rawValue,
+            TransactionReviewStatus.pending.rawValue,
             comparisonInterval.start,
             comparisonInterval.end,
         ]
