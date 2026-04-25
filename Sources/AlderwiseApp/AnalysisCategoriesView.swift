@@ -31,6 +31,21 @@ struct AnalysisCategoriesView: View {
         RowIdentity(scope: row.scope)
     }
 
+    nonisolated static func inspectorActionLayout(
+        for selection: AnalysisCategoriesSelection,
+        snapshot: AnalysisCategoriesSnapshot
+    ) -> AnalysisInspectorActionLayout {
+        var secondaryTitles: [String] = []
+        if snapshot.targetProgress(for: selection) != nil {
+            secondaryTitles.append("Open Target")
+        }
+
+        return AnalysisInspectorActionLayout(
+            primaryActionTitle: "Show Transactions",
+            secondaryActionTitles: secondaryTitles
+        )
+    }
+
     var body: some View {
         Group {
             if inspectorPresentation == .persistent {
@@ -76,24 +91,23 @@ struct AnalysisCategoriesView: View {
     private var inspectorView: some View {
         AnalysisInspectorView(
             selection: selection,
-            noSelectionDescription: "Select a category or group contribution to inspect its evidence, open matching transactions, or hand off to its linked target."
+            noSelectionDescription: "Select a category or group contribution to inspect its evidence, open matching transactions, or hand off to its linked target.",
+            actionLayout: selection.map { Self.inspectorActionLayout(for: $0, snapshot: snapshot) } ?? .none
         ) { selected in
-            VStack(alignment: .leading, spacing: 10) {
+            Button {
+                onShowTransactions(snapshot.transactionFilter(for: selected))
+            } label: {
+                Label("Show Transactions", systemImage: "list.bullet.rectangle")
+            }
+            .buttonStyle(.borderedProminent)
+        } secondaryActions: { selected in
+            if let targetProgress = snapshot.targetProgress(for: selected) {
                 Button {
-                    onShowTransactions(snapshot.transactionFilter(for: selected))
+                    onShowTarget(targetProgress.id)
                 } label: {
-                    Label("Show Transactions", systemImage: "list.bullet.rectangle")
+                    Label("Open Target", systemImage: "target")
                 }
-                .buttonStyle(.borderedProminent)
-
-                if let targetProgress = snapshot.targetProgress(for: selected) {
-                    Button {
-                        onShowTarget(targetProgress.id)
-                    } label: {
-                        Label("Open Target", systemImage: "target")
-                    }
-                    .buttonStyle(.bordered)
-                }
+                .buttonStyle(.bordered)
             }
         }
     }

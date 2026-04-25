@@ -13,6 +13,15 @@ struct AnalysisOverviewView: View {
         Self.layout(for: snapshot)
     }
 
+    nonisolated static func inspectorActionLayout(
+        for _: AnalysisOverviewSelection
+    ) -> AnalysisInspectorActionLayout {
+        AnalysisInspectorActionLayout(
+            primaryActionTitle: "Show Transactions",
+            secondaryActionTitles: []
+        )
+    }
+
     var body: some View {
         Group {
             if inspectorPresentation == .persistent {
@@ -97,10 +106,15 @@ struct AnalysisOverviewView: View {
         AnalysisInspectorView(
             selection: selection,
             noSelectionDescription: "Select a trend signal, driver, or support row to inspect its evidence and drill into matching transactions.",
-            onShowTransactions: { selected in
+            actionLayout: selection.map(Self.inspectorActionLayout(for:)) ?? .none
+        ) { selected in
+            Button {
                 onShowTransactions(snapshot.transactionFilter(for: selected))
+            } label: {
+                Label("Show Transactions", systemImage: "list.bullet.rectangle")
             }
-        )
+            .buttonStyle(.borderedProminent)
+        }
     }
 
     private func heroCard(_ hero: OverviewLayout.Hero) -> some View {
@@ -363,8 +377,16 @@ struct AnalysisOverviewView: View {
     ) -> some View {
         HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(entry.title)
-                    .font(.subheadline.weight(.semibold))
+                HStack(spacing: 8) {
+                    Text(entry.title)
+                        .font(.subheadline.weight(.semibold))
+
+                    if isSelected {
+                        Text("Selected")
+                            .analysisSharedBadgeStyle()
+                            .foregroundStyle(Color.accentColor)
+                    }
+                }
                 Text(entry.subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -386,6 +408,13 @@ struct AnalysisOverviewView: View {
         }
         .padding(14)
         .background(entryBackground(isSelected: isSelected))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(
+                    isSelected ? Color.accentColor.opacity(0.45) : Color.secondary.opacity(0.08),
+                    lineWidth: isSelected ? 1.5 : 1
+                )
+        }
     }
 
     private func entryBackground(isSelected: Bool) -> some ShapeStyle {

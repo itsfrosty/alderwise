@@ -45,6 +45,16 @@ struct AnalysisMerchantsView: View {
         }
     }
 
+    nonisolated static func inspectorActionLayout(
+        for selection: AnalysisMerchantsSelection
+    ) -> AnalysisInspectorActionLayout {
+        let actions = inspectorActions(for: selection)
+        return AnalysisInspectorActionLayout(
+            primaryActionTitle: actions.showsTransactions ? "Show Transactions" : nil,
+            secondaryActionTitles: actions.ruleHandoffMerchantName == nil ? [] : ["Open Rules"]
+        )
+    }
+
     var body: some View {
         Group {
             if inspectorPresentation == .persistent {
@@ -137,28 +147,29 @@ struct AnalysisMerchantsView: View {
     private var inspectorView: some View {
         AnalysisInspectorView(
             selection: selection,
-            noSelectionDescription: "Select a merchant activity or recurring commitment row to inspect its evidence, open matching transactions, or hand off the selected merchant to Rules."
+            noSelectionDescription: "Select a merchant activity or recurring commitment row to inspect its evidence, open matching transactions, or hand off the selected merchant to Rules.",
+            actionLayout: selection.map(Self.inspectorActionLayout(for:)) ?? .none
         ) { selected in
             let actions = Self.inspectorActions(for: selected)
 
-            VStack(alignment: .leading, spacing: 10) {
-                if actions.showsTransactions {
-                    Button {
-                        onShowTransactions(snapshot.transactionFilter(for: selected))
-                    } label: {
-                        Label("Show Transactions", systemImage: "list.bullet.rectangle")
-                    }
-                    .buttonStyle(.borderedProminent)
+            if actions.showsTransactions {
+                Button {
+                    onShowTransactions(snapshot.transactionFilter(for: selected))
+                } label: {
+                    Label("Show Transactions", systemImage: "list.bullet.rectangle")
                 }
+                .buttonStyle(.borderedProminent)
+            }
+        } secondaryActions: { selected in
+            let actions = Self.inspectorActions(for: selected)
 
-                if let merchantName = actions.ruleHandoffMerchantName {
-                    Button {
-                        onShowRules(merchantName)
-                    } label: {
-                        Label("Open Rules", systemImage: "slider.horizontal.3")
-                    }
-                    .buttonStyle(.bordered)
+            if let merchantName = actions.ruleHandoffMerchantName {
+                Button {
+                    onShowRules(merchantName)
+                } label: {
+                    Label("Open Rules", systemImage: "slider.horizontal.3")
                 }
+                .buttonStyle(.bordered)
             }
         }
     }
