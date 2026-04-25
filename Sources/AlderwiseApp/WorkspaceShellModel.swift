@@ -101,6 +101,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var learnedRuleManagerSnapshot: LearnedRuleManagerSnapshot?
     @Published private(set) var reviewCreatedLearnedRuleAction: ReviewCreatedLearnedRuleAction?
     @Published private(set) var pendingAppSectionNavigation: AppSection?
+    @Published private(set) var analysisToolbarState = AnalysisToolbarState()
     @Published private(set) var isPresentingAnalysisOverview = false
     @Published private(set) var analysisOverviewSelection: AnalysisOverviewSelection?
     @Published private(set) var analysisCategoriesSelection: AnalysisCategoriesSelection?
@@ -406,6 +407,25 @@ final class WorkspaceShellModel: ObservableObject {
         pendingAppSectionNavigation = .targets
     }
 
+    func selectAnalysisPage(_ page: AnalysisPage) {
+        analysisToolbarState.selectedPage = page
+    }
+
+    func setAnalysisInspectorVisible(_ isVisible: Bool) {
+        analysisToolbarState.isInspectorVisible = isVisible
+    }
+
+    func toggleAnalysisInspector() {
+        analysisToolbarState.isInspectorVisible.toggle()
+    }
+
+    func showAnalysis(page: AnalysisPage? = nil) {
+        if let page {
+            analysisToolbarState.selectedPage = page
+        }
+        pendingAppSectionNavigation = .analysis
+    }
+
     func matchingTransactions(in rows: [TransactionLedgerRow]) -> [TransactionLedgerRow] {
         guard let ruleFilterIntent = transactionFilter.ruleFilterIntent else {
             return rows
@@ -520,7 +540,7 @@ final class WorkspaceShellModel: ObservableObject {
             directSettingsSidebarEntry()
         case .rules:
             directRulesSidebarEntry()
-        case .home, .transactions, .review, .targets, .accounts:
+        case .home, .analysis, .transactions, .review, .targets, .accounts:
             break
         }
     }
@@ -1004,6 +1024,7 @@ final class WorkspaceShellModel: ObservableObject {
         workspacePreferences = preferences
         self.learnedRuleManagerSnapshot = learnedRuleManagerSnapshot
         self.merchantRecommendationEligibilityByReviewItemID = merchantRecommendationEligibilityByReviewItemID
+        analysisToolbarState = analysisToolbarState.repaired(for: snapshot.analysis)
 
         if snapshot.analysis.overview == nil {
             isPresentingAnalysisOverview = false
@@ -1051,6 +1072,7 @@ final class WorkspaceShellModel: ObservableObject {
         learnedRuleManagerSnapshot = nil
         reviewCreatedLearnedRuleAction = nil
         pendingAppSectionNavigation = nil
+        analysisToolbarState = AnalysisToolbarState()
         isPresentingAnalysisOverview = false
         analysisOverviewSelection = nil
         analysisCategoriesSelection = nil

@@ -5,40 +5,43 @@ import SwiftUI
 struct AnalysisOverviewView: View {
     let snapshot: AnalysisOverviewSnapshot
     @Binding var selection: AnalysisOverviewSelection?
+    var showsInspector: Bool = true
     let onShowTransactions: (TransactionLedgerFilter) -> Void
-    let onClose: () -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    spendTrendCard
-                    paceCard
-                    projectedInsightsSection
-                    driversSection
-                    recurringSection
+        Group {
+            if showsInspector {
+                HStack(spacing: 0) {
+                    content
+
+                    Divider()
+
+                    AnalysisInspectorView(
+                        selection: selection,
+                        noSelectionDescription: "Select a driver, recurring series, or projected insight to inspect its evidence and drill into matching transactions.",
+                        onShowTransactions: { selected in
+                            onShowTransactions(snapshot.transactionFilter(for: selected))
+                        }
+                    )
                 }
-                .padding(24)
+            } else {
+                content
             }
-
-            Divider()
-
-            AnalysisInspectorView(
-                selection: selection,
-                noSelectionDescription: "Select a driver, recurring series, or projected insight to inspect its evidence and drill into matching transactions.",
-                onShowTransactions: { selected in
-                    onShowTransactions(snapshot.transactionFilter(for: selected))
-                }
-            )
         }
         .frame(minWidth: 960, minHeight: 620)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Done") {
-                    onClose()
-                }
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
+                spendTrendCard
+                paceCard
+                projectedInsightsSection
+                driversSection
+                recurringSection
             }
+            .padding(24)
         }
     }
 

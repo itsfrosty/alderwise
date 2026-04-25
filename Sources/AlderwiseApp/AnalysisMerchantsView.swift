@@ -5,46 +5,57 @@ import SwiftUI
 struct AnalysisMerchantsView: View {
     let snapshot: AnalysisMerchantsSnapshot
     @Binding var selection: AnalysisMerchantsSelection?
+    var showsInspector: Bool = true
     let onShowTransactions: (TransactionLedgerFilter) -> Void
     let onShowRules: (String) -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    merchantsSection
-                    recurringSection
-                }
-                .padding(24)
-            }
+        Group {
+            if showsInspector {
+                HStack(spacing: 0) {
+                    content
 
-            Divider()
+                    Divider()
 
-            AnalysisInspectorView(
-                selection: selection,
-                noSelectionDescription: "Select a merchant or recurring series to inspect its evidence, open matching transactions, or hand off to Rules for merchant cleanup."
-            ) { selected in
-                VStack(alignment: .leading, spacing: 10) {
-                    Button {
-                        onShowTransactions(snapshot.transactionFilter(for: selected))
-                    } label: {
-                        Label("Show Transactions", systemImage: "list.bullet.rectangle")
-                    }
-                    .buttonStyle(.borderedProminent)
+                    AnalysisInspectorView(
+                        selection: selection,
+                        noSelectionDescription: "Select a merchant or recurring series to inspect its evidence, open matching transactions, or hand off to Rules for merchant cleanup."
+                    ) { selected in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Button {
+                                onShowTransactions(snapshot.transactionFilter(for: selected))
+                            } label: {
+                                Label("Show Transactions", systemImage: "list.bullet.rectangle")
+                            }
+                            .buttonStyle(.borderedProminent)
 
-                    if let merchantName = merchantName(for: selected) {
-                        Button {
-                            onShowRules(merchantName)
-                        } label: {
-                            Label("Open Rules", systemImage: "slider.horizontal.3")
+                            if let merchantName = merchantName(for: selected) {
+                                Button {
+                                    onShowRules(merchantName)
+                                } label: {
+                                    Label("Open Rules", systemImage: "slider.horizontal.3")
+                                }
+                                .buttonStyle(.bordered)
+                            }
                         }
-                        .buttonStyle(.bordered)
                     }
                 }
+            } else {
+                content
             }
         }
         .frame(minWidth: 960, minHeight: 620)
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
+                merchantsSection
+                recurringSection
+            }
+            .padding(24)
+        }
     }
 
     private var header: some View {

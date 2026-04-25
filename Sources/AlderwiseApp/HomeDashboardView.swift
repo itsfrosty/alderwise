@@ -36,10 +36,6 @@ struct HomeDashboardView: View {
         targetRows.isEmpty == false
     }
 
-    private var overviewSnapshot: AnalysisOverviewSnapshot? {
-        snapshot.analysis.overview
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
@@ -54,42 +50,10 @@ struct HomeDashboardView: View {
             .padding(24)
         }
         .navigationTitle("Home")
-        .sheet(
-            isPresented: Binding(
-                get: { model.isPresentingAnalysisOverview },
-                set: { if $0 == false { model.dismissAnalysisOverview() } }
-            )
-        ) {
-            if let overviewSnapshot {
-                AnalysisOverviewView(
-                    snapshot: overviewSnapshot,
-                    selection: Binding(
-                        get: { model.analysisOverviewSelection },
-                        set: { model.setAnalysisOverviewSelection($0) }
-                    ),
-                    onShowTransactions: { filter in
-                        model.dismissAnalysisOverview()
-                        navigate(.transactions(filter))
-                    },
-                    onClose: {
-                        model.dismissAnalysisOverview()
-                    }
-                )
-            }
-        }
     }
 
     private var populatedHomeState: some View {
         Group {
-            if overviewSnapshot != nil {
-                Button {
-                    model.presentAnalysisOverview()
-                } label: {
-                    Label("Open Overview Preview", systemImage: "chart.bar.xaxis")
-                }
-                .buttonStyle(.borderedProminent)
-            }
-
             HomeDashboardHeroCard(
                 hero: dashboard?.hero,
                 qualifier: dashboard?.reviewQualifier,

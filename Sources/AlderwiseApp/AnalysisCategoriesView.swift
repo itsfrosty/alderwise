@@ -5,40 +5,51 @@ import SwiftUI
 struct AnalysisCategoriesView: View {
     let snapshot: AnalysisCategoriesSnapshot
     @Binding var selection: AnalysisCategoriesSelection?
+    var showsInspector: Bool = true
     let onShowTransactions: (TransactionLedgerFilter) -> Void
     let onShowTarget: (UUID) -> Void
 
     var body: some View {
-        HStack(spacing: 0) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    header
-                    contributionSection
-                    targetAlignmentSection
-                }
-                .padding(24)
-            }
+        Group {
+            if showsInspector {
+                HStack(spacing: 0) {
+                    content
 
-            Divider()
+                    Divider()
 
-            AnalysisInspectorView(
-                selection: selection,
-                noSelectionDescription: "Select a category or group to inspect its evidence, open matching transactions, or jump into its target if one exists.",
-                onShowTransactions: { selected in
-                    onShowTransactions(snapshot.transactionFilter(for: selected))
-                }
-            ) { selected in
-                if let targetProgress = snapshot.targetProgress(for: selected) {
-                    Button {
-                        onShowTarget(targetProgress.id)
-                    } label: {
-                        Label("Open Target", systemImage: "target")
+                    AnalysisInspectorView(
+                        selection: selection,
+                        noSelectionDescription: "Select a category or group to inspect its evidence, open matching transactions, or jump into its target if one exists.",
+                        onShowTransactions: { selected in
+                            onShowTransactions(snapshot.transactionFilter(for: selected))
+                        }
+                    ) { selected in
+                        if let targetProgress = snapshot.targetProgress(for: selected) {
+                            Button {
+                                onShowTarget(targetProgress.id)
+                            } label: {
+                                Label("Open Target", systemImage: "target")
+                            }
+                            .buttonStyle(.bordered)
+                        }
                     }
-                    .buttonStyle(.bordered)
                 }
+            } else {
+                content
             }
         }
         .frame(minWidth: 960, minHeight: 620)
+    }
+
+    private var content: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                header
+                contributionSection
+                targetAlignmentSection
+            }
+            .padding(24)
+        }
     }
 
     private var header: some View {

@@ -27,6 +27,7 @@ public struct WorkspaceNavigationIntent: Equatable, Sendable {
 
 public enum WorkspaceDetailRoute: Equatable, Sendable {
     case home
+    case analysis
     case transactions
     case review
     case rulesManager
@@ -38,6 +39,8 @@ public enum WorkspaceDetailRoute: Equatable, Sendable {
         switch section {
         case .home:
             .home
+        case .analysis:
+            .analysis
         case .transactions:
             .transactions
         case .review:
