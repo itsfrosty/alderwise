@@ -3,6 +3,9 @@ import Domain
 import SwiftUI
 
 struct AnalysisView: View {
+    private static let pagePickerMinimumWidth: CGFloat = 240
+    private static let pagePickerIdealWidth: CGFloat = 280
+
     @ObservedObject var model: WorkspaceShellModel
 
     private var availablePages: [AnalysisPage] {
@@ -45,8 +48,8 @@ struct AnalysisView: View {
                 }
                 .pickerStyle(.segmented)
                 .frame(
-                    minWidth: AnalysisTheme.Toolbar.pagePickerMinimumWidth,
-                    idealWidth: AnalysisTheme.Toolbar.pagePickerIdealWidth
+                    minWidth: Self.pagePickerMinimumWidth,
+                    idealWidth: Self.pagePickerIdealWidth
                 )
             }
 

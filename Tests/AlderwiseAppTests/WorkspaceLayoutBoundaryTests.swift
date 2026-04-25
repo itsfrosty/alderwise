@@ -11,6 +11,15 @@ func workspaceLayoutOnlyContainsShellGeometryConstants() throws {
     #expect(source.contains("usesPrincipalToolbarPlacement") == false)
 }
 
+@Test
+func analysisThemeDoesNotExposeToolbarWidthTokens() throws {
+    let source = try sourceText(in: "Sources/AlderwiseApp/AnalysisTheme.swift")
+
+    #expect(source.contains("enum Toolbar") == false)
+    #expect(source.contains("pagePickerMinimumWidth") == false)
+    #expect(source.contains("pagePickerIdealWidth") == false)
+}
+
 private func sourceText(in relativePath: String) throws -> String {
     let url = URL(fileURLWithPath: #filePath)
     let testsDirectory = url.deletingLastPathComponent()

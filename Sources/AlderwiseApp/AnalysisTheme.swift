@@ -1,11 +1,6 @@
 import SwiftUI
 
 enum AnalysisTheme {
-    enum Toolbar {
-        static let pagePickerMinimumWidth: CGFloat = 240
-        static let pagePickerIdealWidth: CGFloat = 280
-    }
-
     enum SectionSpacing {
         static let group: CGFloat = 24
         static let content: CGFloat = 16
