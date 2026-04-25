@@ -19,7 +19,6 @@ enum AnalysisTheme {
     }
 
     enum Badge {
-        static let cornerRadius: CGFloat = 10
         static let horizontalPadding: CGFloat = 10
         static let verticalPadding: CGFloat = 6
         static let spacing: CGFloat = 6
