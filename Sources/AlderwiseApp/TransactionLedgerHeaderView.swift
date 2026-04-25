@@ -38,8 +38,6 @@ struct TransactionLedgerHeaderView: View {
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 2)
-                .padding(.trailing, 6)
             }
         }
     }

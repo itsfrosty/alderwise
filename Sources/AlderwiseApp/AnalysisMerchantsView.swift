@@ -44,7 +44,7 @@ struct AnalysisMerchantsView: View {
                 content
             }
         }
-        .frame(minWidth: 960, minHeight: 620)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private var content: some View {

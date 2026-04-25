@@ -292,7 +292,10 @@ struct WorkspaceRootView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 200, ideal: 220)
+        .navigationSplitViewColumnWidth(
+            min: WorkspaceLayout.sidebarMinimumWidth,
+            ideal: WorkspaceLayout.sidebarIdealWidth
+        )
     }
 
     @ViewBuilder

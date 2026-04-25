@@ -34,7 +34,7 @@ struct AnalysisView: View {
         }
         .navigationTitle("Analysis")
         .toolbar {
-            ToolbarItem(placement: .principal) {
+            ToolbarItem {
                 Picker("Analysis Page", selection: Binding(
                     get: { selectedPage },
                     set: { model.selectAnalysisPage($0) }
@@ -44,7 +44,10 @@ struct AnalysisView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 320)
+                .frame(
+                    minWidth: WorkspaceLayout.analysisPagePickerMinimumWidth,
+                    idealWidth: WorkspaceLayout.analysisPagePickerIdealWidth
+                )
             }
 
             ToolbarItem {

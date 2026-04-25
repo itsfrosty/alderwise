@@ -50,7 +50,13 @@ struct AnalysisInspectorView<Selection: AnalysisInspectorPresentable, Actions: V
             Spacer(minLength: 0)
         }
         .padding(20)
-        .frame(minWidth: 280, idealWidth: 320, maxWidth: 360, maxHeight: .infinity, alignment: .topLeading)
+        .frame(
+            minWidth: WorkspaceLayout.analysisInspectorMinimumWidth,
+            idealWidth: WorkspaceLayout.analysisInspectorIdealWidth,
+            maxWidth: WorkspaceLayout.analysisInspectorMaximumWidth,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
         .background(.thinMaterial)
     }
 
