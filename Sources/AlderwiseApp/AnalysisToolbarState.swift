@@ -32,15 +32,28 @@ struct AnalysisToolbarState: Equatable, Sendable {
         self.isInspectorVisible = isInspectorVisible
     }
 
+    func selecting(page: AnalysisPage) -> AnalysisToolbarState {
+        var copy = self
+        copy.selectedPage = page
+        return copy
+    }
+
+    func settingInspectorVisibility(_ isVisible: Bool) -> AnalysisToolbarState {
+        var copy = self
+        copy.isInspectorVisible = isVisible
+        return copy
+    }
+
+    func togglingInspectorVisibility() -> AnalysisToolbarState {
+        settingInspectorVisibility(isInspectorVisible == false)
+    }
+
     func repaired(for snapshot: AnalysisSnapshot) -> AnalysisToolbarState {
         let availablePages = Self.availablePages(in: snapshot)
         let repairedPage = availablePages.contains(selectedPage)
             ? selectedPage
             : availablePages.first ?? .overview
-        return AnalysisToolbarState(
-            selectedPage: repairedPage,
-            isInspectorVisible: isInspectorVisible
-        )
+        return selecting(page: repairedPage)
     }
 
     static func availablePages(in snapshot: AnalysisSnapshot) -> [AnalysisPage] {

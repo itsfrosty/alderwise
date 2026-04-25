@@ -14,6 +14,10 @@ struct AnalysisInspectorView<Selection: AnalysisInspectorPresentable, Actions: V
     let onShowTransactions: ((Selection) -> Void)?
     @ViewBuilder let actions: (Selection) -> Actions
 
+    static func showsPlaceholder(for selection: Selection?) -> Bool {
+        selection == nil
+    }
+
     init(
         selection: Selection?,
         noSelectionDescription: String,

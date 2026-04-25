@@ -1,6 +1,7 @@
 import Application
 import Domain
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import AlderwiseApp
@@ -177,6 +178,139 @@ func analysisMerchantsSelectionSurvivesTransactionDrilldown() {
 
     #expect(model.analysisMerchantsSelection == selection)
     #expect(model.pendingAppSectionNavigation == .transactions)
+}
+
+@Test
+@MainActor
+func analysisFamilyStripRoutingClearsThePreviousFamilySelection() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+    let selection = AnalysisCategoriesSelection.row(
+        AnalysisSpendRow(
+            title: "Food",
+            scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000701")),
+            currentSpend: Decimal(280),
+            comparisonSpend: Decimal(160),
+            delta: Decimal(120),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                    end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+                ),
+                scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000701")),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000701")),
+                    direction: .expense
+                )
+            )
+        )
+    )
+
+    model.selectAnalysisPage(.categories)
+    model.setAnalysisCategoriesSelection(selection)
+    model.selectAnalysisPage(.merchants)
+
+    #expect(model.analysisToolbarState.selectedPage == .merchants)
+    #expect(model.analysisCategoriesSelection == nil)
+}
+
+@Test
+func analysisFamilyStripUsesOnlyAvailableSnapshotFamilies() {
+    let snapshot = AnalysisSnapshot(
+        categories: AnalysisCategoriesSnapshot(
+            context: AnalysisContext(),
+            report: CategoryAnalysisReport(context: AnalysisContext(), rows: []),
+            targetProgress: []
+        ),
+        merchants: AnalysisMerchantsSnapshot(
+            context: AnalysisContext(),
+            report: MerchantAnalysisReport(
+                context: AnalysisContext(),
+                merchants: [],
+                recurring: []
+            )
+        )
+    )
+
+    #expect(AnalysisView.familyStripPages(in: snapshot) == [.categories, .merchants])
+}
+
+@Test
+@MainActor
+func analysisInspectorPlaceholderRemainsAvailableOnWideScreensWhenSelectionClears() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+    let selection = AnalysisMerchantsSelection.merchant(
+        MerchantAnalysisRow(
+            key: MerchantReportKey(normalizedName: "blue bottle"),
+            title: "blue bottle",
+            currentSpend: Decimal(48),
+            comparisonSpend: Decimal(12),
+            delta: Decimal(36),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                    end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+                ),
+                scope: .merchant("blue bottle"),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: .merchant("blue bottle"),
+                    direction: .expense
+                )
+            )
+        )
+    )
+
+    model.selectAnalysisPage(.merchants)
+    model.setAnalysisMerchantsSelection(selection)
+    model.setAnalysisMerchantsSelection(nil)
+
+    #expect(AnalysisView.showsInspector(isRequested: true, availableWidth: AnalysisView.inspectorVisibilityWidth) == true)
+    #expect(AnalysisInspectorView<AnalysisMerchantsSelection, EmptyView>.showsPlaceholder(for: model.analysisMerchantsSelection))
+}
+
+@Test
+@MainActor
+func analysisSelectionDoesNotRevealInspectorWhenCommittedWhileHidden() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+    let selection = AnalysisOverviewSelection.driver(
+        AnalysisSpendRow(
+            title: "Dining",
+            scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000801")),
+            currentSpend: Decimal(180),
+            comparisonSpend: Decimal(40),
+            delta: Decimal(140),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                    end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+                ),
+                scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000801")),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000801")),
+                    direction: .expense
+                )
+            )
+        )
+    )
+
+    model.setAnalysisInspectorVisible(false)
+    model.setAnalysisOverviewSelection(selection)
+
+    #expect(model.analysisOverviewSelection == selection)
+    #expect(model.analysisToolbarState.isInspectorVisible == false)
+}
+
+@Test
+func analysisNarrowWidthsCollapseTheInspectorEvenWhenRequested() {
+    #expect(AnalysisView.showsInspector(
+        isRequested: true,
+        availableWidth: AnalysisView.inspectorVisibilityWidth - 1
+    ) == false)
 }
 
 @Test

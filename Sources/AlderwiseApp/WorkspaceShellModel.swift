@@ -110,9 +110,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var analysisSnapshot = AnalysisSnapshot.empty
     @Published var analysisErrorMessage: String?
     @Published private(set) var isPresentingAnalysisOverview = false
-    @Published private(set) var analysisOverviewSelection: AnalysisOverviewSelection?
-    @Published private(set) var analysisCategoriesSelection: AnalysisCategoriesSelection?
-    @Published private(set) var analysisMerchantsSelection: AnalysisMerchantsSelection?
+    @Published private(set) var analysisScreenState = AnalysisScreenState()
     @Published var learnedRuleManagerActionErrorMessage: String?
     @Published var importErrorMessage: String?
     @Published var importResultMessage: String?
@@ -221,6 +219,18 @@ final class WorkspaceShellModel: ObservableObject {
 
     var workspaceMetadata: WorkspaceMetadata? {
         workspaceStatus.metadata
+    }
+
+    var analysisOverviewSelection: AnalysisOverviewSelection? {
+        analysisScreenState.overview.selection
+    }
+
+    var analysisCategoriesSelection: AnalysisCategoriesSelection? {
+        analysisScreenState.categories.selection
+    }
+
+    var analysisMerchantsSelection: AnalysisMerchantsSelection? {
+        analysisScreenState.merchants.selection
     }
 
     func scheduleReviewRulePreview(
@@ -402,15 +412,21 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func setAnalysisOverviewSelection(_ selection: AnalysisOverviewSelection?) {
-        analysisOverviewSelection = selection
+        updateAnalysisScreenState {
+            $0.setOverviewSelection(selection)
+        }
     }
 
     func setAnalysisCategoriesSelection(_ selection: AnalysisCategoriesSelection?) {
-        analysisCategoriesSelection = selection
+        updateAnalysisScreenState {
+            $0.setCategoriesSelection(selection)
+        }
     }
 
     func setAnalysisMerchantsSelection(_ selection: AnalysisMerchantsSelection?) {
-        analysisMerchantsSelection = selection
+        updateAnalysisScreenState {
+            $0.setMerchantsSelection(selection)
+        }
     }
 
     func showTarget(id: UUID?) {
@@ -419,20 +435,24 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func selectAnalysisPage(_ page: AnalysisPage) {
-        analysisToolbarState.selectedPage = page
+        let currentPage = analysisToolbarState.selectedPage
+        analysisToolbarState = analysisToolbarState.selecting(page: page)
+        updateAnalysisScreenState {
+            $0.prepareForPageChange(from: currentPage, to: page)
+        }
     }
 
     func setAnalysisInspectorVisible(_ isVisible: Bool) {
-        analysisToolbarState.isInspectorVisible = isVisible
+        analysisToolbarState = analysisToolbarState.settingInspectorVisibility(isVisible)
     }
 
     func toggleAnalysisInspector() {
-        analysisToolbarState.isInspectorVisible.toggle()
+        analysisToolbarState = analysisToolbarState.togglingInspectorVisibility()
     }
 
     func showAnalysis(page: AnalysisPage? = nil) {
         if let page {
-            analysisToolbarState.selectedPage = page
+            selectAnalysisPage(page)
         }
         ensureAnalysisLoaded()
         pendingAppSectionNavigation = .analysis
@@ -1109,9 +1129,7 @@ final class WorkspaceShellModel: ObservableObject {
         analysisSnapshot = .empty
         analysisErrorMessage = nil
         isPresentingAnalysisOverview = false
-        analysisOverviewSelection = nil
-        analysisCategoriesSelection = nil
-        analysisMerchantsSelection = nil
+        analysisScreenState = AnalysisScreenState()
         merchantRecommendationEligibilityByReviewItemID = [:]
         state = .failed(message)
         workspaceStatus = .failedToOpen(message)
@@ -1119,19 +1137,21 @@ final class WorkspaceShellModel: ObservableObject {
 
     private func repairAnalysisState() {
         analysisToolbarState = analysisToolbarState.repaired(for: analysisSnapshot)
+        updateAnalysisScreenState {
+            $0.repairSelections(for: analysisSnapshot)
+        }
 
         if analysisSnapshot.overview == nil {
             isPresentingAnalysisOverview = false
-            analysisOverviewSelection = nil
         }
+    }
 
-        if analysisSnapshot.categories == nil {
-            analysisCategoriesSelection = nil
-        }
-
-        if analysisSnapshot.merchants == nil {
-            analysisMerchantsSelection = nil
-        }
+    private func updateAnalysisScreenState(
+        _ update: (inout AnalysisScreenState) -> Void
+    ) {
+        var nextState = analysisScreenState
+        update(&nextState)
+        analysisScreenState = nextState
     }
 
     private func loadMerchantRecommendationEligibility(

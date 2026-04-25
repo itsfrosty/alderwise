@@ -3,13 +3,12 @@ import Domain
 import SwiftUI
 
 struct AnalysisView: View {
-    private static let pagePickerMinimumWidth: CGFloat = 240
-    private static let pagePickerIdealWidth: CGFloat = 280
+    nonisolated static let inspectorVisibilityWidth = WorkspaceLayout.minimumWindowWidth - WorkspaceLayout.sidebarIdealWidth
 
     @ObservedObject var model: WorkspaceShellModel
 
     private var availablePages: [AnalysisPage] {
-        AnalysisToolbarState.availablePages(in: model.analysisSnapshot)
+        Self.familyStripPages(in: model.analysisSnapshot)
     }
 
     private var selectedPage: AnalysisPage {
@@ -18,41 +17,35 @@ struct AnalysisView: View {
     }
 
     var body: some View {
-        Group {
-            if let errorMessage = model.analysisErrorMessage {
-                ContentUnavailableView(
-                    "Analysis Unavailable",
-                    systemImage: AppSection.analysis.systemImage,
-                    description: Text(errorMessage)
-                )
-            } else if availablePages.isEmpty {
-                ContentUnavailableView(
-                    "Analysis Not Ready",
-                    systemImage: AppSection.analysis.systemImage,
-                    description: Text("Import more transaction history to unlock Overview, Categories, and Merchants analysis.")
-                )
-            } else {
-                selectedPageView
+        GeometryReader { proxy in
+            Group {
+                if let errorMessage = model.analysisErrorMessage {
+                    ContentUnavailableView(
+                        "Analysis Unavailable",
+                        systemImage: AppSection.analysis.systemImage,
+                        description: Text(errorMessage)
+                    )
+                } else if availablePages.isEmpty {
+                    ContentUnavailableView(
+                        "Analysis Not Ready",
+                        systemImage: AppSection.analysis.systemImage,
+                        description: Text("Import more transaction history to unlock Overview, Categories, and Merchants analysis.")
+                    )
+                } else {
+                    VStack(spacing: 0) {
+                        familyStrip
+                        selectedPageView(
+                            showsInspector: Self.showsInspector(
+                                isRequested: model.analysisToolbarState.isInspectorVisible,
+                                availableWidth: proxy.size.width
+                            )
+                        )
+                    }
+                }
             }
         }
         .navigationTitle("Analysis")
         .toolbar {
-            ToolbarItem {
-                Picker("Analysis Page", selection: Binding(
-                    get: { selectedPage },
-                    set: { model.selectAnalysisPage($0) }
-                )) {
-                    ForEach(availablePages) { page in
-                        Text(page.title).tag(page)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(
-                    minWidth: Self.pagePickerMinimumWidth,
-                    idealWidth: Self.pagePickerIdealWidth
-                )
-            }
-
             ToolbarItem {
                 Button {
                     model.toggleAnalysisInspector()
@@ -70,8 +63,46 @@ struct AnalysisView: View {
         }
     }
 
+    nonisolated static func familyStripPages(in snapshot: AnalysisSnapshot) -> [AnalysisPage] {
+        AnalysisToolbarState.availablePages(in: snapshot)
+    }
+
+    nonisolated static func showsInspector(isRequested: Bool, availableWidth: CGFloat) -> Bool {
+        isRequested && availableWidth >= inspectorVisibilityWidth
+    }
+
+    private var familyStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(availablePages) { page in
+                    Button {
+                        model.selectAnalysisPage(page)
+                    } label: {
+                        Text(page.title)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(page == selectedPage ? Color.primary : Color.secondary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(
+                                Capsule(style: .continuous)
+                                    .fill(page == selectedPage ? Color.accentColor.opacity(0.16) : Color.secondary.opacity(0.08))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 24)
+            .padding(.top, 16)
+            .padding(.bottom, 12)
+        }
+        .background(.bar)
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+    }
+
     @ViewBuilder
-    private var selectedPageView: some View {
+    private func selectedPageView(showsInspector: Bool) -> some View {
         switch selectedPage {
         case .overview:
             if let overview = model.analysisSnapshot.overview {
@@ -81,7 +112,7 @@ struct AnalysisView: View {
                         get: { model.analysisOverviewSelection },
                         set: { model.setAnalysisOverviewSelection($0) }
                     ),
-                    showsInspector: model.analysisToolbarState.isInspectorVisible,
+                    showsInspector: showsInspector,
                     onShowTransactions: { filter in
                         model.showTransactions(filter: filter, clearSelection: filter.clearsSelectionOnNavigation)
                     }
@@ -95,7 +126,7 @@ struct AnalysisView: View {
                         get: { model.analysisCategoriesSelection },
                         set: { model.setAnalysisCategoriesSelection($0) }
                     ),
-                    showsInspector: model.analysisToolbarState.isInspectorVisible,
+                    showsInspector: showsInspector,
                     onShowTransactions: { filter in
                         model.showTransactions(filter: filter, clearSelection: filter.clearsSelectionOnNavigation)
                     },
@@ -112,7 +143,7 @@ struct AnalysisView: View {
                         get: { model.analysisMerchantsSelection },
                         set: { model.setAnalysisMerchantsSelection($0) }
                     ),
-                    showsInspector: model.analysisToolbarState.isInspectorVisible,
+                    showsInspector: showsInspector,
                     onShowTransactions: { filter in
                         model.showTransactions(filter: filter, clearSelection: filter.clearsSelectionOnNavigation)
                     },
