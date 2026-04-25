@@ -98,6 +98,7 @@ final class WorkspaceShellModel: ObservableObject {
     @Published private(set) var managedTargets: [ManagedMonthlyTarget] = []
     @Published var selectedTargetID: UUID?
     @Published private(set) var settingsDestination: SettingsDestination = .overview
+    @Published private(set) var learnedRulesMerchantPatternHandoff: String?
     @Published private(set) var learnedRuleManagerSnapshot: LearnedRuleManagerSnapshot?
     @Published private(set) var reviewCreatedLearnedRuleAction: ReviewCreatedLearnedRuleAction?
     @Published private(set) var pendingAppSectionNavigation: AppSection?
@@ -235,6 +236,10 @@ final class WorkspaceShellModel: ObservableObject {
 
     var analysisMerchantsSelection: AnalysisMerchantsSelection? {
         analysisScreenState.merchants.selection
+    }
+
+    var analysisMerchantsSort: AnalysisScreenState.MerchantsState.Sort {
+        analysisScreenState.merchants.sort
     }
 
     func scheduleReviewRulePreview(
@@ -443,6 +448,12 @@ final class WorkspaceShellModel: ObservableObject {
         }
     }
 
+    func setAnalysisMerchantsSort(_ sort: AnalysisScreenState.MerchantsState.Sort) {
+        updateAnalysisScreenState {
+            $0.setMerchantsSort(sort)
+        }
+    }
+
     func setAnalysisRange(_ range: AnalysisRange) {
         updateAnalysisContext { context in
             context.range = range
@@ -598,10 +609,12 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func directSettingsSidebarEntry() {
+        learnedRulesMerchantPatternHandoff = nil
         settingsDestination = .overview
     }
 
     func directRulesSidebarEntry() {
+        learnedRulesMerchantPatternHandoff = nil
         settingsDestination = .learnedRulesRoute()
     }
 
@@ -619,13 +632,30 @@ final class WorkspaceShellModel: ObservableObject {
     }
 
     func showRulesDestination(_ destination: SettingsDestination) {
+        learnedRulesMerchantPatternHandoff = nil
         settingsDestination = destination
         pendingAppSectionNavigation = .rules
     }
 
     func showLearnedRules(selection: LearnedRulesDestination.Selection? = nil) {
+        learnedRulesMerchantPatternHandoff = nil
         settingsDestination = SettingsDestination.learnedRulesRoute(selection: selection)
         pendingAppSectionNavigation = .rules
+    }
+
+    func showLearnedRules(merchantPattern: String) {
+        learnedRulesMerchantPatternHandoff = merchantPattern
+        settingsDestination = .learnedRulesRoute()
+        pendingAppSectionNavigation = .rules
+    }
+
+    func consumeLearnedRulesMerchantPatternHandoff() -> String? {
+        let handoff = learnedRulesMerchantPatternHandoff?.trimmingCharacters(in: .whitespacesAndNewlines)
+        learnedRulesMerchantPatternHandoff = nil
+        guard let handoff, handoff.isEmpty == false else {
+            return nil
+        }
+        return handoff
     }
 
     func showLearnedRules(selectedLearnedRuleID: UUID?) {

@@ -172,6 +172,10 @@ struct AnalysisView: View {
             if let merchants = model.analysisSnapshot.merchants {
                 AnalysisMerchantsView(
                     snapshot: merchants,
+                    sort: Binding(
+                        get: { model.analysisMerchantsSort },
+                        set: { model.setAnalysisMerchantsSort($0) }
+                    ),
                     selection: Binding(
                         get: { model.analysisMerchantsSelection },
                         set: { model.setAnalysisMerchantsSelection($0) }
@@ -183,8 +187,8 @@ struct AnalysisView: View {
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
                     },
-                    onShowRules: { _ in
-                        model.showLearnedRules()
+                    onShowRules: { merchantPattern in
+                        model.showLearnedRules(merchantPattern: merchantPattern)
                     }
                 )
             }

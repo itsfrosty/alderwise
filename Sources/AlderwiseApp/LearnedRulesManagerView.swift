@@ -352,25 +352,35 @@ struct LearnedRulesManagerView: View {
     }
 
     private func syncDestination(_ destination: LearnedRulesDestination, force: Bool) {
-        guard force || lastSyncedDestination != destination else {
+        let merchantPatternHandoff = model.consumeLearnedRulesMerchantPatternHandoff()
+
+        guard force || lastSyncedDestination != destination || merchantPatternHandoff != nil else {
             return
         }
 
         lastSyncedDestination = destination
 
+        searchText = LearnedRulesManagerRouteSync.searchTextForNavigation(
+            currentSearchText: searchText,
+            destination: destination,
+            merchantPatternHandoff: merchantPatternHandoff,
+            learnedRows: learnedRows,
+            categoryNamesByID: categoryNamesByID
+        )
+
         if let selection = destination.selection {
             switch selection {
             case .learnedRule(let id):
-                searchText = LearnedRulesManagerRouteSync.revealedSearchTextForDeepLink(
-                    currentSearchText: searchText,
-                    selectedLearnedRuleID: id,
-                    learnedRows: learnedRows,
-                    categoryNamesByID: categoryNamesByID
-                )
                 selectedRowID = .learned(id)
             case .seededSource(let id):
                 selectedRowID = .seeded(id)
             }
+            return
+        }
+
+        if merchantPatternHandoff != nil {
+            selectedRowID = nil
+            syncSelectionToVisibleRows()
             return
         }
 
@@ -476,6 +486,34 @@ struct LearnedRulesManagerView: View {
 }
 
 enum LearnedRulesManagerRouteSync {
+    static func searchTextForNavigation(
+        currentSearchText: String,
+        destination: LearnedRulesDestination,
+        merchantPatternHandoff: String?,
+        learnedRows: [ManagedLearnedRuleRow],
+        categoryNamesByID: [UUID: String]
+    ) -> String {
+        if let selection = destination.selection {
+            switch selection {
+            case .learnedRule(let id):
+                return revealedSearchTextForDeepLink(
+                    currentSearchText: currentSearchText,
+                    selectedLearnedRuleID: id,
+                    learnedRows: learnedRows,
+                    categoryNamesByID: categoryNamesByID
+                )
+            case .seededSource:
+                return currentSearchText
+            }
+        }
+
+        guard let merchantPatternHandoff else {
+            return currentSearchText
+        }
+
+        return merchantPatternHandoff
+    }
+
     static func revealedSearchTextForDeepLink(
         currentSearchText: String,
         selectedLearnedRuleID: UUID,

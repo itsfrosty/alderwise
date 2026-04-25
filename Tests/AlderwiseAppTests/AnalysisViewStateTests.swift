@@ -162,6 +162,27 @@ func analysisCategorySortStateSurvivesTransactionDrilldownAndReturn() {
 
 @Test
 @MainActor
+func analysisMerchantSortStateSurvivesTransactionDrilldownAndReturn() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+
+    model.showAnalysis(page: .merchants)
+    model.setAnalysisMerchantsSort(.alphabetical)
+    model.showAnalysisTransactions(filter:
+        TransactionLedgerFilter(
+            normalizedMerchantName: "blue bottle",
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
+            visibility: .active
+        )
+    )
+    model.showAnalysis(page: .merchants)
+
+    #expect(model.analysisMerchantsSort == .alphabetical)
+    #expect(model.pendingAppSectionNavigation == .analysis)
+}
+
+@Test
+@MainActor
 func analysisMerchantsSelectionSurvivesTransactionDrilldown() {
     let model = WorkspaceShellModel(store: nil, service: nil)
     let selection = AnalysisMerchantsSelection.merchant(

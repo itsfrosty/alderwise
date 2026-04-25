@@ -180,6 +180,166 @@ func categoriesPageTargetHandoffFollowsTheSelectedRowInsteadOfTheSortedPosition(
     #expect(state.selectedTargetProgress(in: snapshot)?.id == selectedTarget.id)
 }
 
+@Test
+func merchantsPageDefaultsToLargestCurrentSpend() {
+    let bakery = analysisEntityMerchantRow(
+        title: "Bakery",
+        normalizedName: "bakery",
+        currentSpend: Decimal(180),
+        comparisonSpend: Decimal(120)
+    )
+    let coffee = analysisEntityMerchantRow(
+        title: "Coffee",
+        normalizedName: "coffee",
+        currentSpend: Decimal(320),
+        comparisonSpend: Decimal(100)
+    )
+    let state = AnalysisScreenState.MerchantsState()
+
+    #expect(state.sort == .largestCurrentSpend)
+    #expect(state.sortedMerchants(in: analysisEntityMerchantsSnapshot(merchants: [bakery, coffee])).map(\.key) == [
+        coffee.key,
+        bakery.key,
+    ])
+}
+
+@Test
+func merchantsPageSelectionAfterSortingRemainsAnchoredToMerchantIdentity() {
+    let selectedMerchant = analysisEntityMerchantRow(
+        title: "Blue Bottle",
+        normalizedName: "blue bottle",
+        currentSpend: Decimal(120),
+        comparisonSpend: Decimal(80)
+    )
+    let alphabeticallyFirst = analysisEntityMerchantRow(
+        title: "Apple Market",
+        normalizedName: "apple market",
+        currentSpend: Decimal(320),
+        comparisonSpend: Decimal(60)
+    )
+    var state = AnalysisScreenState.MerchantsState()
+    let snapshot = analysisEntityMerchantsSnapshot(merchants: [selectedMerchant, alphabeticallyFirst])
+
+    state.selection = .merchant(selectedMerchant)
+    let spendOrder = state.sortedMerchants(in: snapshot)
+
+    state.sort = .alphabetical
+    let alphabeticalOrder = state.sortedMerchants(in: snapshot)
+
+    #expect(spendOrder.map(\.key) == [
+        alphabeticallyFirst.key,
+        selectedMerchant.key,
+    ])
+    #expect(alphabeticalOrder.map(\.key) == [
+        alphabeticallyFirst.key,
+        selectedMerchant.key,
+    ])
+    #expect(state.selection == .merchant(selectedMerchant))
+    #expect(state.selectedRuleHandoffMerchantName == selectedMerchant.key.normalizedName)
+}
+
+@Test
+func recurringCommitmentsSelectionAfterSortingRemainsAnchoredToRecurringIdentity() {
+    let selectedRecurring = analysisEntityRecurringRow(
+        normalizedName: "netflix",
+        accountID: analysisEntityPageStateID("00000000-0000-0000-0000-000000001061"),
+        cadence: .monthly,
+        observationCount: 3,
+        maximumAmount: Decimal(15.49)
+    )
+    let largerRecurring = analysisEntityRecurringRow(
+        normalizedName: "spotify",
+        accountID: analysisEntityPageStateID("00000000-0000-0000-0000-000000001062"),
+        cadence: .monthly,
+        observationCount: 4,
+        maximumAmount: Decimal(19.99)
+    )
+    var state = AnalysisScreenState.MerchantsState()
+    let snapshot = analysisEntityMerchantsSnapshot(recurring: [selectedRecurring, largerRecurring])
+
+    state.selection = .recurring(selectedRecurring)
+    let spendOrder = state.sortedRecurring(in: snapshot)
+
+    state.sort = .alphabetical
+    let alphabeticalOrder = state.sortedRecurring(in: snapshot)
+
+    #expect(spendOrder.map(\.detail.normalizedMerchantName) == [
+        "spotify",
+        "netflix",
+    ])
+    #expect(alphabeticalOrder.map(\.detail.normalizedMerchantName) == [
+        "netflix",
+        "spotify",
+    ])
+    #expect(state.selection == .recurring(selectedRecurring))
+    #expect(state.selectedRuleHandoffMerchantName == nil)
+}
+
+@Test
+func merchantsPageSelectionRepairsWhenTheMerchantStillExistsAfterSnapshotChanges() {
+    let selectedMerchant = analysisEntityMerchantRow(
+        title: "Blue Bottle",
+        normalizedName: "blue bottle",
+        currentSpend: Decimal(120),
+        comparisonSpend: Decimal(80)
+    )
+    let updatedSelectedMerchant = analysisEntityMerchantRow(
+        title: "Blue Bottle",
+        normalizedName: "blue bottle",
+        currentSpend: Decimal(220),
+        comparisonSpend: Decimal(80)
+    )
+    let otherMerchant = analysisEntityMerchantRow(
+        title: "Apple Market",
+        normalizedName: "apple market",
+        currentSpend: Decimal(320),
+        comparisonSpend: Decimal(60)
+    )
+    var state = AnalysisScreenState()
+
+    state.setMerchantsSelection(.merchant(selectedMerchant))
+    state.repairSelections(for: AnalysisSnapshot(
+        merchants: analysisEntityMerchantsSnapshot(merchants: [otherMerchant, updatedSelectedMerchant])
+    ))
+
+    #expect(state.merchants.selection == .merchant(updatedSelectedMerchant))
+    #expect(state.merchants.selectedRuleHandoffMerchantName == updatedSelectedMerchant.key.normalizedName)
+}
+
+@Test
+func merchantsPageRecurringSelectionRepairsWhenTheRecurringSeriesStillExistsAfterSnapshotChanges() {
+    let selectedRecurring = analysisEntityRecurringRow(
+        normalizedName: "netflix",
+        accountID: analysisEntityPageStateID("00000000-0000-0000-0000-000000001071"),
+        cadence: .monthly,
+        observationCount: 3,
+        maximumAmount: Decimal(15.49)
+    )
+    let updatedSelectedRecurring = analysisEntityRecurringRow(
+        normalizedName: "netflix",
+        accountID: analysisEntityPageStateID("00000000-0000-0000-0000-000000001071"),
+        cadence: .monthly,
+        observationCount: 4,
+        maximumAmount: Decimal(16.49)
+    )
+    let otherRecurring = analysisEntityRecurringRow(
+        normalizedName: "spotify",
+        accountID: analysisEntityPageStateID("00000000-0000-0000-0000-000000001072"),
+        cadence: .monthly,
+        observationCount: 4,
+        maximumAmount: Decimal(19.99)
+    )
+    var state = AnalysisScreenState()
+
+    state.setMerchantsSelection(.recurring(selectedRecurring))
+    state.repairSelections(for: AnalysisSnapshot(
+        merchants: analysisEntityMerchantsSnapshot(recurring: [otherRecurring, updatedSelectedRecurring])
+    ))
+
+    #expect(state.merchants.selection == .recurring(updatedSelectedRecurring))
+    #expect(state.merchants.selectedRuleHandoffMerchantName == nil)
+}
+
 private func analysisEntityCategoriesSnapshot(
     rows: [AnalysisSpendRow],
     targetProgress: [TargetProgress] = []
@@ -188,6 +348,20 @@ private func analysisEntityCategoriesSnapshot(
         context: AnalysisContext(),
         report: CategoryAnalysisReport(context: AnalysisContext(), rows: rows),
         targetProgress: targetProgress
+    )
+}
+
+private func analysisEntityMerchantsSnapshot(
+    merchants: [MerchantAnalysisRow] = [],
+    recurring: [MerchantRecurringReportRow] = []
+) -> AnalysisMerchantsSnapshot {
+    AnalysisMerchantsSnapshot(
+        context: AnalysisContext(),
+        report: MerchantAnalysisReport(
+            context: AnalysisContext(),
+            merchants: merchants,
+            recurring: recurring
+        )
     )
 }
 
@@ -213,6 +387,74 @@ private func analysisEntityCategoriesRow(
             reconciliationRule: .exactTransactionSum,
             destination: InsightEvidenceDestination(
                 scope: scope,
+                direction: .expense
+            )
+        )
+    )
+}
+
+private func analysisEntityMerchantRow(
+    title: String,
+    normalizedName: String,
+    currentSpend: Decimal,
+    comparisonSpend: Decimal
+) -> MerchantAnalysisRow {
+    MerchantAnalysisRow(
+        key: MerchantReportKey(normalizedName: normalizedName),
+        title: title,
+        currentSpend: currentSpend,
+        comparisonSpend: comparisonSpend,
+        delta: currentSpend - comparisonSpend,
+        evidence: InsightEvidence(
+            metricBasis: .includedVisibleExpenses,
+            resolvedInterval: DateInterval(
+                start: analysisEntityPageStateUTCDate(year: 2026, month: 4, day: 1),
+                end: analysisEntityPageStateUTCDate(year: 2026, month: 4, day: 16)
+            ),
+            scope: .merchant(normalizedName),
+            reconciliationRule: .exactTransactionSum,
+            destination: InsightEvidenceDestination(
+                scope: .merchant(normalizedName),
+                direction: .expense
+            )
+        )
+    )
+}
+
+private func analysisEntityRecurringRow(
+    normalizedName: String,
+    accountID: UUID,
+    cadence: RecurringChargeCadence,
+    observationCount: Int,
+    maximumAmount: Decimal
+) -> MerchantRecurringReportRow {
+    MerchantRecurringReportRow(
+        detail: RecurringChargeInsightDetail(
+            accountID: accountID,
+            normalizedMerchantName: normalizedName,
+            cadence: cadence,
+            observationCount: observationCount,
+            amountRange: RecurringChargeAmountRange(
+                minimum: maximumAmount,
+                maximum: maximumAmount
+            ),
+            supportingTransactionIDs: [
+                analysisEntityPageStateID("00000000-0000-0000-0000-000000001081")
+            ],
+            firstObservedDate: analysisEntityPageStateUTCDate(year: 2026, month: 2, day: 9),
+            lastObservedDate: analysisEntityPageStateUTCDate(year: 2026, month: 4, day: 9),
+            nextExpectedDateWindow: nil
+        ),
+        evidence: InsightEvidence(
+            metricBasis: .includedVisibleExpenses,
+            resolvedInterval: DateInterval(
+                start: analysisEntityPageStateUTCDate(year: 2026, month: 2, day: 9),
+                end: analysisEntityPageStateUTCDate(year: 2026, month: 4, day: 10)
+            ),
+            scope: .merchant(normalizedName),
+            reconciliationRule: .recurringObservationSet,
+            destination: InsightEvidenceDestination(
+                scope: .merchant(normalizedName),
                 direction: .expense
             )
         )

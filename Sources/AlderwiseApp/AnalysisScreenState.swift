@@ -41,6 +41,30 @@ struct AnalysisScreenState: Equatable, Sendable {
 
         var sort: Sort = .largestCurrentSpend
         var selection: AnalysisMerchantsSelection?
+
+        func sortedMerchants(in snapshot: AnalysisMerchantsSnapshot?) -> [MerchantAnalysisRow] {
+            guard let snapshot else {
+                return []
+            }
+
+            return snapshot.report.merchants.sorted(by: sort.areMerchantsInIncreasingDisplayOrder(lhs:rhs:))
+        }
+
+        func sortedRecurring(in snapshot: AnalysisMerchantsSnapshot?) -> [MerchantRecurringReportRow] {
+            guard let snapshot else {
+                return []
+            }
+
+            return snapshot.report.recurring.sorted(by: sort.areRecurringInIncreasingDisplayOrder(lhs:rhs:))
+        }
+
+        var selectedRuleHandoffMerchantName: String? {
+            guard case .merchant(let row) = selection else {
+                return nil
+            }
+
+            return row.key.normalizedName
+        }
     }
 
     var overview = OverviewState()
@@ -64,6 +88,10 @@ struct AnalysisScreenState: Equatable, Sendable {
 
     mutating func setMerchantsSelection(_ selection: AnalysisMerchantsSelection?) {
         merchants.selection = selection
+    }
+
+    mutating func setMerchantsSort(_ sort: MerchantsState.Sort) {
+        merchants.sort = sort
     }
 
     mutating func clearSelections() {
@@ -263,6 +291,58 @@ private extension AnalysisScreenState.CategoriesState.Sort {
         }
 
         return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    }
+
+    private func decimalCompare(_ lhs: Decimal, _ rhs: Decimal) -> ComparisonResult {
+        NSDecimalNumber(decimal: lhs).compare(NSDecimalNumber(decimal: rhs))
+    }
+}
+
+private extension AnalysisScreenState.MerchantsState.Sort {
+    func areMerchantsInIncreasingDisplayOrder(lhs: MerchantAnalysisRow, rhs: MerchantAnalysisRow) -> Bool {
+        switch self {
+        case .largestCurrentSpend:
+            if decimalCompare(lhs.currentSpend, rhs.currentSpend) != .orderedSame {
+                return decimalCompare(lhs.currentSpend, rhs.currentSpend) == .orderedDescending
+            }
+            if decimalCompare(abs(lhs.delta), abs(rhs.delta)) != .orderedSame {
+                return decimalCompare(abs(lhs.delta), abs(rhs.delta)) == .orderedDescending
+            }
+        case .alphabetical:
+            let titleOrder = lhs.title.localizedCaseInsensitiveCompare(rhs.title)
+            if titleOrder != .orderedSame {
+                return titleOrder == .orderedAscending
+            }
+            if decimalCompare(lhs.currentSpend, rhs.currentSpend) != .orderedSame {
+                return decimalCompare(lhs.currentSpend, rhs.currentSpend) == .orderedDescending
+            }
+        }
+
+        return lhs.key.normalizedName.localizedCaseInsensitiveCompare(rhs.key.normalizedName) == .orderedAscending
+    }
+
+    func areRecurringInIncreasingDisplayOrder(lhs: MerchantRecurringReportRow, rhs: MerchantRecurringReportRow) -> Bool {
+        switch self {
+        case .largestCurrentSpend:
+            if decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) != .orderedSame {
+                return decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) == .orderedDescending
+            }
+            if lhs.detail.observationCount != rhs.detail.observationCount {
+                return lhs.detail.observationCount > rhs.detail.observationCount
+            }
+        case .alphabetical:
+            let nameOrder = lhs.detail.normalizedMerchantName.localizedCaseInsensitiveCompare(
+                rhs.detail.normalizedMerchantName
+            )
+            if nameOrder != .orderedSame {
+                return nameOrder == .orderedAscending
+            }
+            if decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) != .orderedSame {
+                return decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) == .orderedDescending
+            }
+        }
+
+        return lhs.detail.accountID.uuidString < rhs.detail.accountID.uuidString
     }
 
     private func decimalCompare(_ lhs: Decimal, _ rhs: Decimal) -> ComparisonResult {
