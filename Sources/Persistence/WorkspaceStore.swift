@@ -2034,46 +2034,20 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
 
     public func fetchWorkspaceInsightSummary(referenceDate: Date) throws -> WorkspaceInsightSummary {
         let cappedReferenceDate = Calendar.alderwiseUTC.startOfDay(for: referenceDate)
-        return try databaseQueue.read { db in
-            let rows = try Row.fetchAll(
-                db,
-                sql: """
-                SELECT
-                    id,
-                    account_id,
-                    raw_description,
-                    normalized_merchant_name,
-                    amount,
-                    transaction_date
-                FROM transactions
-                WHERE is_hidden = 0
-                    AND direction = ?
-                    AND review_status IN (?, ?)
-                    AND amount < 0
-                    AND transaction_date <= ?
-                ORDER BY transaction_date ASC, id ASC
-                """,
-                arguments: [
-                    TransactionDirection.expense.rawValue,
-                    TransactionReviewStatus.accepted.rawValue,
-                    TransactionReviewStatus.pending.rawValue,
-                    cappedReferenceDate,
-                ]
-            )
-            let observations = try rows.map(recurringInsightObservation(from:))
-            return WorkspaceInsightSummary(
-                insights: recurringInsightCandidates(from: observations, referenceDate: cappedReferenceDate)
-                    .enumerated()
-                    .map { index, candidate in
-                        WorkspaceInsight(
-                            kind: .recurringCharge(candidate.detail),
-                            confidence: candidate.confidence,
-                            rank: index + 1,
-                            score: candidate.score
-                        )
-                    }
-            )
-        }
+        let facts = try fetchWorkspaceInsightFacts(referenceDate: cappedReferenceDate)
+        let recurringCandidates = recurringInsightCandidates(
+            from: facts.recurringObservations,
+            referenceDate: cappedReferenceDate
+        ).map(workspaceInsightCandidate(from:))
+        let driverCandidates = spendDriverChangeCandidates(
+            from: facts.monthlyReport,
+            referenceDate: cappedReferenceDate
+        )
+        let rankedInsights = WorkspaceInsightRanker.rankPhase1(recurringCandidates + driverCandidates)
+        return WorkspaceInsightSummary(
+            insights: rankedInsights,
+            homeProjectedInsights: WorkspaceInsightProjectionPolicy.projectHome(from: rankedInsights)
+        )
     }
 
     public func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport {
@@ -3137,6 +3111,80 @@ private func recurringInsightCandidates(
         .sorted(by: compareRecurringInsightCandidates)
 }
 
+private func workspaceInsightCandidate(
+    from candidate: RecurringInsightCandidate
+) -> WorkspaceInsightCandidate {
+    let detail = candidate.detail
+    let interval = DateInterval(
+        start: Calendar.alderwiseUTC.startOfDay(for: detail.firstObservedDate ?? detail.lastObservedDate),
+        end: Calendar.alderwiseUTC.date(
+            byAdding: DateComponents(day: 1),
+            to: Calendar.alderwiseUTC.startOfDay(for: detail.lastObservedDate)
+        ) ?? detail.lastObservedDate
+    )
+    let merchantName = detail.normalizedMerchantName
+    return WorkspaceInsightCandidate(
+        kind: .recurringCharge(detail),
+        confidence: candidate.confidence,
+        score: candidate.score,
+        suppressionKey: recurringSuppressionKey(detail: detail),
+        evidence: InsightEvidence(
+            metricBasis: .includedVisibleExpenses,
+            resolvedInterval: interval,
+            scope: .merchant(merchantName),
+            reconciliationRule: .recurringObservationSet,
+            destination: InsightEvidenceDestination(scope: .merchant(merchantName), direction: .expense)
+        ),
+        tieBreaker: WorkspaceInsightTieBreaker(
+            primaryDate: detail.lastObservedDate,
+            secondaryKey: String(format: "%05d:%@", 99_999 - detail.observationCount, merchantName),
+            tertiaryKey: detail.accountID.uuidString
+        )
+    )
+}
+
+private func spendDriverChangeCandidates(
+    from monthlyReport: MonthlyReport,
+    referenceDate: Date
+) -> [WorkspaceInsightCandidate] {
+    guard let driver = monthlyReport.drivers.first(where: { $0.delta >= Decimal(50) }) else {
+        return []
+    }
+
+    let monthInterval = monthInterval(containing: referenceDate)
+    let detail = SpendDriverChangeInsightDetail(
+        title: driver.title,
+        scope: driver.scope,
+        currentSpend: driver.currentPeriodSpend,
+        comparisonSpend: driver.comparisonPeriodSpend,
+        delta: driver.delta
+    )
+
+    return [
+        WorkspaceInsightCandidate(
+            kind: .spendDriverChange(detail),
+            confidence: 1,
+            score: min(70 + (decimalDouble(driver.delta) / 2), 125),
+            suppressionKey: spendDriverSuppressionKey(for: driver.scope),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: monthInterval,
+                scope: insightEvidenceScope(for: driver.scope),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: insightEvidenceScope(for: driver.scope),
+                    direction: .expense
+                )
+            ),
+            tieBreaker: WorkspaceInsightTieBreaker(
+                primaryDate: referenceDate,
+                secondaryKey: driver.title,
+                tertiaryKey: spendDriverStableIdentifier(for: driver.scope)
+            )
+        ),
+    ]
+}
+
 private func recurringInsightCandidate(
     from observations: [RecurringInsightObservation],
     referenceDate: Date
@@ -3470,21 +3518,7 @@ private func merchantRecurringRows(from summary: WorkspaceInsightSummary) -> [Me
         guard case .recurringCharge(let detail) = insight.kind else {
             return nil
         }
-        let interval = DateInterval(
-            start: Calendar.alderwiseUTC.startOfDay(for: detail.firstObservedDate ?? detail.lastObservedDate),
-            end: Calendar.alderwiseUTC.date(
-                byAdding: DateComponents(day: 1),
-                to: Calendar.alderwiseUTC.startOfDay(for: detail.lastObservedDate)
-            ) ?? detail.lastObservedDate
-        )
-        let evidence = InsightEvidence(
-            metricBasis: .includedVisibleExpenses,
-            resolvedInterval: interval,
-            scope: .merchant(detail.normalizedMerchantName),
-            reconciliationRule: .recurringObservationSet,
-            destination: InsightEvidenceDestination(scope: .merchant(detail.normalizedMerchantName))
-        )
-        return MerchantRecurringReportRow(detail: detail, evidence: evidence)
+        return MerchantRecurringReportRow(detail: detail, evidence: insight.evidence)
     }
 }
 
@@ -3648,6 +3682,25 @@ private func insightEvidenceScope(for scope: SpendingDriverScope) -> InsightEvid
         .categoryGroup(id)
     case .uncategorized:
         .uncategorized
+    }
+}
+
+private func recurringSuppressionKey(detail: RecurringChargeInsightDetail) -> String {
+    "recurring:\(detail.accountID.uuidString):\(detail.normalizedMerchantName):\(detail.cadence.rawValue)"
+}
+
+private func spendDriverSuppressionKey(for scope: SpendingDriverScope) -> String {
+    "driver:\(spendDriverStableIdentifier(for: scope))"
+}
+
+private func spendDriverStableIdentifier(for scope: SpendingDriverScope) -> String {
+    switch scope {
+    case .category(let id):
+        "category:\(id.uuidString)"
+    case .categoryGroup(let id):
+        "category-group:\(id.uuidString)"
+    case .uncategorized:
+        "uncategorized"
     }
 }
 
@@ -5042,6 +5095,11 @@ private struct RecurringInsightGroupKey: Hashable {
     let normalizedMerchantName: String
 }
 
+private struct WorkspaceInsightFactBundle {
+    let monthlyReport: MonthlyReport
+    let recurringObservations: [RecurringInsightObservation]
+}
+
 private struct RecurringInsightCandidate {
     let detail: RecurringChargeInsightDetail
     let confidence: Double
@@ -5054,3 +5112,42 @@ private struct SpendingDriverRollup: Hashable {
 }
 
 private typealias DriverBuckets = [SpendingDriverRollup: Decimal]
+
+private extension WorkspaceStore {
+    func fetchWorkspaceInsightFacts(referenceDate: Date) throws -> WorkspaceInsightFactBundle {
+        let monthlyReport = try fetchMonthlyReport(referenceDate: referenceDate)
+        let recurringObservations = try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT
+                    id,
+                    account_id,
+                    raw_description,
+                    normalized_merchant_name,
+                    amount,
+                    transaction_date
+                FROM transactions
+                WHERE is_hidden = 0
+                    AND direction = ?
+                    AND review_status IN (?, ?)
+                    AND amount < 0
+                    AND transaction_date <= ?
+                ORDER BY transaction_date ASC, id ASC
+                """,
+                arguments: [
+                    TransactionDirection.expense.rawValue,
+                    TransactionReviewStatus.accepted.rawValue,
+                    TransactionReviewStatus.pending.rawValue,
+                    referenceDate,
+                ]
+            )
+            return try rows.map(recurringInsightObservation(from:))
+        }
+
+        return WorkspaceInsightFactBundle(
+            monthlyReport: monthlyReport,
+            recurringObservations: recurringObservations
+        )
+    }
+}

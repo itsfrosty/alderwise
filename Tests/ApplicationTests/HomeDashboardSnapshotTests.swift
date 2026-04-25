@@ -654,7 +654,26 @@ private func homeDashboardRecurringInsights(
                 ),
                 confidence: 0.92,
                 rank: 1,
-                score: 92
+                score: 92,
+                suppressionKey: "recurring:\(merchantName)",
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: homeDashboardUTCDate(year: 2026, month: 2, day: 9),
+                        end: homeDashboardUTCDate(year: 2026, month: 4, day: 10)
+                    ),
+                    scope: .merchant(merchantName),
+                    reconciliationRule: .recurringObservationSet,
+                    destination: InsightEvidenceDestination(
+                        scope: .merchant(merchantName),
+                        direction: .expense
+                    )
+                ),
+                tieBreaker: WorkspaceInsightTieBreaker(
+                    primaryDate: homeDashboardUTCDate(year: 2026, month: 4, day: 9),
+                    secondaryKey: merchantName,
+                    tertiaryKey: "home-dashboard"
+                )
             ),
         ]
     )

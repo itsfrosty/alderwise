@@ -1158,7 +1158,26 @@ func loadSnapshotThreadsWorkspaceInsightsWhenStoreImplementsInsightsReader() thr
                 ),
                 confidence: 0.92,
                 rank: 1,
-                score: 92
+                score: 92,
+                suppressionKey: "recurring:netflix",
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_771_718_400),
+                        end: Date(timeIntervalSince1970: 1_776_988_800)
+                    ),
+                    scope: .merchant("netflix"),
+                    reconciliationRule: .recurringObservationSet,
+                    destination: InsightEvidenceDestination(
+                        scope: .merchant("netflix"),
+                        direction: .expense
+                    )
+                ),
+                tieBreaker: WorkspaceInsightTieBreaker(
+                    primaryDate: Date(timeIntervalSince1970: 1_776_902_400),
+                    secondaryKey: "netflix",
+                    tertiaryKey: baseStore.accounts[0].id.uuidString
+                )
             ),
         ]
     )
@@ -1207,7 +1226,26 @@ func loadSnapshotProjectsRecurringInsightIntoHomeDashboardWhenStoreImplementsIns
                 ),
                 confidence: 0.92,
                 rank: 1,
-                score: 92
+                score: 92,
+                suppressionKey: "recurring:netflix",
+                evidence: InsightEvidence(
+                    metricBasis: .includedVisibleExpenses,
+                    resolvedInterval: DateInterval(
+                        start: Date(timeIntervalSince1970: 1_771_718_400),
+                        end: Date(timeIntervalSince1970: 1_776_988_800)
+                    ),
+                    scope: .merchant("netflix"),
+                    reconciliationRule: .recurringObservationSet,
+                    destination: InsightEvidenceDestination(
+                        scope: .merchant("netflix"),
+                        direction: .expense
+                    )
+                ),
+                tieBreaker: WorkspaceInsightTieBreaker(
+                    primaryDate: Date(timeIntervalSince1970: 1_776_902_400),
+                    secondaryKey: "netflix",
+                    tertiaryKey: baseStore.accounts[0].id.uuidString
+                )
             ),
         ]
     )
@@ -1223,6 +1261,7 @@ func loadSnapshotProjectsRecurringInsightIntoHomeDashboardWhenStoreImplementsIns
             endDate: Date(timeIntervalSince1970: 1_776_988_799),
             normalizedMerchantName: "netflix",
             direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
             visibility: .active
         )
     ))

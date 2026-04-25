@@ -598,6 +598,8 @@ public struct HomeDashboardSnapshot: Equatable, Sendable {
         switch insight.kind {
         case .recurringCharge(let detail):
             detail
+        case .spendDriverChange:
+            nil
         }
     }
 

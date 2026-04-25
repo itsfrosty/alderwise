@@ -5331,6 +5331,114 @@ func fetchWorkspaceInsightSummaryRanksRecurringCandidatesDeterministically() thr
     #expect(summary.insights[4].confidence > summary.insights[5].confidence)
 }
 
+@Test
+func fetchWorkspaceInsightSummaryAddsSpendDriverChangeInsightWithEvidence() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let foodGroupID = UUID(uuidString: "00000000-0000-0000-0000-00000000aa01")!
+    let diningID = UUID(uuidString: "00000000-0000-0000-0000-00000000aa02")!
+    try insertCategoryGroup(databaseURL: databaseURL, id: foodGroupID, name: "Food")
+    try insertCategory(databaseURL: databaseURL, id: diningID, name: "Dining", kind: "expense", categoryGroupID: foodGroupID)
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-00000000aa11")!,
+        accountID: account.id,
+        categoryID: diningID,
+        importSessionID: nil,
+        rawDescription: "Dining April",
+        normalizedMerchantName: "dining april",
+        amount: Decimal(-180),
+        transactionDate: recurringUTCDate(year: 2026, month: 4, day: 10),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-00000000aa12")!,
+        accountID: account.id,
+        categoryID: diningID,
+        importSessionID: nil,
+        rawDescription: "Dining March",
+        normalizedMerchantName: "dining march",
+        amount: Decimal(-40),
+        transactionDate: recurringUTCDate(year: 2026, month: 3, day: 10),
+        reviewStatus: "accepted"
+    )
+
+    let summary = try store.fetchWorkspaceInsightSummary(referenceDate: recurringUTCDate(year: 2026, month: 4, day: 15))
+    let insight = try #require(summary.insights.first(where: { spendDriverChangeDetail(from: $0) != nil }))
+    let detail = try #require(spendDriverChangeDetail(from: insight))
+
+    #expect(detail.title == "Food")
+    #expect(detail.scope == .categoryGroup(foodGroupID))
+    #expect(detail.currentSpend == Decimal(180))
+    #expect(detail.comparisonSpend == Decimal(40))
+    #expect(detail.delta == Decimal(140))
+    #expect(insight.family == .spendDriverChange)
+    #expect(insight.evidence.scope == .categoryGroup(foodGroupID))
+    #expect(insight.evidence.destination == InsightEvidenceDestination(
+        scope: .categoryGroup(foodGroupID),
+        direction: .expense
+    ))
+    #expect(summary.homeProjectedInsights.contains(where: { candidate in
+        spendDriverChangeDetail(from: candidate) != nil
+    }))
+}
+
+@Test
+func fetchWorkspaceInsightSummaryRanksSpendDriverChangeAgainstRecurringInsights() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let foodGroupID = UUID(uuidString: "00000000-0000-0000-0000-00000000ab01")!
+    let diningID = UUID(uuidString: "00000000-0000-0000-0000-00000000ab02")!
+    try insertCategoryGroup(databaseURL: databaseURL, id: foodGroupID, name: "Food")
+    try insertCategory(databaseURL: databaseURL, id: diningID, name: "Dining", kind: "expense", categoryGroupID: foodGroupID)
+    _ = try insertRecurringTransactions(
+        databaseURL: databaseURL,
+        accountID: account.id,
+        normalizedMerchantName: "video streaming",
+        observations: [
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000ab11")!, Decimal(-12.99), recurringUTCDate(year: 2026, month: 1, day: 9), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000ab12")!, Decimal(-12.99), recurringUTCDate(year: 2026, month: 2, day: 9), "accepted", false),
+            (UUID(uuidString: "00000000-0000-0000-0000-00000000ab13")!, Decimal(-13.49), recurringUTCDate(year: 2026, month: 3, day: 9), "accepted", false),
+        ]
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-00000000ab21")!,
+        accountID: account.id,
+        categoryID: diningID,
+        importSessionID: nil,
+        rawDescription: "Dining April",
+        normalizedMerchantName: "dining april",
+        amount: Decimal(-240),
+        transactionDate: recurringUTCDate(year: 2026, month: 4, day: 10),
+        reviewStatus: "accepted"
+    )
+    try insertLedgerTransaction(
+        databaseURL: databaseURL,
+        id: UUID(uuidString: "00000000-0000-0000-0000-00000000ab22")!,
+        accountID: account.id,
+        categoryID: diningID,
+        importSessionID: nil,
+        rawDescription: "Dining March",
+        normalizedMerchantName: "dining march",
+        amount: Decimal(-30),
+        transactionDate: recurringUTCDate(year: 2026, month: 3, day: 10),
+        reviewStatus: "accepted"
+    )
+
+    let summary = try store.fetchWorkspaceInsightSummary(referenceDate: recurringUTCDate(year: 2026, month: 4, day: 15))
+
+    #expect(summary.insights.prefix(2).map(\.family) == [.spendDriverChange, .recurringCharge])
+    #expect(summary.homeProjectedInsights.map(\.family) == [.spendDriverChange, .recurringCharge])
+}
+
 private func temporaryDatabaseURL() throws -> URL {
     let directory = try temporaryDirectoryURL()
     return directory.appending(path: "workspace.sqlite")
@@ -6210,6 +6318,17 @@ private func insertRecurringTransactions(
 private func recurringDetail(from insight: WorkspaceInsight) -> RecurringChargeInsightDetail? {
     switch insight.kind {
     case let .recurringCharge(detail):
+        detail
+    case .spendDriverChange:
+        nil
+    }
+}
+
+private func spendDriverChangeDetail(from insight: WorkspaceInsight) -> SpendDriverChangeInsightDetail? {
+    switch insight.kind {
+    case .recurringCharge:
+        nil
+    case let .spendDriverChange(detail):
         detail
     }
 }

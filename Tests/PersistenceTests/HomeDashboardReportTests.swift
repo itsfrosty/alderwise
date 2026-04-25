@@ -536,5 +536,7 @@ private func homeDashboardRecurringDetail(from insight: WorkspaceInsight) -> Rec
     switch insight.kind {
     case let .recurringCharge(detail):
         detail
+    case .spendDriverChange:
+        nil
     }
 }
