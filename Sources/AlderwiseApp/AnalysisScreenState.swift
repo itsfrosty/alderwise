@@ -15,6 +15,22 @@ struct AnalysisScreenState: Equatable, Sendable {
 
         var sort: Sort = .largestCurrentSpend
         var selection: AnalysisCategoriesSelection?
+
+        func sortedRows(in snapshot: AnalysisCategoriesSnapshot?) -> [AnalysisSpendRow] {
+            guard let snapshot else {
+                return []
+            }
+
+            return snapshot.report.rows.sorted(by: sort.areInIncreasingDisplayOrder(lhs:rhs:))
+        }
+
+        func selectedTargetProgress(in snapshot: AnalysisCategoriesSnapshot?) -> TargetProgress? {
+            guard let snapshot, let selection else {
+                return nil
+            }
+
+            return snapshot.targetProgress(for: selection)
+        }
     }
 
     struct MerchantsState: Equatable, Sendable {
@@ -40,6 +56,10 @@ struct AnalysisScreenState: Equatable, Sendable {
 
     mutating func setCategoriesSelection(_ selection: AnalysisCategoriesSelection?) {
         categories.selection = selection
+    }
+
+    mutating func setCategoriesSort(_ sort: CategoriesState.Sort) {
+        categories.sort = sort
     }
 
     mutating func setMerchantsSelection(_ selection: AnalysisMerchantsSelection?) {
@@ -220,5 +240,32 @@ struct AnalysisScreenState: Equatable, Sendable {
                 normalizedMerchantName: row.detail.normalizedMerchantName
             )
         }
+    }
+}
+
+private extension AnalysisScreenState.CategoriesState.Sort {
+    func areInIncreasingDisplayOrder(lhs: AnalysisSpendRow, rhs: AnalysisSpendRow) -> Bool {
+        switch self {
+        case .largestCurrentSpend:
+            if decimalCompare(lhs.currentSpend, rhs.currentSpend) != .orderedSame {
+                return decimalCompare(lhs.currentSpend, rhs.currentSpend) == .orderedDescending
+            }
+            if decimalCompare(abs(lhs.delta), abs(rhs.delta)) != .orderedSame {
+                return decimalCompare(abs(lhs.delta), abs(rhs.delta)) == .orderedDescending
+            }
+        case .largestDelta:
+            if decimalCompare(abs(lhs.delta), abs(rhs.delta)) != .orderedSame {
+                return decimalCompare(abs(lhs.delta), abs(rhs.delta)) == .orderedDescending
+            }
+            if decimalCompare(lhs.currentSpend, rhs.currentSpend) != .orderedSame {
+                return decimalCompare(lhs.currentSpend, rhs.currentSpend) == .orderedDescending
+            }
+        }
+
+        return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+    }
+
+    private func decimalCompare(_ lhs: Decimal, _ rhs: Decimal) -> ComparisonResult {
+        NSDecimalNumber(decimal: lhs).compare(NSDecimalNumber(decimal: rhs))
     }
 }

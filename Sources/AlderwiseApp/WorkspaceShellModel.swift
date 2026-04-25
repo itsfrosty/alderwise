@@ -229,6 +229,10 @@ final class WorkspaceShellModel: ObservableObject {
         analysisScreenState.categories.selection
     }
 
+    var analysisCategoriesSort: AnalysisScreenState.CategoriesState.Sort {
+        analysisScreenState.categories.sort
+    }
+
     var analysisMerchantsSelection: AnalysisMerchantsSelection? {
         analysisScreenState.merchants.selection
     }
@@ -424,6 +428,12 @@ final class WorkspaceShellModel: ObservableObject {
     func setAnalysisCategoriesSelection(_ selection: AnalysisCategoriesSelection?) {
         updateAnalysisScreenState {
             $0.setCategoriesSelection(selection)
+        }
+    }
+
+    func setAnalysisCategoriesSort(_ sort: AnalysisScreenState.CategoriesState.Sort) {
+        updateAnalysisScreenState {
+            $0.setCategoriesSort(sort)
         }
     }
 

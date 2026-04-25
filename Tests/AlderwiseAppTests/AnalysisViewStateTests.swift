@@ -141,6 +141,27 @@ func analysisCategoriesSelectionPersistsWhenShowingTarget() {
 
 @Test
 @MainActor
+func analysisCategorySortStateSurvivesTransactionDrilldownAndReturn() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+
+    model.showAnalysis(page: .categories)
+    model.setAnalysisCategoriesSort(.largestDelta)
+    model.showAnalysisTransactions(filter:
+        TransactionLedgerFilter(
+            categoryID: analysisViewStateID("00000000-0000-0000-0000-000000000611"),
+            direction: .expense,
+            reviewStatuses: Set([.accepted, .pending]),
+            visibility: .active
+        )
+    )
+    model.showAnalysis(page: .categories)
+
+    #expect(model.analysisCategoriesSort == .largestDelta)
+    #expect(model.pendingAppSectionNavigation == .analysis)
+}
+
+@Test
+@MainActor
 func analysisMerchantsSelectionSurvivesTransactionDrilldown() {
     let model = WorkspaceShellModel(store: nil, service: nil)
     let selection = AnalysisMerchantsSelection.merchant(
@@ -522,10 +543,13 @@ func analysisContextChangesRepairPageLocalSelectionAgainstTheReloadedSnapshot() 
         let otherRow = analysisViewCategoriesRow(
             title: "Travel",
             scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000912")),
-            currentSpend: Decimal(70),
+            currentSpend: context.range == .yearToDate ? Decimal(420) : Decimal(70),
             comparisonSpend: Decimal(40)
         )
-        return CategoryAnalysisReport(context: context, rows: [selectedRow, otherRow])
+        return CategoryAnalysisReport(
+            context: context,
+            rows: context.range == .yearToDate ? [otherRow, selectedRow] : [selectedRow, otherRow]
+        )
     }
     let service = WorkspaceService(store: store)
     let model = WorkspaceShellModel(
@@ -535,18 +559,22 @@ func analysisContextChangesRepairPageLocalSelectionAgainstTheReloadedSnapshot() 
     )
 
     model.showAnalysis(page: .categories)
+    model.setAnalysisCategoriesSort(.largestDelta)
     let initialSelection = try #require(model.analysisSnapshot.categories?.report.rows.first)
     model.setAnalysisCategoriesSelection(.row(initialSelection))
 
     model.setAnalysisRange(.yearToDate)
 
     let repairedSelection = try #require(model.analysisCategoriesSelection)
+    let repairedRows = try #require(model.analysisSnapshot.categories?.report.rows)
     let repairedRow: AnalysisSpendRow
     switch repairedSelection {
     case .row(let row):
         repairedRow = row
     }
 
+    #expect(model.analysisCategoriesSort == .largestDelta)
+    #expect(repairedRows.first?.scope != repairedRow.scope)
     #expect(repairedRow.scope == .category(selectedScope))
     #expect(repairedRow.currentSpend == Decimal(320))
 }

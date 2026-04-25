@@ -148,6 +148,10 @@ struct AnalysisView: View {
             if let categories = model.analysisSnapshot.categories {
                 AnalysisCategoriesView(
                     snapshot: categories,
+                    sort: Binding(
+                        get: { model.analysisCategoriesSort },
+                        set: { model.setAnalysisCategoriesSort($0) }
+                    ),
                     selection: Binding(
                         get: { model.analysisCategoriesSelection },
                         set: { model.setAnalysisCategoriesSelection($0) }
