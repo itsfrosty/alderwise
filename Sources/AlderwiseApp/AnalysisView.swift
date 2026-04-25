@@ -65,6 +65,14 @@ struct AnalysisView: View {
         }
         .navigationTitle("Analysis")
         .toolbar {
+            AnalysisContextControls(
+                page: selectedPage,
+                context: model.analysisContext,
+                snapshot: model.analysisSnapshot,
+                setRange: model.setAnalysisRange,
+                setComparison: model.setAnalysisComparison
+            )
+
             ToolbarItem {
                 Button {
                     model.toggleAnalysisInspector()

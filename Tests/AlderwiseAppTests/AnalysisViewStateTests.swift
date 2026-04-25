@@ -472,6 +472,96 @@ func showAnalysisLoadsAnalysisSnapshotLazilyUsingTheSharedReferenceDate() throws
     #expect(model.analysisSnapshot.categories?.report.rows.isEmpty == true)
 }
 
+@Test
+@MainActor
+func analysisContextChangesReloadTheVisibleAnalysisSnapshot() throws {
+    let now = analysisViewStateUTCDate(year: 2026, month: 4, day: 15)
+    let store = AnalysisLoadingWorkspaceStore(referenceDate: now)
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: service,
+        referenceDateProvider: { now }
+    )
+
+    model.showAnalysis(page: .categories)
+    let initialFetchCount = store.fetchedAnalysisContexts.count
+
+    model.setAnalysisRange(.yearToDate)
+    model.setAnalysisComparison(.samePeriodLastYear)
+
+    #expect(store.fetchedAnalysisContexts.count == initialFetchCount + 6)
+    #expect(store.fetchedAnalysisContexts[initialFetchCount].range == .yearToDate)
+    #expect(store.fetchedAnalysisContexts[initialFetchCount + 3].comparison == .samePeriodLastYear)
+    #expect(model.analysisContext.range == .yearToDate)
+    #expect(model.analysisContext.comparison == .samePeriodLastYear)
+}
+
+@Test
+@MainActor
+func analysisContextChangesRepairPageLocalSelectionAgainstTheReloadedSnapshot() throws {
+    let now = analysisViewStateUTCDate(year: 2026, month: 4, day: 15)
+    let selectedScope = analysisViewStateID("00000000-0000-0000-0000-000000000911")
+    let store = AnalysisLoadingWorkspaceStore(referenceDate: now)
+    store.categoryReportProvider = { context in
+        let selectedRow = analysisViewCategoriesRow(
+            title: "Food",
+            scope: .category(selectedScope),
+            currentSpend: context.range == .yearToDate ? Decimal(320) : Decimal(180),
+            comparisonSpend: Decimal(90)
+        )
+        let otherRow = analysisViewCategoriesRow(
+            title: "Travel",
+            scope: .category(analysisViewStateID("00000000-0000-0000-0000-000000000912")),
+            currentSpend: Decimal(70),
+            comparisonSpend: Decimal(40)
+        )
+        return CategoryAnalysisReport(context: context, rows: [selectedRow, otherRow])
+    }
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: service,
+        referenceDateProvider: { now }
+    )
+
+    model.showAnalysis(page: .categories)
+    let initialSelection = try #require(model.analysisSnapshot.categories?.report.rows.first)
+    model.setAnalysisCategoriesSelection(.row(initialSelection))
+
+    model.setAnalysisRange(.yearToDate)
+
+    let repairedSelection = try #require(model.analysisCategoriesSelection)
+    let repairedRow: AnalysisSpendRow
+    switch repairedSelection {
+    case .row(let row):
+        repairedRow = row
+    }
+
+    #expect(repairedRow.scope == .category(selectedScope))
+    #expect(repairedRow.currentSpend == Decimal(320))
+}
+
+@Test
+@MainActor
+func analysisContextChangesDoNotChangeInspectorVisibility() {
+    let now = analysisViewStateUTCDate(year: 2026, month: 4, day: 15)
+    let store = AnalysisLoadingWorkspaceStore(referenceDate: now)
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(
+        store: nil,
+        service: service,
+        referenceDateProvider: { now }
+    )
+
+    model.showAnalysis(page: .merchants)
+    model.setAnalysisInspectorVisible(false)
+
+    model.setAnalysisComparison(.samePeriodLastYear)
+
+    #expect(model.analysisToolbarState.isInspectorVisible == false)
+}
+
 private func analysisViewStateUTCDate(year: Int, month: Int, day: Int) -> Date {
     var components = DateComponents()
     components.year = year
@@ -495,6 +585,21 @@ private final class AnalysisLoadingWorkspaceStore: WorkspaceStoring, StagedImpor
     let referenceDate: Date
     var fetchedAnalysisContexts: [AnalysisContext] = []
     var fetchManagedTargetsReferenceDates: [Date] = []
+    var overviewReportProvider: (AnalysisContext) -> OverviewReport = { context in
+        OverviewReport(
+            context: context,
+            currentSpend: Decimal(120),
+            comparisonSpend: Decimal(80),
+            drivers: [],
+            recurring: []
+        )
+    }
+    var categoryReportProvider: (AnalysisContext) -> CategoryAnalysisReport = { context in
+        CategoryAnalysisReport(context: context, rows: [])
+    }
+    var merchantReportProvider: (AnalysisContext) -> MerchantAnalysisReport = { context in
+        MerchantAnalysisReport(context: context, merchants: [], recurring: [])
+    }
 
     init(referenceDate: Date) {
         self.referenceDate = referenceDate
@@ -550,23 +655,17 @@ private final class AnalysisLoadingWorkspaceStore: WorkspaceStoring, StagedImpor
 
     func fetchOverviewReport(context: AnalysisContext) throws -> OverviewReport {
         fetchedAnalysisContexts.append(context)
-        return OverviewReport(
-            context: context,
-            currentSpend: Decimal(120),
-            comparisonSpend: Decimal(80),
-            drivers: [],
-            recurring: []
-        )
+        return overviewReportProvider(context)
     }
 
     func fetchCategoryAnalysisReport(context: AnalysisContext) throws -> CategoryAnalysisReport {
         fetchedAnalysisContexts.append(context)
-        return CategoryAnalysisReport(context: context, rows: [])
+        return categoryReportProvider(context)
     }
 
     func fetchMerchantAnalysisReport(context: AnalysisContext) throws -> MerchantAnalysisReport {
         fetchedAnalysisContexts.append(context)
-        return MerchantAnalysisReport(context: context, merchants: [], recurring: [])
+        return merchantReportProvider(context)
     }
 
     func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {
@@ -601,4 +700,32 @@ private final class AnalysisLoadingWorkspaceStore: WorkspaceStoring, StagedImpor
     }
 
     func deleteMonthlyTarget(id: UUID) throws {}
+}
+
+private func analysisViewCategoriesRow(
+    title: String,
+    scope: InsightEvidenceScope,
+    currentSpend: Decimal,
+    comparisonSpend: Decimal
+) -> AnalysisSpendRow {
+    AnalysisSpendRow(
+        title: title,
+        scope: scope,
+        currentSpend: currentSpend,
+        comparisonSpend: comparisonSpend,
+        delta: currentSpend - comparisonSpend,
+        evidence: InsightEvidence(
+            metricBasis: .includedVisibleExpenses,
+            resolvedInterval: DateInterval(
+                start: analysisViewStateUTCDate(year: 2026, month: 4, day: 1),
+                end: analysisViewStateUTCDate(year: 2026, month: 4, day: 16)
+            ),
+            scope: scope,
+            reconciliationRule: .exactTransactionSum,
+            destination: InsightEvidenceDestination(
+                scope: scope,
+                direction: .expense
+            )
+        )
+    )
 }

@@ -433,6 +433,19 @@ final class WorkspaceShellModel: ObservableObject {
         }
     }
 
+    func setAnalysisRange(_ range: AnalysisRange) {
+        updateAnalysisContext { context in
+            context.range = range
+            context.resolvedInterval = nil
+        }
+    }
+
+    func setAnalysisComparison(_ comparison: AnalysisComparisonMode) {
+        updateAnalysisContext { context in
+            context.comparison = comparison
+        }
+    }
+
     func showTarget(id: UUID?) {
         selectedTargetID = id
         pendingAppSectionNavigation = .targets
@@ -1152,6 +1165,28 @@ final class WorkspaceShellModel: ObservableObject {
         var nextState = analysisScreenState
         update(&nextState)
         analysisScreenState = nextState
+    }
+
+    private func updateAnalysisContext(
+        _ update: (inout AnalysisContext) -> Void
+    ) {
+        var nextContext = analysisContext
+        update(&nextContext)
+
+        guard nextContext != analysisContext else {
+            return
+        }
+
+        analysisContext = nextContext
+        reloadAnalysisSnapshotIfNeeded()
+    }
+
+    private func reloadAnalysisSnapshotIfNeeded() {
+        guard analysisSnapshot != .empty || analysisErrorMessage != nil else {
+            return
+        }
+
+        ensureAnalysisLoaded()
     }
 
     private func loadMerchantRecommendationEligibility(
