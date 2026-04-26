@@ -55,6 +55,76 @@ func previewCanApplyUserEditedMapping() throws {
 }
 
 @Test
+func artifactBackedPreviewCanRecoverRowsAfterRemapping() throws {
+    let service = CSVImportPreviewService()
+    let artifact = try service.makeParsedArtifact(from: multiShapeGenericCSV())
+
+    let inferredPreview = try service.makePreview(from: artifact, mapping: artifact.inferredMapping)
+    let recoveredPreview = try service.makePreview(
+        from: artifact,
+        mapping: alternateShapeMapping()
+    )
+
+    #expect(inferredPreview.sourceRows.map(\.sourceLineNumber) == [2])
+    #expect(recoveredPreview.sourceRows.map(\.sourceLineNumber) == [3])
+    #expect(recoveredPreview.previewRows.map(\.rawDescription) == ["Payroll"])
+    #expect(recoveredPreview.previewRows.map(\.interpretedAmount) == [88.10])
+}
+
+@Test
+func csvTextPreviewApplyingMappingRecoversRowsFromPreservedArtifact() throws {
+    let preview = try CSVImportPreviewService().makePreview(from: multiShapeGenericCSV())
+    let remappedPreview = preview.applying(mapping: alternateShapeMapping())
+
+    #expect(preview.parsedArtifact != nil)
+    #expect(remappedPreview.sourceRows.map(\.sourceLineNumber) == [3])
+    #expect(remappedPreview.previewRows.map(\.rawDescription) == ["Payroll"])
+    #expect(remappedPreview.previewRows.map(\.interpretedAmount) == [88.10])
+}
+
+@Test
+func csvTextWrapperMatchesArtifactBackedPreviewForGenericCSV() throws {
+    let service = CSVImportPreviewService()
+    let csv = """
+    Date,Description,Amount
+    2026-04-01,Coffee Shop,-4.75
+    2026-04-02,Payroll,1250.00
+    """
+
+    let wrapperPreview = try service.makePreview(from: csv)
+    let artifact = try service.makeParsedArtifact(from: csv)
+    let artifactPreview = try service.makePreview(from: artifact, mapping: artifact.inferredMapping)
+
+    #expect(wrapperPreview == artifactPreview)
+    #expect(wrapperPreview.parsedArtifact == artifact)
+}
+
+@Test
+func csvTextWrapperMatchesArtifactBackedPreviewForKnownProfileCSV() throws {
+    let service = CSVImportPreviewService()
+    let csv = venmoStatementCSV()
+
+    let wrapperPreview = try service.makePreview(from: csv)
+    let artifact = try service.makeParsedArtifact(from: csv)
+    let artifactPreview = try service.makePreview(from: artifact, mapping: artifact.inferredMapping)
+
+    #expect(wrapperPreview == artifactPreview)
+    #expect(wrapperPreview.parsedArtifact == artifact)
+}
+
+@Test
+func artifactBackedPreviewsPreserveStagingContractForInitialAndRemappedMappings() throws {
+    let service = CSVImportPreviewService()
+    let artifact = try service.makeParsedArtifact(from: multiShapeGenericCSV())
+    let inferredPreview = try service.makePreview(from: artifact, mapping: artifact.inferredMapping)
+    let remappedPreview = try service.makePreview(from: artifact, mapping: alternateShapeMapping())
+
+    #expect(inferredPreview.sourceRows.count == inferredPreview.validation.validRowCount)
+    #expect(remappedPreview.sourceRows.count == remappedPreview.validation.validRowCount)
+    #expect(remappedPreview.applying(mapping: remappedPreview.mapping).sourceRows.count == remappedPreview.applying(mapping: remappedPreview.mapping).validation.validRowCount)
+}
+
+@Test
 func previewValidationReportsMissingMappingAndInvalidRows() throws {
     let csv = """
     Date,Description,Amount
@@ -158,6 +228,22 @@ private func amountHeaderName(in preview: CSVImportPreview) -> String? {
     }
 
     return headerName(in: preview, at: columnIndex)
+}
+
+private func alternateShapeMapping() -> CSVColumnMapping {
+    CSVColumnMapping(
+        dateColumnIndex: 3,
+        descriptionColumnIndex: 4,
+        amount: .singleSignedAmount(columnIndex: 5)
+    )
+}
+
+private func multiShapeGenericCSV() -> String {
+    """
+    Date,Description,Amount,Posted Date,Merchant,Value
+    2026-04-01,Coffee Shop,-4.75,,,
+    ,,,2026-04-02,Payroll,88.10
+    """
 }
 
 private func venmoStatementCSV() -> String {

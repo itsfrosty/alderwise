@@ -10,6 +10,7 @@ public struct CSVImportPreview: Equatable, Sendable {
     public private(set) var sourceRows: [CSVRow]
 
     private var rowLimit: Int
+    public private(set) var parsedArtifact: ImportParsedArtifact?
 
     public init(
         headers: [CSVColumn],
@@ -18,7 +19,8 @@ public struct CSVImportPreview: Equatable, Sendable {
         previewRows: [CSVImportPreviewRow],
         validation: CSVImportValidationSummary,
         sourceRows: [CSVRow] = [],
-        rowLimit: Int = 10
+        rowLimit: Int = 10,
+        parsedArtifact: ImportParsedArtifact? = nil
     ) {
         self.headers = headers
         self.profile = profile
@@ -27,16 +29,25 @@ public struct CSVImportPreview: Equatable, Sendable {
         self.validation = validation
         self.sourceRows = sourceRows
         self.rowLimit = rowLimit
+        self.parsedArtifact = parsedArtifact
     }
 
     public func applying(mapping newMapping: CSVColumnMapping) -> CSVImportPreview {
-        CSVImportPreview.make(
-            headers: headers,
-            profile: profile,
-            rows: sourceRows,
-            mapping: newMapping,
-            rowLimit: rowLimit
-        )
+        if let parsedArtifact {
+            CSVImportPreview.make(
+                artifact: parsedArtifact,
+                mapping: newMapping,
+                rowLimit: rowLimit
+            )
+        } else {
+            CSVImportPreview.make(
+                headers: headers,
+                profile: profile,
+                rows: sourceRows,
+                mapping: newMapping,
+                rowLimit: rowLimit
+            )
+        }
     }
 
     fileprivate static func make(
@@ -59,16 +70,35 @@ public struct CSVImportPreview: Equatable, Sendable {
                 categorizationExplanation: semantics.categorizationExplanation
             )
         }
+        let validation = CSVImportValidationSummary.make(rows: rows, mapping: effectiveMapping)
+        let validRowLineNumbers = Set(rows.validSourceRows(mapping: effectiveMapping).map(\.sourceLineNumber))
 
         return CSVImportPreview(
             headers: headers,
             profile: profile,
             mapping: effectiveMapping,
             previewRows: Array(previewRows),
-            validation: CSVImportValidationSummary.make(rows: rows, mapping: effectiveMapping),
-            sourceRows: rows,
+            validation: validation,
+            sourceRows: rows.filter { validRowLineNumbers.contains($0.sourceLineNumber) },
             rowLimit: rowLimit
         )
+    }
+
+    fileprivate static func make(
+        artifact: ImportParsedArtifact,
+        mapping: CSVColumnMapping,
+        rowLimit: Int
+    ) -> CSVImportPreview {
+        let filteredRows = CSVImportPreviewService.filteredRows(artifact.rows, mapping: mapping)
+        var preview = CSVImportPreview.make(
+            headers: artifact.headers,
+            profile: artifact.profile,
+            rows: filteredRows,
+            mapping: mapping,
+            rowLimit: rowLimit
+        )
+        preview.parsedArtifact = artifact
+        return preview
     }
 }
 
@@ -180,16 +210,30 @@ public struct CSVImportPreviewService: Sendable {
         self.mappingInference = mappingInference
     }
 
-    public func makePreview(from csvText: String, rowLimit: Int = 10) throws -> CSVImportPreview {
+    public func makeParsedArtifact(from csvText: String) throws -> ImportParsedArtifact {
         let document = try parser.parse(csvText)
         let profile = mappingInference.inferProfile(for: document)
-        let mapping = mappingInference.inferMapping(for: document).withProfile(profile)
-        let filteredRows = filteredRows(document.rows, mapping: mapping)
-        return .make(
-            headers: document.headers,
+        let inferredMapping = mappingInference.inferMapping(for: document).withProfile(profile)
+        return ImportParsedArtifact.make(
+            document: document,
             profile: profile,
-            rows: filteredRows,
-            mapping: mapping,
+            inferredMapping: inferredMapping
+        )
+    }
+
+    public func makePreview(
+        from artifact: ImportParsedArtifact,
+        mapping: CSVColumnMapping,
+        rowLimit: Int = 10
+    ) throws -> CSVImportPreview {
+        CSVImportPreview.make(artifact: artifact, mapping: mapping, rowLimit: rowLimit)
+    }
+
+    public func makePreview(from csvText: String, rowLimit: Int = 10) throws -> CSVImportPreview {
+        let artifact = try makeParsedArtifact(from: csvText)
+        return try makePreview(
+            from: artifact,
+            mapping: artifact.inferredMapping,
             rowLimit: rowLimit
         )
     }
@@ -227,7 +271,7 @@ private struct CSVImportRowInterpreter {
 }
 
 private extension CSVImportPreviewService {
-    func filteredRows(_ rows: [CSVRow], mapping: CSVColumnMapping) -> [CSVRow] {
+    static func filteredRows(_ rows: [CSVRow], mapping: CSVColumnMapping) -> [CSVRow] {
         let relevantColumnIndexes = relevantColumnIndexes(for: mapping)
         guard relevantColumnIndexes.isEmpty == false else {
             return rows
@@ -238,7 +282,7 @@ private extension CSVImportPreviewService {
         }
     }
 
-    func relevantColumnIndexes(for mapping: CSVColumnMapping) -> [Int] {
+    static func relevantColumnIndexes(for mapping: CSVColumnMapping) -> [Int] {
         var indexes: [Int] = []
 
         if let dateColumnIndex = mapping.dateColumnIndex {
@@ -314,5 +358,18 @@ private extension CSVRow {
         }
 
         return value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+private extension Array where Element == CSVRow {
+    func validSourceRows(mapping: CSVColumnMapping) -> [CSVRow] {
+        guard CSVImportRequiredField.missing(from: mapping).isEmpty else {
+            return []
+        }
+
+        let interpreter = CSVImportRowInterpreter()
+        return filter { row in
+            row.validationIssues(mapping: mapping, interpreter: interpreter).isEmpty
+        }
     }
 }

@@ -2933,6 +2933,41 @@ func stageCSVImportRejectsPreviewWithMissingSourceRowsBeforeWriting() throws {
 }
 
 @Test
+func stageCSVImportAcceptsArtifactBackedPreviewAfterRemappingRecoversRows() throws {
+    let account = Account(name: "Checking", kind: .checking, institutionName: "Local Bank")
+    let store = MutableWorkspaceStore(accounts: [account])
+    let service = WorkspaceService(store: store)
+    let previewService = CSVImportPreviewService()
+    let csv = """
+    Date,Description,Amount,Posted Date,Merchant,Value
+    2026-04-01,Coffee Shop,-4.75,,,
+    ,,,2026-04-02,Payroll,88.10
+    """
+    let artifact = try previewService.makeParsedArtifact(from: csv)
+    let preview = try previewService.makePreview(
+        from: artifact,
+        mapping: CSVColumnMapping(
+            dateColumnIndex: 3,
+            descriptionColumnIndex: 4,
+            amount: .singleSignedAmount(columnIndex: 5)
+        )
+    )
+
+    #expect(preview.sourceRows.count == preview.validation.validRowCount)
+
+    let result = try service.stageCSVImport(
+        preview: preview,
+        account: account,
+        originalFilename: "recovered-rows.csv",
+        csvText: csv
+    )
+
+    #expect(result.outcome == .staged)
+    #expect(result.session?.rows.map(\.sourceLineNumber) == [3])
+    #expect(store.stagedImportDrafts.count == 1)
+}
+
+@Test
 func previewWithoutConfirmationDoesNotCreateStagedRecords() throws {
     let account = Account(name: "Checking", kind: .checking, institutionName: "Local Bank")
     let store = MutableWorkspaceStore(accounts: [account])
