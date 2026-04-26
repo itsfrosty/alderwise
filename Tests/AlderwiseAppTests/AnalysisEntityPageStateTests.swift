@@ -288,7 +288,7 @@ func merchantsPageSelectionAfterSortingRemainsAnchoredToMerchantIdentity() {
 }
 
 @Test
-func recurringCommitmentsSelectionAfterSortingRemainsAnchoredToRecurringIdentity() {
+func recurringCommitmentsKeepTheirOwnOrderingWhenMerchantSortChanges() {
     let selectedRecurring = analysisEntityRecurringRow(
         normalizedName: "netflix",
         accountID: analysisEntityPageStateID("00000000-0000-0000-0000-000000001061"),
@@ -317,8 +317,8 @@ func recurringCommitmentsSelectionAfterSortingRemainsAnchoredToRecurringIdentity
         "netflix",
     ])
     #expect(alphabeticalOrder.map(\.detail.normalizedMerchantName) == [
-        "netflix",
         "spotify",
+        "netflix",
     ])
     #expect(state.selection == .recurring(selectedRecurring))
     #expect(state.selectedRuleHandoffMerchantName == nil)

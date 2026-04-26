@@ -52,11 +52,11 @@ func analysisReadOnlyMetadataUsesVisiblePageContext() {
 
     #expect(
         AnalysisView.readOnlyMetadata(for: .overview, snapshot: snapshot)
-            == AnalysisView.ReadOnlyMetadata(scopeLabel: "All visible spending", basisLabel: "All visible spending")
+            == AnalysisView.ReadOnlyMetadata(scopeLabel: "Workspace", basisLabel: "All visible spending")
     )
     #expect(
         AnalysisView.readOnlyMetadata(for: .categories, snapshot: snapshot)
-            == AnalysisView.ReadOnlyMetadata(scopeLabel: "Accepted spending", basisLabel: "Accepted spending")
+            == AnalysisView.ReadOnlyMetadata(scopeLabel: "Workspace", basisLabel: "Accepted spending")
     )
 }
 

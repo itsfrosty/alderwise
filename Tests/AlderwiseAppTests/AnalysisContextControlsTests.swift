@@ -125,13 +125,13 @@ func analysisContextControlsShowTheReadOnlyScopeLabelForTheVisiblePageOnly() {
         AnalysisContextControls.scopeLabel(
             for: .overview,
             snapshot: snapshot
-        ) == "All visible spending"
+        ) == "Workspace"
     )
     #expect(
         AnalysisContextControls.scopeLabel(
             for: .categories,
             snapshot: snapshot
-        ) == "Accepted spending"
+        ) == "Workspace"
     )
     #expect(
         AnalysisContextControls.scopeLabel(

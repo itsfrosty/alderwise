@@ -224,19 +224,22 @@ struct AnalysisOverviewView: View {
                 subtitle: spendTrendSubtitle(for: card)
             )
 
-            if let comparisonSpend = layout.hero.comparisonSpend {
+            if let spendChart = card.spendChart {
+                OverviewSpendComparisonChart(chart: spendChart)
+                    .frame(height: 118)
+
                 HStack(alignment: .top, spacing: 16) {
                     trendMetric(
                         label: "Current",
-                        value: currency(layout.hero.currentSpend)
+                        value: currency(spendChart.currentSpend)
                     )
                     trendMetric(
-                        label: comparisonReferenceLabel(layout.hero.comparison),
-                        value: currency(comparisonSpend)
+                        label: spendChart.comparisonLabel,
+                        value: currency(spendChart.comparisonSpend)
                     )
                     trendMetric(
                         label: "Delta",
-                        value: currency(layout.hero.currentSpend - comparisonSpend)
+                        value: currency(spendChart.currentSpend - spendChart.comparisonSpend)
                     )
                 }
             } else {
@@ -699,6 +702,7 @@ extension AnalysisOverviewView {
             let visibility: AnalysisCardVisibilityState
             let supportsSelection: Bool
             let footerAction: AnalysisCardFooterAction
+            let spendChart: SpendTrendChart?
             let entries: [Entry]
             let emptyStateReason: OverviewEmptyStateReason?
 
@@ -724,6 +728,12 @@ extension AnalysisOverviewView {
             let expectedPaceSpend: Decimal
             let paceDirection: OverviewDeltaDirection
             let pendingReviewCount: Int
+        }
+
+        struct SpendTrendChart: Equatable {
+            let currentSpend: Decimal
+            let comparisonSpend: Decimal
+            let comparisonLabel: String
         }
 
         struct Entry: Identifiable, Equatable {
@@ -863,7 +873,7 @@ extension AnalysisOverviewView {
                 title: insightTitle(insight),
                 subtitle: insightSubtitle(insight),
                 trailingValue: nil,
-                selection: .insight(insight)
+                selection: nil
             )
         }
         let whatChangedEntries = whatChangedEntries(for: snapshot)
@@ -902,6 +912,7 @@ extension AnalysisOverviewView {
                 visibility: snapshot.report.comparisonSpend == nil ? .shownEmpty : .shownActionable,
                 supportsSelection: false,
                 footerAction: .none,
+                spendChart: spendTrendChart(for: snapshot),
                 entries: trendEntries,
                 emptyStateReason: spendTrendEmptyStateReason(for: snapshot)
             ),
@@ -912,6 +923,7 @@ extension AnalysisOverviewView {
                 visibility: paceEmptyStateReason(for: snapshot) == nil ? .shownActionable : .shownEmpty,
                 supportsSelection: false,
                 footerAction: .none,
+                spendChart: nil,
                 entries: [],
                 emptyStateReason: paceEmptyStateReason(for: snapshot)
             ),
@@ -922,6 +934,7 @@ extension AnalysisOverviewView {
                 visibility: whatChangedEntries.isEmpty ? .shownEmpty : .shownActionable,
                 supportsSelection: true,
                 footerAction: .init(primaryTitle: "Show Transactions", secondaryTitles: []),
+                spendChart: nil,
                 entries: whatChangedEntries,
                 emptyStateReason: whatChangedEmptyStateReason(for: whatChangedEntries)
             ),
@@ -932,6 +945,7 @@ extension AnalysisOverviewView {
                 visibility: recurringEntries.isEmpty ? .hidden : .shownActionable,
                 supportsSelection: true,
                 footerAction: .init(primaryTitle: "Show Transactions", secondaryTitles: []),
+                spendChart: nil,
                 entries: recurringEntries,
                 emptyStateReason: nil
             ),
@@ -942,6 +956,7 @@ extension AnalysisOverviewView {
                 visibility: snapshot.monthlyReport.pendingReviewCount > 0 ? .shownActionable : .hidden,
                 supportsSelection: false,
                 footerAction: .none,
+                spendChart: nil,
                 entries: [],
                 emptyStateReason: nil
             ),
@@ -952,10 +967,40 @@ extension AnalysisOverviewView {
                 visibility: snapshot.monthlyReport.hasActiveTargets == false ? .hidden : (pressuredTargets.isEmpty ? .shownEmpty : .shownActionable),
                 supportsSelection: false,
                 footerAction: .none,
+                spendChart: nil,
                 entries: targetPressureEntries,
                 emptyStateReason: pressuredTargets.isEmpty ? .noMaterialChanges : nil
             ),
         ]
+    }
+
+    private nonisolated static func spendTrendChart(
+        for snapshot: AnalysisOverviewSnapshot
+    ) -> OverviewLayout.SpendTrendChart? {
+        guard let comparisonSpend = snapshot.report.comparisonSpend else {
+            return nil
+        }
+
+        return OverviewLayout.SpendTrendChart(
+            currentSpend: snapshot.report.currentSpend,
+            comparisonSpend: comparisonSpend,
+            comparisonLabel: comparisonTrendLabel(for: snapshot.context.comparison)
+        )
+    }
+
+    private nonisolated static func comparisonTrendLabel(
+        for comparison: AnalysisComparisonMode
+    ) -> String {
+        switch comparison {
+        case .none:
+            return "Baseline"
+        case .previousPeriod:
+            return "Previous period"
+        case .samePeriodLastYear:
+            return "Same period last year"
+        case .rollingAverage:
+            return "Rolling average"
+        }
     }
 
     private nonisolated static func insightTitle(_ insight: WorkspaceInsight) -> String {
@@ -1095,6 +1140,66 @@ private struct OverviewBadge: View {
             AnyShapeStyle(Color.orange.opacity(0.16))
         case .neutral:
             AnyShapeStyle(.thinMaterial)
+        }
+    }
+}
+
+private struct OverviewSpendComparisonChart: View {
+    let chart: AnalysisOverviewView.OverviewLayout.SpendTrendChart
+
+    var body: some View {
+        GeometryReader { proxy in
+            let maximum = max(
+                NSDecimalNumber(decimal: chart.currentSpend).doubleValue,
+                NSDecimalNumber(decimal: chart.comparisonSpend).doubleValue,
+                1
+            )
+            let currentRatio = CGFloat(NSDecimalNumber(decimal: chart.currentSpend).doubleValue / maximum)
+            let comparisonRatio = CGFloat(NSDecimalNumber(decimal: chart.comparisonSpend).doubleValue / maximum)
+
+            VStack(alignment: .leading, spacing: 12) {
+                overlayRow(
+                    title: chart.comparisonLabel,
+                    ratio: comparisonRatio,
+                    fill: AnyShapeStyle(Color.secondary.opacity(0.22))
+                )
+                overlayRow(
+                    title: "Current",
+                    ratio: currentRatio,
+                    fill: AnyShapeStyle(Color.accentColor.opacity(0.8))
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+        .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.secondary.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private func overlayRow(
+        title: String,
+        ratio: CGFloat,
+        fill: AnyShapeStyle
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(fill)
+                        .frame(width: max(proxy.size.width * max(min(ratio, 1), 0.12), 24))
+                }
+            }
+            .frame(height: 18)
         }
     }
 }

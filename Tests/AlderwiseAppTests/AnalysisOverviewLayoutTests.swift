@@ -45,7 +45,11 @@ func analysisOverviewLayoutShowsTheHeroAndRequiredPrimarySectionsWhenDataExists(
         .dataTrust,
         .targetPressure,
     ])
-    #expect(try #require(layout.card(kind: .spendOverTime)).visibility == .shownActionable)
+    let spendCard = try #require(layout.card(kind: .spendOverTime))
+    #expect(spendCard.visibility == .shownActionable)
+    #expect(spendCard.entries.allSatisfy { $0.selection == nil })
+    #expect(try #require(spendCard.spendChart).currentSpend == Decimal(420))
+    #expect(try #require(spendCard.spendChart).comparisonSpend == Decimal(310))
     #expect(try #require(layout.card(kind: .currentMonthPace)).visibility == .shownActionable)
     #expect(try #require(layout.card(kind: .whatChanged)).visibility == .shownActionable)
     #expect(try #require(layout.card(kind: .commitmentsNeedingAttention)).visibility == .hidden)
@@ -75,8 +79,10 @@ func analysisOverviewLayoutDegradesCleanlyForNoComparisonAndLowDataStates() thro
         .targetPressure,
     ])
     #expect(layout.hero.comparison == .none)
-    #expect(try #require(layout.card(kind: .spendOverTime)).visibility == .shownEmpty)
-    #expect(try #require(layout.card(kind: .spendOverTime)).emptyStateReason == .missingComparisonBaseline)
+    let spendCard = try #require(layout.card(kind: .spendOverTime))
+    #expect(spendCard.visibility == .shownEmpty)
+    #expect(spendCard.emptyStateReason == .missingComparisonBaseline)
+    #expect(spendCard.spendChart == nil)
     #expect(try #require(layout.card(kind: .currentMonthPace)).visibility == .shownEmpty)
     #expect(try #require(layout.card(kind: .currentMonthPace)).emptyStateReason == .insufficientPaceData)
     #expect(try #require(layout.card(kind: .whatChanged)).visibility == .shownEmpty)

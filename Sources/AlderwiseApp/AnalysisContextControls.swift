@@ -256,7 +256,7 @@ struct AnalysisContextControls: ToolbarContent {
     ) -> String {
         return switch context.scope {
         case .workspace:
-            basisLabel(for: context.metricBasis)
+            "Workspace"
         case .category:
             "Category"
         case .categoryGroup:
