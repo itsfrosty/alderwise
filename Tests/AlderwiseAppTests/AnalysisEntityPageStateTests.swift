@@ -181,6 +181,55 @@ func categoriesPageTargetHandoffFollowsTheSelectedRowInsteadOfTheSortedPosition(
 }
 
 @Test
+func categoriesCommittedSelectionDrivesTrendAndNextStepAcrossSortChanges() throws {
+    let selectedScope = analysisEntityPageStateID("00000000-0000-0000-0000-000000001071")
+    let selectedRow = analysisEntityCategoriesRow(
+        title: "Food",
+        scope: .category(selectedScope),
+        currentSpend: Decimal(180),
+        comparisonSpend: Decimal(120)
+    )
+    let otherRow = analysisEntityCategoriesRow(
+        title: "Travel",
+        scope: .category(analysisEntityPageStateID("00000000-0000-0000-0000-000000001072")),
+        currentSpend: Decimal(420),
+        comparisonSpend: Decimal(40)
+    )
+    let target = analysisEntityTargetProgress(
+        id: analysisEntityPageStateID("00000000-0000-0000-0000-000000001073"),
+        name: "Food Budget",
+        scope: .category(selectedScope)
+    )
+    var state = AnalysisScreenState.CategoriesState()
+    state.selection = .row(selectedRow)
+
+    let snapshot = analysisEntityCategoriesSnapshot(
+        rows: [otherRow, selectedRow],
+        targetProgress: [target]
+    )
+    let initialLayout = AnalysisCategoriesView.pageLayout(
+        for: snapshot,
+        sort: state.sort,
+        selection: state.selection
+    )
+
+    state.sort = .largestDelta
+    let updatedLayout = AnalysisCategoriesView.pageLayout(
+        for: snapshot,
+        sort: state.sort,
+        selection: state.selection
+    )
+    let nextStep = AnalysisCategoriesView.selectedCategoryNextStep(
+        selection: state.selection,
+        snapshot: snapshot
+    )
+
+    #expect(try #require(initialLayout.card(kind: .selectedCategoryTrend)).footerAction.secondaryTitles == ["Open Target"])
+    #expect(try #require(updatedLayout.card(kind: .selectedCategoryTrend)).footerAction.secondaryTitles == ["Open Target"])
+    #expect(nextStep.kind == .linkedTarget(targetID: target.id))
+}
+
+@Test
 func merchantsPageDefaultsToLargestCurrentSpend() {
     let bakery = analysisEntityMerchantRow(
         title: "Bakery",
@@ -239,7 +288,7 @@ func merchantsPageSelectionAfterSortingRemainsAnchoredToMerchantIdentity() {
 }
 
 @Test
-func recurringCommitmentsSelectionAfterSortingRemainsAnchoredToRecurringIdentity() {
+func recurringCommitmentsKeepTheirOwnOrderingWhenMerchantSortChanges() {
     let selectedRecurring = analysisEntityRecurringRow(
         normalizedName: "netflix",
         accountID: analysisEntityPageStateID("00000000-0000-0000-0000-000000001061"),
@@ -268,8 +317,8 @@ func recurringCommitmentsSelectionAfterSortingRemainsAnchoredToRecurringIdentity
         "netflix",
     ])
     #expect(alphabeticalOrder.map(\.detail.normalizedMerchantName) == [
-        "netflix",
         "spotify",
+        "netflix",
     ])
     #expect(state.selection == .recurring(selectedRecurring))
     #expect(state.selectedRuleHandoffMerchantName == nil)
@@ -338,6 +387,42 @@ func merchantsPageRecurringSelectionRepairsWhenTheRecurringSeriesStillExistsAfte
 
     #expect(state.merchants.selection == .recurring(updatedSelectedRecurring))
     #expect(state.merchants.selectedRuleHandoffMerchantName == nil)
+}
+
+@Test
+func merchantsContractKeepsRulesHandoffAnchoredToTheSelectedIdentityAcrossSortChanges() throws {
+    let selectedMerchant = analysisEntityMerchantRow(
+        title: "Blue Bottle",
+        normalizedName: "blue bottle",
+        currentSpend: Decimal(120),
+        comparisonSpend: Decimal(80)
+    )
+    let otherMerchant = analysisEntityMerchantRow(
+        title: "Apple Market",
+        normalizedName: "apple market",
+        currentSpend: Decimal(320),
+        comparisonSpend: Decimal(60)
+    )
+    var state = AnalysisScreenState.MerchantsState()
+    state.selection = .merchant(selectedMerchant)
+
+    let snapshot = analysisEntityMerchantsSnapshot(merchants: [selectedMerchant, otherMerchant])
+    let initialLayout = AnalysisMerchantsView.pageLayout(
+        for: snapshot,
+        sort: state.sort,
+        selection: state.selection
+    )
+
+    state.sort = .alphabetical
+    let updatedLayout = AnalysisMerchantsView.pageLayout(
+        for: snapshot,
+        sort: state.sort,
+        selection: state.selection
+    )
+
+    #expect(try #require(initialLayout.card(kind: .topMerchants)).footerAction.secondaryTitles == ["Open Rules"])
+    #expect(try #require(updatedLayout.card(kind: .topMerchants)).footerAction.secondaryTitles == ["Open Rules"])
+    #expect(state.selectedRuleHandoffMerchantName == "blue bottle")
 }
 
 private func analysisEntityCategoriesSnapshot(

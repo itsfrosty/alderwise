@@ -21,7 +21,9 @@ struct AnalysisContextControls: ToolbarContent {
         }
 
         var swiftUIBinding: Binding<Value> {
-            Binding(
+            let getValue = self.getValue
+            let setValue = self.setValue
+            return Binding(
                 get: { getValue() },
                 set: { setValue($0) }
             )
@@ -126,6 +128,8 @@ struct AnalysisContextControls: ToolbarContent {
         .none,
     ]
 
+    // Toolbar ownership is intentionally narrow in Task 1. Scope and any page-level
+    // context summary stay read-only metadata, not alternate controls.
     nonisolated static let supportsInteractiveScope = false
     nonisolated static let supportsAdvancedQualifiers = false
 
@@ -226,12 +230,33 @@ struct AnalysisContextControls: ToolbarContent {
         return scopeLabel(for: context)
     }
 
+    nonisolated static func metricBasisLabel(
+        for page: AnalysisPage,
+        snapshot: AnalysisSnapshot
+    ) -> String? {
+        let context: AnalysisContext?
+        switch page {
+        case .overview:
+            context = snapshot.overview?.context
+        case .categories:
+            context = snapshot.categories?.context
+        case .merchants:
+            context = snapshot.merchants?.context
+        }
+
+        guard let context else {
+            return nil
+        }
+
+        return basisLabel(for: context.metricBasis)
+    }
+
     private nonisolated static func scopeLabel(
         for context: AnalysisContext
     ) -> String {
         return switch context.scope {
         case .workspace:
-            basisLabel(for: context.metricBasis)
+            "Workspace"
         case .category:
             "Category"
         case .categoryGroup:

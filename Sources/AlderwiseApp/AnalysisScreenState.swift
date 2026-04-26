@@ -55,7 +55,7 @@ struct AnalysisScreenState: Equatable, Sendable {
                 return []
             }
 
-            return snapshot.report.recurring.sorted(by: sort.areRecurringInIncreasingDisplayOrder(lhs:rhs:))
+            return snapshot.report.recurring.sorted(by: Self.areRecurringInIncreasingDisplayOrder(lhs:rhs:))
         }
 
         var selectedRuleHandoffMerchantName: String? {
@@ -321,31 +321,34 @@ private extension AnalysisScreenState.MerchantsState.Sort {
         return lhs.key.normalizedName.localizedCaseInsensitiveCompare(rhs.key.normalizedName) == .orderedAscending
     }
 
-    func areRecurringInIncreasingDisplayOrder(lhs: MerchantRecurringReportRow, rhs: MerchantRecurringReportRow) -> Bool {
-        switch self {
-        case .largestCurrentSpend:
-            if decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) != .orderedSame {
-                return decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) == .orderedDescending
-            }
-            if lhs.detail.observationCount != rhs.detail.observationCount {
-                return lhs.detail.observationCount > rhs.detail.observationCount
-            }
-        case .alphabetical:
-            let nameOrder = lhs.detail.normalizedMerchantName.localizedCaseInsensitiveCompare(
-                rhs.detail.normalizedMerchantName
-            )
-            if nameOrder != .orderedSame {
-                return nameOrder == .orderedAscending
-            }
-            if decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) != .orderedSame {
-                return decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) == .orderedDescending
-            }
+    private func decimalCompare(_ lhs: Decimal, _ rhs: Decimal) -> ComparisonResult {
+        NSDecimalNumber(decimal: lhs).compare(NSDecimalNumber(decimal: rhs))
+    }
+}
+
+private extension AnalysisScreenState.MerchantsState {
+    static func areRecurringInIncreasingDisplayOrder(
+        lhs: MerchantRecurringReportRow,
+        rhs: MerchantRecurringReportRow
+    ) -> Bool {
+        if decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) != .orderedSame {
+            return decimalCompare(lhs.detail.amountRange.maximum, rhs.detail.amountRange.maximum) == .orderedDescending
+        }
+        if lhs.detail.observationCount != rhs.detail.observationCount {
+            return lhs.detail.observationCount > rhs.detail.observationCount
+        }
+
+        let nameOrder = lhs.detail.normalizedMerchantName.localizedCaseInsensitiveCompare(
+            rhs.detail.normalizedMerchantName
+        )
+        if nameOrder != .orderedSame {
+            return nameOrder == .orderedAscending
         }
 
         return lhs.detail.accountID.uuidString < rhs.detail.accountID.uuidString
     }
 
-    private func decimalCompare(_ lhs: Decimal, _ rhs: Decimal) -> ComparisonResult {
+    private static func decimalCompare(_ lhs: Decimal, _ rhs: Decimal) -> ComparisonResult {
         NSDecimalNumber(decimal: lhs).compare(NSDecimalNumber(decimal: rhs))
     }
 }

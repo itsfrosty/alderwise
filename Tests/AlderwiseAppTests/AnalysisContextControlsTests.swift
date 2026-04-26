@@ -53,6 +53,14 @@ func analysisContextControlsDoNotExposeDeferredControls() {
 }
 
 @Test
+func analysisContextControlsKeepToolbarOwnershipBoundedToRangeAndCompare() {
+    #expect(AnalysisContextControls.supportedRanges.isEmpty == false)
+    #expect(AnalysisContextControls.supportedComparisons.isEmpty == false)
+    #expect(AnalysisContextControls.supportsInteractiveScope == false)
+    #expect(AnalysisContextControls.supportsAdvancedQualifiers == false)
+}
+
+@Test
 func analysisContextControlsDoNotCoerceUnsupportedSourceOfTruthValues() {
     let rangeBinding = AnalysisContextControls.rangeSelection(
         getContext: {
@@ -117,18 +125,30 @@ func analysisContextControlsShowTheReadOnlyScopeLabelForTheVisiblePageOnly() {
         AnalysisContextControls.scopeLabel(
             for: .overview,
             snapshot: snapshot
-        ) == "All visible spending"
+        ) == "Workspace"
     )
     #expect(
         AnalysisContextControls.scopeLabel(
             for: .categories,
             snapshot: snapshot
-        ) == "Accepted spending"
+        ) == "Workspace"
     )
     #expect(
         AnalysisContextControls.scopeLabel(
             for: .merchants,
             snapshot: snapshot
         ) == nil
+    )
+    #expect(
+        AnalysisContextControls.metricBasisLabel(
+            for: .overview,
+            snapshot: snapshot
+        ) == "All visible spending"
+    )
+    #expect(
+        AnalysisContextControls.metricBasisLabel(
+            for: .categories,
+            snapshot: snapshot
+        ) == "Accepted spending"
     )
 }

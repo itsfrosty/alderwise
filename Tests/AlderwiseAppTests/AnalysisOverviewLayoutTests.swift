@@ -34,10 +34,27 @@ func analysisOverviewLayoutShowsTheHeroAndRequiredPrimarySectionsWhenDataExists(
 
     let layout = AnalysisOverviewView.layout(for: snapshot)
 
+    #expect(layout.hero.kicker == "Analysis / Overview")
+    #expect(layout.hero.title == "Spend, pace, and the changes shaping this window")
     #expect(layout.hero.comparison != .none)
-    #expect(layout.primarySections.map(\.kind) == [.spendTrend, .pace, .whatChanged])
-    #expect(layout.primarySections.allSatisfy { $0.isVisible })
-    #expect(layout.supportSection == nil)
+    #expect(layout.cards.map(\.kind) == [
+        .spendOverTime,
+        .currentMonthPace,
+        .whatChanged,
+        .commitmentsNeedingAttention,
+        .dataTrust,
+        .targetPressure,
+    ])
+    let spendCard = try #require(layout.card(kind: .spendOverTime))
+    #expect(spendCard.visibility == .shownActionable)
+    #expect(spendCard.entries.allSatisfy { $0.selection == nil })
+    #expect(try #require(spendCard.spendChart).currentSpend == Decimal(420))
+    #expect(try #require(spendCard.spendChart).comparisonSpend == Decimal(310))
+    #expect(try #require(layout.card(kind: .currentMonthPace)).visibility == .shownActionable)
+    #expect(try #require(layout.card(kind: .whatChanged)).visibility == .shownActionable)
+    #expect(try #require(layout.card(kind: .commitmentsNeedingAttention)).visibility == .hidden)
+    #expect(try #require(layout.card(kind: .dataTrust)).visibility == .hidden)
+    #expect(try #require(layout.card(kind: .targetPressure)).visibility == .hidden)
 }
 
 @Test
@@ -52,20 +69,24 @@ func analysisOverviewLayoutDegradesCleanlyForNoComparisonAndLowDataStates() thro
 
     let layout = AnalysisOverviewView.layout(for: snapshot)
 
-    #expect(layout.primarySections.map(\.kind) == [.spendTrend, .pace, .whatChanged])
+    #expect(layout.hero.kicker == "Analysis / Overview")
+    #expect(layout.cards.map(\.kind) == [
+        .spendOverTime,
+        .currentMonthPace,
+        .whatChanged,
+        .commitmentsNeedingAttention,
+        .dataTrust,
+        .targetPressure,
+    ])
     #expect(layout.hero.comparison == .none)
-    #expect(
-        try #require(layout.primarySection(kind: .spendTrend)).emptyStateReason
-            == .missingComparisonBaseline
-    )
-    #expect(
-        try #require(layout.primarySection(kind: .pace)).emptyStateReason
-            == .insufficientPaceData
-    )
-    #expect(
-        try #require(layout.primarySection(kind: .whatChanged)).emptyStateReason
-            == .noMaterialChanges
-    )
+    let spendCard = try #require(layout.card(kind: .spendOverTime))
+    #expect(spendCard.visibility == .shownEmpty)
+    #expect(spendCard.emptyStateReason == .missingComparisonBaseline)
+    #expect(spendCard.spendChart == nil)
+    #expect(try #require(layout.card(kind: .currentMonthPace)).visibility == .shownEmpty)
+    #expect(try #require(layout.card(kind: .currentMonthPace)).emptyStateReason == .insufficientPaceData)
+    #expect(try #require(layout.card(kind: .whatChanged)).visibility == .shownEmpty)
+    #expect(try #require(layout.card(kind: .whatChanged)).emptyStateReason == .noMaterialChanges)
 }
 
 @Test
@@ -76,15 +97,32 @@ func analysisOverviewLayoutTreatsRecurringOnlyProjectedInsightsAsAWhatChangedEmp
         projectedInsights: [analysisOverviewRecurringInsight(name: "netflix", amount: Decimal(15.49))]
     )
 
-    let section = try #require(AnalysisOverviewView.layout(for: snapshot).primarySection(kind: .whatChanged))
+    let card = try #require(AnalysisOverviewView.layout(for: snapshot).card(kind: .whatChanged))
 
-    #expect(section.entries.isEmpty)
-    #expect(section.emptyStateReason == .noMaterialChanges)
+    #expect(card.entries.isEmpty)
+    #expect(card.visibility == .shownEmpty)
+    #expect(card.emptyStateReason == .noMaterialChanges)
+}
+
+@Test
+func spendOverTimeComparisonChartDoesNotRenderAPhantomBarForZeroValues() {
+    #expect(
+        AnalysisOverviewView.comparisonChartFillWidth(
+            containerWidth: 200,
+            ratio: 0
+        ) == 0
+    )
+    #expect(
+        AnalysisOverviewView.comparisonChartFillWidth(
+            containerWidth: 200,
+            ratio: 0.02
+        ) == 24
+    )
 }
 
 @Test
 @MainActor
-func analysisOverviewLayoutShowsOptionalSupportSectionsOnlyWhenBackedBySnapshotData() {
+func analysisOverviewLayoutShowsOptionalSupportSectionsOnlyWhenBackedBySnapshotData() throws {
     let recurringLayout = AnalysisOverviewView.layout(for: analysisOverviewTestSnapshot(
         recurring: [analysisOverviewRecurringRow(name: "netflix", amount: Decimal(15.49))]
     ))
@@ -106,11 +144,27 @@ func analysisOverviewLayoutShowsOptionalSupportSectionsOnlyWhenBackedBySnapshotD
         pendingReviewCount: 4
     ))
     let emptySupportLayout = AnalysisOverviewView.layout(for: analysisOverviewTestSnapshot())
+    let targetClearLayout = AnalysisOverviewView.layout(for: analysisOverviewTestSnapshot(
+        monthlyTargets: [
+            TargetProgress(
+                id: analysisOverviewTestID("00000000-0000-0000-0000-000000000351"),
+                name: "Dining",
+                scope: .category(analysisOverviewTestID("00000000-0000-0000-0000-000000000352")),
+                monthlyLimit: Decimal(500),
+                spent: Decimal(280),
+                remaining: Decimal(220),
+                paceDelta: Decimal(-15)
+            )
+        ],
+        hasActiveTargets: true
+    ))
 
-    #expect(recurringLayout.supportSection?.kind == .recurringSummary)
-    #expect(planningPressureLayout.supportSection?.kind == .planningPressure)
-    #expect(dataTrustLayout.supportSection?.kind == .dataTrust)
-    #expect(emptySupportLayout.supportSection == nil)
+    #expect(try #require(recurringLayout.card(kind: .commitmentsNeedingAttention)).visibility == .shownActionable)
+    #expect(try #require(planningPressureLayout.card(kind: .targetPressure)).visibility == .shownActionable)
+    #expect(try #require(dataTrustLayout.card(kind: .dataTrust)).visibility == .shownActionable)
+    #expect(try #require(targetClearLayout.card(kind: .targetPressure)).visibility == .shownEmpty)
+    #expect(try #require(emptySupportLayout.card(kind: .commitmentsNeedingAttention)).visibility == .hidden)
+    #expect(try #require(emptySupportLayout.card(kind: .dataTrust)).visibility == .hidden)
 }
 
 @Test
@@ -124,8 +178,8 @@ func analysisOverviewCommittedSelectionStillDrivesInspectorAndDrilldown() throws
     )
     let snapshot = analysisOverviewTestSnapshot(drivers: [driver])
     let layout = AnalysisOverviewView.layout(for: snapshot)
-    let section = try #require(layout.primarySection(kind: .whatChanged))
-    let entry = try #require(section.entries.first)
+    let card = try #require(layout.card(kind: .whatChanged))
+    let entry = try #require(card.entries.first)
     var committedSelection: AnalysisOverviewSelection?
 
     entry.commitSelection(

@@ -3,9 +3,30 @@ import Domain
 import SwiftUI
 
 struct AnalysisMerchantsView: View {
+    enum CardKind: String, Equatable {
+        case recurringCommitments
+        case topMerchants
+        case readiness
+    }
+
     struct InspectorActions: Equatable {
         var showsTransactions: Bool
         var ruleHandoffMerchantName: String?
+    }
+
+    struct RecurringCommitmentSummary: Equatable {
+        let title: String
+        let body: String
+        let amountLabel: String
+        let badges: [String]
+    }
+
+    struct MerchantActivitySummary: Equatable {
+        let title: String
+        let body: String
+        let currentSpend: String
+        let comparisonSpend: String
+        let delta: String
     }
 
     let snapshot: AnalysisMerchantsSnapshot
@@ -26,6 +47,20 @@ struct AnalysisMerchantsView: View {
 
     private var sortedRecurring: [MerchantRecurringReportRow] {
         pageState.sortedRecurring(in: snapshot)
+    }
+
+    private var selectedMerchant: MerchantAnalysisRow? {
+        guard case .merchant(let row)? = selection else {
+            return nil
+        }
+        return row
+    }
+
+    private var selectedRecurring: MerchantRecurringReportRow? {
+        guard case .recurring(let row)? = selection else {
+            return nil
+        }
+        return row
     }
 
     nonisolated static func inspectorActions(
@@ -55,6 +90,118 @@ struct AnalysisMerchantsView: View {
         )
     }
 
+    nonisolated static func recurringSummary(
+        selection: AnalysisMerchantsSelection?
+    ) -> RecurringCommitmentSummary {
+        guard case .recurring(let row)? = selection else {
+            return RecurringCommitmentSummary(
+                title: "Recurring commitments come first",
+                body: "Start here to separate durable commitments from one-off merchant spikes before jumping into transactions or rules cleanup.",
+                amountLabel: "Select a recurring row",
+                badges: []
+            )
+        }
+
+        return RecurringCommitmentSummary(
+            title: row.detail.normalizedMerchantName.localizedCapitalized,
+            body: "This cadence is already strong enough to review as a durable commitment. Audit the exact transactions or jump into Rules cleanup from this selected series.",
+            amountLabel: analysisCurrency(row.detail.amountRange.maximum),
+            badges: [
+                row.detail.cadence.displayTitle,
+                "\(row.detail.observationCount) observations",
+            ]
+        )
+    }
+
+    nonisolated static func merchantSummary(
+        selection: AnalysisMerchantsSelection?
+    ) -> MerchantActivitySummary {
+        guard case .merchant(let row)? = selection else {
+            return MerchantActivitySummary(
+                title: "Select a merchant",
+                body: "Use the ranked merchant list when you need transaction review or a rules handoff for one merchant identity.",
+                currentSpend: "—",
+                comparisonSpend: "—",
+                delta: "—"
+            )
+        }
+
+        return MerchantActivitySummary(
+            title: row.title.localizedCapitalized,
+            body: "This ranked merchant remains the committed selection for both transaction drill-down and Rules handoff.",
+            currentSpend: analysisCurrency(row.currentSpend),
+            comparisonSpend: analysisCurrency(row.comparisonSpend),
+            delta: analysisCurrency(row.delta)
+        )
+    }
+
+    nonisolated static func pageLayout(
+        for snapshot: AnalysisMerchantsSnapshot,
+        sort: AnalysisScreenState.MerchantsState.Sort,
+        selection: AnalysisMerchantsSelection?
+    ) -> AnalysisPageContract<CardKind> {
+        let pageState = AnalysisScreenState.MerchantsState(sort: sort, selection: selection)
+        let merchants = pageState.sortedMerchants(in: snapshot)
+        let recurring = pageState.sortedRecurring(in: snapshot)
+        let footerAction: AnalysisCardFooterAction
+        if let selection {
+            let actions = inspectorActions(for: selection)
+            footerAction = .init(
+                primaryTitle: actions.showsTransactions ? "Show Transactions" : nil,
+                secondaryTitles: actions.ruleHandoffMerchantName == nil ? [] : ["Open Rules"]
+            )
+        } else {
+            footerAction = .none
+        }
+
+        return AnalysisPageContract(cards: [
+            // Snapshot source: report.recurring.
+            // Omit never. Empty fallback: shown-empty when no recurring patterns exist. Action affordances: selection + Show Transactions/Open Rules after selection.
+            .init(
+                kind: .recurringCommitments,
+                visibility: recurring.isEmpty ? .shownEmpty : .shownActionable,
+                supportsSelection: true,
+                footerAction: footerAction
+            ),
+            // Snapshot source: report.merchants sorted by page-local sort.
+            // Omit never. Empty fallback: shown-empty when no merchants exist. Action affordances: selection + Show Transactions/Open Rules after selection.
+            .init(
+                kind: .topMerchants,
+                visibility: merchants.isEmpty ? .shownEmpty : .shownActionable,
+                supportsSelection: true,
+                footerAction: footerAction
+            ),
+            // Snapshot source: none yet in current snapshot boundaries.
+            // Omit when no honest CTA exists. Empty fallback: hidden for this pass. Action affordances: none.
+            .init(
+                kind: .readiness,
+                visibility: .hidden,
+                supportsSelection: false,
+                footerAction: .none
+            ),
+        ])
+    }
+
+    nonisolated static func inspectorContent(
+        for selection: AnalysisMerchantsSelection
+    ) -> AnalysisInspectorDocument {
+        AnalysisInspectorDocument(
+            title: selection.title,
+            sections: [
+                .summary(title: "Selection Summary", text: selection.summaryText),
+                .evidenceKV(
+                    title: "Evidence",
+                    items: AnalysisInspectorView<AnalysisMerchantsSelection, EmptyView>
+                        .evidenceGrouping(for: selection.evidence)
+                        .items
+                        .map { .init(label: $0.label, value: $0.value) }
+                ),
+                .metricRow(title: "Metrics", items: merchantMetrics(for: selection)),
+                .tagList(title: "Workflow Handoff", tags: merchantTags(for: selection)),
+            ]
+        )
+    }
+
     var body: some View {
         Group {
             if inspectorPresentation == .persistent {
@@ -79,8 +226,8 @@ struct AnalysisMerchantsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: AnalysisTheme.SectionSpacing.group) {
                 header
-                merchantActivitySection
                 recurringCommitmentsSection
+                merchantActivitySection
             }
             .padding(24)
         }
@@ -94,21 +241,6 @@ struct AnalysisMerchantsView: View {
                         .font(.largeTitle.weight(.semibold))
                     Text("Sort merchant activity and recurring commitments without losing the selected entity, then branch cleanly into transaction review or merchant rules cleanup.")
                         .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 0)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Sort")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Picker("Sort", selection: $sort) {
-                        ForEach(AnalysisScreenState.MerchantsState.Sort.allCases, id: \.self) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 300)
                 }
             }
 
@@ -160,7 +292,8 @@ struct AnalysisMerchantsView: View {
         AnalysisInspectorView(
             selection: selection,
             noSelectionDescription: "Select a merchant activity or recurring commitment row to inspect its evidence, open matching transactions, or hand off the selected merchant to Rules.",
-            actionLayout: selection.map(Self.inspectorActionLayout(for:)) ?? .none
+            actionLayout: selection.map(Self.inspectorActionLayout(for:)) ?? .none,
+            inspectorContent: Self.inspectorContent(for:)
         ) { selected in
             let actions = Self.inspectorActions(for: selected)
 
@@ -187,14 +320,56 @@ struct AnalysisMerchantsView: View {
     }
 
     private var merchantActivitySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let summary = Self.merchantSummary(selection: selection)
+
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Merchant Activity")
+                Text("Top Merchants")
                     .font(.headline)
                 Spacer()
-                Text(sort.supportingLabel)
-                    .font(.caption)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Sort")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Picker("Sort", selection: $sort) {
+                        ForEach(AnalysisScreenState.MerchantsState.Sort.allCases, id: \.self) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 300)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(summary.title)
+                    .font(.title3.weight(.semibold))
+                Text(summary.body)
                     .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    AnalysisMetricPill(title: "Current", value: summary.currentSpend)
+                    AnalysisMetricPill(title: "Comparison", value: summary.comparisonSpend)
+                    AnalysisMetricPill(title: "Delta", value: summary.delta)
+                }
+
+                if let selectedMerchant {
+                    HStack(spacing: 10) {
+                        Button {
+                            onShowTransactions(snapshot.transactionFilter(for: .merchant(selectedMerchant)))
+                        } label: {
+                            Label("Show Transactions", systemImage: "list.bullet.rectangle")
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            onShowRules(selectedMerchant.key.normalizedName)
+                        } label: {
+                            Label("Open Rules", systemImage: "slider.horizontal.3")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
             }
 
             if sortedMerchants.isEmpty {
@@ -219,9 +394,45 @@ struct AnalysisMerchantsView: View {
     }
 
     private var recurringCommitmentsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let summary = Self.recurringSummary(selection: selection)
+
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Recurring Commitments")
                 .font(.headline)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(summary.title)
+                    .font(.title3.weight(.semibold))
+                Text(summary.body)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    Text(summary.amountLabel)
+                        .analysisSharedMetricValueStyle()
+                    ForEach(summary.badges, id: \.self) { badge in
+                        Text(badge)
+                            .analysisSharedBadgeStyle()
+                    }
+                }
+
+                if let selectedRecurring {
+                    HStack(spacing: 10) {
+                        Button {
+                            onShowTransactions(snapshot.transactionFilter(for: .recurring(selectedRecurring)))
+                        } label: {
+                            Label("Show Transactions", systemImage: "list.bullet.rectangle")
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            onShowRules(selectedRecurring.detail.normalizedMerchantName)
+                        } label: {
+                            Label("Open Rules", systemImage: "slider.horizontal.3")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            }
 
             if sortedRecurring.isEmpty {
                 Text("No recurring merchant patterns were confidently detected in this scope.")
@@ -242,6 +453,42 @@ struct AnalysisMerchantsView: View {
             }
         }
         .analysisSharedCardStyle()
+    }
+
+    private nonisolated static func merchantMetrics(
+        for selection: AnalysisMerchantsSelection
+    ) -> [AnalysisInspectorMetric] {
+        switch selection {
+        case .merchant(let row):
+            return [
+                .init(label: "Current", value: analysisCurrency(row.currentSpend)),
+                .init(label: "Comparison", value: analysisCurrency(row.comparisonSpend)),
+                .init(label: "Delta", value: analysisCurrency(row.delta)),
+            ]
+        case .recurring(let row):
+            return [
+                .init(label: "Observations", value: "\(row.detail.observationCount)"),
+                .init(label: "Cadence", value: row.detail.cadence.rawValue.capitalized),
+                .init(label: "Amount", value: analysisCurrency(row.detail.amountRange.maximum)),
+            ]
+        }
+    }
+
+    private nonisolated static func merchantTags(
+        for selection: AnalysisMerchantsSelection
+    ) -> [String] {
+        switch selection {
+        case .merchant(let row):
+            return [
+                "Rules handoff: \(row.key.normalizedName)",
+                "Transactions drill-down"
+            ]
+        case .recurring(let row):
+            return [
+                "Rules handoff: \(row.detail.normalizedMerchantName)",
+                row.detail.cadence.rawValue.capitalized
+            ]
+        }
     }
 
     private func merchantRow(_ merchant: MerchantAnalysisRow) -> some View {
@@ -285,11 +532,7 @@ struct AnalysisMerchantsView: View {
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .padding(.top, 6)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground(isSelected: isSelected))
-        .overlay(rowStroke(isSelected: isSelected))
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .analysisSelectableRowStyle(isSelected: isSelected)
     }
 
     private func recurringRow(_ recurring: MerchantRecurringReportRow) -> some View {
@@ -336,11 +579,7 @@ struct AnalysisMerchantsView: View {
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .padding(.top, 6)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground(isSelected: isSelected))
-        .overlay(rowStroke(isSelected: isSelected))
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .analysisSelectableRowStyle(isSelected: isSelected)
     }
 
     private func merchantDeltaBadge(for delta: Decimal) -> some View {
@@ -362,19 +601,6 @@ struct AnalysisMerchantsView: View {
         Label(title, systemImage: systemImage)
             .analysisSharedBadgeStyle()
             .foregroundStyle(Color.accentColor)
-    }
-
-    private func rowBackground(isSelected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.white.opacity(0.0001))
-    }
-
-    private func rowStroke(isSelected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .stroke(
-                isSelected ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.14),
-                lineWidth: isSelected ? 1.5 : 1
-            )
     }
 
     private func recurringAmountRangeText(_ range: RecurringChargeAmountRange) -> Text {

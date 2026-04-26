@@ -46,48 +46,52 @@ struct AnalysisOverviewView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: AnalysisTheme.SectionSpacing.group) {
                 heroCard(layout.hero)
-                primarySections
-
-                if let supportSection = layout.supportSection {
-                    supportSectionCard(supportSection)
-                }
+                primaryCards
+                supportCards
             }
             .padding(24)
         }
     }
 
     @ViewBuilder
-    private var primarySections: some View {
-        let spendTrend = layout.primarySection(kind: .spendTrend)
-        let pace = layout.primarySection(kind: .pace)
-        let whatChanged = layout.primarySection(kind: .whatChanged)
+    private var primaryCards: some View {
+        let spendTrend = layout.card(kind: .spendOverTime)
+        let pace = layout.card(kind: .currentMonthPace)
+        let whatChanged = layout.card(kind: .whatChanged)
 
         ViewThatFits(in: .horizontal) {
             HStack(alignment: .top, spacing: AnalysisTheme.SectionSpacing.group) {
                 if let spendTrend {
-                    primarySectionCard(spendTrend)
+                    cardView(spendTrend)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
 
                 if let pace {
-                    primarySectionCard(pace)
+                    cardView(pace)
                         .frame(maxWidth: .infinity, alignment: .topLeading)
                 }
             }
 
             VStack(alignment: .leading, spacing: AnalysisTheme.SectionSpacing.group) {
                 if let spendTrend {
-                    primarySectionCard(spendTrend)
+                    cardView(spendTrend)
                 }
 
                 if let pace {
-                    primarySectionCard(pace)
+                    cardView(pace)
                 }
             }
         }
 
         if let whatChanged {
-            primarySectionCard(whatChanged)
+            cardView(whatChanged)
+        }
+    }
+
+    @ViewBuilder
+    private var supportCards: some View {
+        ForEach(layout.cards.filter(\.isVisibleSupportCard)) { card in
+            cardView(card)
         }
     }
 
@@ -118,7 +122,8 @@ struct AnalysisOverviewView: View {
         AnalysisInspectorView(
             selection: selection,
             noSelectionDescription: "Select a trend signal, driver, or support row to inspect its evidence and drill into matching transactions.",
-            actionLayout: selection.map(Self.inspectorActionLayout(for:)) ?? .none
+            actionLayout: selection.map(Self.inspectorActionLayout(for:)) ?? .none,
+            inspectorContent: Self.inspectorContent(for:)
         ) { selected in
             Button {
                 onShowTransactions(snapshot.transactionFilter(for: selected))
@@ -133,11 +138,15 @@ struct AnalysisOverviewView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Overview")
-                        .font(.headline)
-                    Text("A tighter read on spend, pace, and the changes driving this window.")
+                    Text(hero.kicker)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(hero.title)
+                        .font(.title.weight(.semibold))
+                    Text(hero.body)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: 560, alignment: .leading)
                 }
 
                 Spacer(minLength: 16)
@@ -195,54 +204,59 @@ struct AnalysisOverviewView: View {
     }
 
     @ViewBuilder
-    private func primarySectionCard(_ section: OverviewLayout.PrimarySection) -> some View {
-        switch section.kind {
-        case .spendTrend:
-            spendTrendSection(section)
-        case .pace:
-            paceSection(section)
+    private func cardView(_ card: OverviewLayout.Card) -> some View {
+        switch card.kind {
+        case .spendOverTime:
+            spendTrendSection(card)
+        case .currentMonthPace:
+            paceSection(card)
         case .whatChanged:
-            whatChangedSection(section)
+            whatChangedSection(card)
+        case .commitmentsNeedingAttention, .dataTrust, .targetPressure:
+            supportSectionCard(card)
         }
     }
 
-    private func spendTrendSection(_ section: OverviewLayout.PrimarySection) -> some View {
+    private func spendTrendSection(_ card: OverviewLayout.Card) -> some View {
         VStack(alignment: .leading, spacing: AnalysisTheme.Card.contentSpacing) {
             sectionHeader(
-                title: "Spend Trend",
-                subtitle: spendTrendSubtitle(for: section)
+                title: "Spend over time",
+                subtitle: spendTrendSubtitle(for: card)
             )
 
-            if let comparisonSpend = layout.hero.comparisonSpend {
+            if let spendChart = card.spendChart {
+                OverviewSpendComparisonChart(chart: spendChart)
+                    .frame(height: 118)
+
                 HStack(alignment: .top, spacing: 16) {
                     trendMetric(
                         label: "Current",
-                        value: currency(layout.hero.currentSpend)
+                        value: currency(spendChart.currentSpend)
                     )
                     trendMetric(
-                        label: comparisonReferenceLabel(layout.hero.comparison),
-                        value: currency(comparisonSpend)
+                        label: spendChart.comparisonLabel,
+                        value: currency(spendChart.comparisonSpend)
                     )
                     trendMetric(
                         label: "Delta",
-                        value: currency(layout.hero.currentSpend - comparisonSpend)
+                        value: currency(spendChart.currentSpend - spendChart.comparisonSpend)
                     )
                 }
             } else {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(currency(layout.hero.currentSpend))
                         .analysisSharedMetricValueStyle()
-                    Text(emptyStateText(for: section.emptyStateReason))
+                    Text(emptyStateText(for: card.emptyStateReason))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
             }
 
-            if section.entries.isEmpty == false {
+            if card.entries.isEmpty == false {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Signals")
                         .font(.subheadline.weight(.semibold))
-                    ForEach(section.entries) { entry in
+                    ForEach(card.entries) { entry in
                         selectableEntryRow(entry)
                     }
                 }
@@ -252,11 +266,11 @@ struct AnalysisOverviewView: View {
         .analysisSharedCardStyle()
     }
 
-    private func paceSection(_ section: OverviewLayout.PrimarySection) -> some View {
+    private func paceSection(_ card: OverviewLayout.Card) -> some View {
         VStack(alignment: .leading, spacing: AnalysisTheme.Card.contentSpacing) {
             sectionHeader(
-                title: "Pace",
-                subtitle: paceSubtitle(for: section)
+                title: "Current month pace",
+                subtitle: paceSubtitle(for: card)
             )
 
             HStack(alignment: .top, spacing: 16) {
@@ -292,20 +306,20 @@ struct AnalysisOverviewView: View {
         .analysisSharedCardStyle()
     }
 
-    private func whatChangedSection(_ section: OverviewLayout.PrimarySection) -> some View {
+    private func whatChangedSection(_ card: OverviewLayout.Card) -> some View {
         VStack(alignment: .leading, spacing: AnalysisTheme.Card.contentSpacing) {
             sectionHeader(
                 title: "What Changed",
-                subtitle: whatChangedSubtitle(for: section)
+                subtitle: whatChangedSubtitle(for: card)
             )
 
-            if section.entries.isEmpty {
-                Text(emptyStateText(for: section.emptyStateReason))
+            if card.entries.isEmpty {
+                Text(emptyStateText(for: card.emptyStateReason))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
                 VStack(spacing: 12) {
-                    ForEach(section.entries) { entry in
+                    ForEach(card.entries) { entry in
                         selectableEntryRow(entry)
                     }
                 }
@@ -315,26 +329,26 @@ struct AnalysisOverviewView: View {
         .analysisSharedCardStyle()
     }
 
-    private func supportSectionCard(_ section: OverviewLayout.SupportSection) -> some View {
+    private func supportSectionCard(_ card: OverviewLayout.Card) -> some View {
         VStack(alignment: .leading, spacing: AnalysisTheme.Card.contentSpacing) {
             sectionHeader(
-                title: supportTitle(for: section.kind),
-                subtitle: section.subtitle
+                title: supportTitle(for: card.kind),
+                subtitle: supportSubtitle(for: card)
             )
 
-            if let headline = section.headline {
+            if let headline = supportHeadline(for: card) {
                 Text(headline)
                     .font(.title3.weight(.semibold))
                     .monospacedDigit()
             }
 
-            if section.entries.isEmpty {
-                Text(section.caption)
+            if card.entries.isEmpty {
+                Text(supportCaption(for: card))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             } else {
                 VStack(spacing: 12) {
-                    ForEach(section.entries) { entry in
+                    ForEach(card.entries) { entry in
                         selectableEntryRow(entry)
                     }
                 }
@@ -450,8 +464,8 @@ struct AnalysisOverviewView: View {
         }
     }
 
-    private func spendTrendSubtitle(for section: OverviewLayout.PrimarySection) -> String {
-        if section.emptyStateReason == .missingComparisonBaseline {
+    private func spendTrendSubtitle(for card: OverviewLayout.Card) -> String {
+        if card.emptyStateReason == .missingComparisonBaseline {
             return "Current spend is available, but this context has no comparison baseline."
         }
 
@@ -467,8 +481,8 @@ struct AnalysisOverviewView: View {
         }
     }
 
-    private func paceSubtitle(for section: OverviewLayout.PrimarySection) -> String {
-        if section.emptyStateReason == .insufficientPaceData {
+    private func paceSubtitle(for card: OverviewLayout.Card) -> String {
+        if card.emptyStateReason == .insufficientPaceData {
             return "The month has not accumulated enough pace points for a reliable curve yet."
         }
 
@@ -482,22 +496,63 @@ struct AnalysisOverviewView: View {
         }
     }
 
-    private func whatChangedSubtitle(for section: OverviewLayout.PrimarySection) -> String {
-        if section.emptyStateReason == .noMaterialChanges {
+    private func whatChangedSubtitle(for card: OverviewLayout.Card) -> String {
+        if card.emptyStateReason == .noMaterialChanges {
             return "No major drivers or projected shifts were detected in this window."
         }
 
         return "The strongest category shifts stay selectable so the inspector can explain the evidence."
     }
 
-    private func supportTitle(for kind: OverviewLayout.SupportSection.Kind) -> String {
+    private func supportTitle(for kind: OverviewLayout.CardKind) -> String {
         switch kind {
-        case .recurringSummary:
-            return "Recurring Summary"
-        case .planningPressure:
-            return "Planning Pressure"
         case .dataTrust:
             return "Data Trust"
+        case .commitmentsNeedingAttention:
+            return "Commitments Needing Attention"
+        case .targetPressure:
+            return "Target Pressure"
+        case .spendOverTime, .currentMonthPace, .whatChanged:
+            return ""
+        }
+    }
+
+    private func supportSubtitle(for card: OverviewLayout.Card) -> String {
+        switch card.kind {
+        case .commitmentsNeedingAttention:
+            return "Use this support layer to separate durable commitments from one-off spikes."
+        case .dataTrust:
+            return "Accepted and pending expenses are included here, so categorization work can still reshape the final picture."
+        case .targetPressure:
+            return "Targets already in this snapshot show where the month is likely to tighten first."
+        case .spendOverTime, .currentMonthPace, .whatChanged:
+            return ""
+        }
+    }
+
+    private func supportHeadline(for card: OverviewLayout.Card) -> String? {
+        switch card.kind {
+        case .commitmentsNeedingAttention:
+            return card.entries.isEmpty ? nil : "Recurring commitments are already visible in this window."
+        case .dataTrust:
+            return "\(layout.hero.pendingReviewCount) review item(s) can still move this story."
+        case .targetPressure:
+            return card.entries.first.map { "\($0.title) is carrying the most pressure." }
+        case .spendOverTime, .currentMonthPace, .whatChanged:
+            return nil
+        }
+    }
+
+    private func supportCaption(for card: OverviewLayout.Card) -> String {
+        switch card.kind {
+        case .commitmentsNeedingAttention:
+            return "No recurring commitments were detected."
+        case .dataTrust:
+            return "The current view already reflects settled data."
+        case .targetPressure:
+            return "No target needs attention yet."
+        case .spendOverTime, .currentMonthPace, .whatChanged:
+            return ""
         }
     }
 
@@ -633,7 +688,39 @@ extension AnalysisOverviewView {
     }
 
     struct OverviewLayout: Equatable {
+        enum CardKind: String, Equatable {
+            case spendOverTime
+            case currentMonthPace
+            case whatChanged
+            case commitmentsNeedingAttention
+            case dataTrust
+            case targetPressure
+        }
+
+        struct Card: Identifiable, Equatable {
+            let kind: CardKind
+            let visibility: AnalysisCardVisibilityState
+            let supportsSelection: Bool
+            let footerAction: AnalysisCardFooterAction
+            let spendChart: SpendTrendChart?
+            let entries: [Entry]
+            let emptyStateReason: OverviewEmptyStateReason?
+
+            var id: String { kind.rawValue }
+            var isVisibleSupportCard: Bool {
+                switch kind {
+                case .commitmentsNeedingAttention, .dataTrust, .targetPressure:
+                    return visibility != .hidden
+                case .spendOverTime, .currentMonthPace, .whatChanged:
+                    return false
+                }
+            }
+        }
+
         struct Hero: Equatable {
+            let kicker: String
+            let title: String
+            let body: String
             let currentSpend: Decimal
             let comparisonSpend: Decimal?
             let comparison: OverviewComparisonDescriptor
@@ -641,6 +728,12 @@ extension AnalysisOverviewView {
             let expectedPaceSpend: Decimal
             let paceDirection: OverviewDeltaDirection
             let pendingReviewCount: Int
+        }
+
+        struct SpendTrendChart: Equatable {
+            let currentSpend: Decimal
+            let comparisonSpend: Decimal
+            let comparisonLabel: String
         }
 
         struct Entry: Identifiable, Equatable {
@@ -659,46 +752,19 @@ extension AnalysisOverviewView {
             }
         }
 
-        struct PrimarySection: Identifiable, Equatable {
-            enum Kind: String, Equatable {
-                case spendTrend
-                case pace
-                case whatChanged
-            }
-
-            let kind: Kind
-            let emptyStateReason: OverviewEmptyStateReason?
-            let entries: [Entry]
-
-            var id: String { kind.rawValue }
-            var isVisible: Bool { true }
-        }
-
-        struct SupportSection: Equatable {
-            enum Kind: String, Equatable {
-                case recurringSummary
-                case planningPressure
-                case dataTrust
-            }
-
-            let kind: Kind
-            let headline: String?
-            let subtitle: String
-            let caption: String
-            let entries: [Entry]
-        }
-
         let hero: Hero
-        let primarySections: [PrimarySection]
-        let supportSection: SupportSection?
+        let cards: [Card]
 
-        func primarySection(kind: PrimarySection.Kind) -> PrimarySection? {
-            primarySections.first(where: { $0.kind == kind })
+        func card(kind: CardKind) -> Card? {
+            cards.first(where: { $0.kind == kind })
         }
     }
 
     nonisolated static func layout(for snapshot: AnalysisOverviewSnapshot) -> OverviewLayout {
         let hero = OverviewLayout.Hero(
+            kicker: "Analysis / Overview",
+            title: "Spend, pace, and the changes shaping this window",
+            body: overviewHeroBody(for: snapshot),
             currentSpend: snapshot.report.currentSpend,
             comparisonSpend: snapshot.report.comparisonSpend,
             comparison: comparisonDescriptor(for: snapshot.context.comparison),
@@ -708,39 +774,9 @@ extension AnalysisOverviewView {
             pendingReviewCount: snapshot.monthlyReport.pendingReviewCount
         )
 
-        let trendEntries = Array(snapshot.projectedInsights.prefix(2)).map { insight in
-            OverviewLayout.Entry(
-                id: insight.suppressionKey,
-                title: insightTitle(insight),
-                subtitle: insightSubtitle(insight),
-                trailingValue: nil,
-                selection: .insight(insight)
-            )
-        }
-
-        let changeEntries = whatChangedEntries(for: snapshot)
-        let primarySections: [OverviewLayout.PrimarySection] = [
-            OverviewLayout.PrimarySection(
-                kind: .spendTrend,
-                emptyStateReason: spendTrendEmptyStateReason(for: snapshot),
-                entries: trendEntries
-            ),
-            OverviewLayout.PrimarySection(
-                kind: .pace,
-                emptyStateReason: paceEmptyStateReason(for: snapshot),
-                entries: []
-            ),
-            OverviewLayout.PrimarySection(
-                kind: .whatChanged,
-                emptyStateReason: whatChangedEmptyStateReason(for: changeEntries),
-                entries: changeEntries
-            ),
-        ]
-
         return OverviewLayout(
             hero: hero,
-            primarySections: primarySections,
-            supportSection: supportSection(for: snapshot)
+            cards: cards(for: snapshot)
         )
     }
 
@@ -767,6 +803,16 @@ extension AnalysisOverviewView {
         }
 
         return OverviewDeltaDirection(delta: snapshot.report.currentSpend - comparisonSpend)
+    }
+
+    private nonisolated static func overviewHeroBody(
+        for snapshot: AnalysisOverviewSnapshot
+    ) -> String {
+        if snapshot.report.comparisonSpend == nil {
+            return "Start with current spend and pace, then use What Changed to explain the strongest signals in the active window."
+        }
+
+        return "Use the comparison overlay to frame the month, then follow What Changed into the drivers, commitments, and trust signals that still matter."
     }
 
     private nonisolated static func spendTrendEmptyStateReason(
@@ -818,9 +864,28 @@ extension AnalysisOverviewView {
         }
     }
 
-    private nonisolated static func supportSection(
+    private nonisolated static func cards(
         for snapshot: AnalysisOverviewSnapshot
-    ) -> OverviewLayout.SupportSection? {
+    ) -> [OverviewLayout.Card] {
+        let trendEntries = Array(snapshot.projectedInsights.prefix(2)).map { insight in
+            OverviewLayout.Entry(
+                id: insight.suppressionKey,
+                title: insightTitle(insight),
+                subtitle: insightSubtitle(insight),
+                trailingValue: nil,
+                selection: nil
+            )
+        }
+        let whatChangedEntries = whatChangedEntries(for: snapshot)
+        let recurringEntries = Array(snapshot.report.recurring.prefix(3)).map { recurring in
+            OverviewLayout.Entry(
+                id: overviewIdentity(for: .recurring(recurring)),
+                title: recurring.detail.normalizedMerchantName.localizedCapitalized,
+                subtitle: "\(recurring.detail.cadence.rawValue.capitalized) cadence across \(recurring.detail.observationCount) observations",
+                trailingValue: currency(recurring.detail.amountRange.maximum),
+                selection: .recurring(recurring)
+            )
+        }
         let pressuredTargets = snapshot.monthlyReport.targets
             .filter { $0.remaining < .zero || $0.paceDelta > .zero }
             .sorted { lhs, rhs in
@@ -829,58 +894,113 @@ extension AnalysisOverviewView {
                 }
                 return lhs.spent > rhs.spent
             }
-
-        if snapshot.monthlyReport.hasActiveTargets, let leadTarget = pressuredTargets.first {
-            let entries = Array(pressuredTargets.prefix(3)).map { target in
-                OverviewLayout.Entry(
-                    id: target.id.uuidString,
-                    title: target.name,
-                    subtitle: "Spent \(currency(target.spent)) against \(currency(target.monthlyLimit))",
-                    trailingValue: currency(target.paceDelta),
-                    selection: nil
-                )
-            }
-
-            return OverviewLayout.SupportSection(
-                kind: .planningPressure,
-                headline: "\(leadTarget.name) is carrying the most pressure.",
-                subtitle: "Targets already in this snapshot show where the month is likely to tighten first.",
-                caption: "No target needs attention yet.",
-                entries: entries
+        let targetPressureEntries = Array(pressuredTargets.prefix(3)).map { target in
+            OverviewLayout.Entry(
+                id: target.id.uuidString,
+                title: target.name,
+                subtitle: "Spent \(currency(target.spent)) against \(currency(target.monthlyLimit))",
+                trailingValue: currency(target.paceDelta),
+                selection: nil
             )
         }
 
-        if snapshot.report.recurring.isEmpty == false {
-            let entries = Array(snapshot.report.recurring.prefix(3)).map { recurring in
-                OverviewLayout.Entry(
-                    id: overviewIdentity(for: .recurring(recurring)),
-                    title: recurring.detail.normalizedMerchantName.localizedCapitalized,
-                    subtitle: "\(recurring.detail.cadence.rawValue.capitalized) cadence across \(recurring.detail.observationCount) observations",
-                    trailingValue: currency(recurring.detail.amountRange.maximum),
-                    selection: .recurring(recurring)
-                )
-            }
-
-            return OverviewLayout.SupportSection(
-                kind: .recurringSummary,
-                headline: "Recurring commitments are already visible in this window.",
-                subtitle: "Use this support layer to separate durable commitments from one-off spikes.",
-                caption: "No recurring commitments were detected.",
-                entries: entries
-            )
-        }
-
-        if snapshot.monthlyReport.pendingReviewCount > 0 {
-            return OverviewLayout.SupportSection(
+        return [
+            // Snapshot source: report.currentSpend, report.comparisonSpend, projectedInsights.
+            // Omit never. Empty fallback: missing comparison baseline. Action affordances: none.
+            .init(
+                kind: .spendOverTime,
+                visibility: snapshot.report.comparisonSpend == nil ? .shownEmpty : .shownActionable,
+                supportsSelection: false,
+                footerAction: .none,
+                spendChart: spendTrendChart(for: snapshot),
+                entries: trendEntries,
+                emptyStateReason: spendTrendEmptyStateReason(for: snapshot)
+            ),
+            // Snapshot source: monthlyReport.paceSeries, expectedPaceSpend, paceDelta.
+            // Omit never. Empty fallback: insufficient pace data. Action affordances: none.
+            .init(
+                kind: .currentMonthPace,
+                visibility: paceEmptyStateReason(for: snapshot) == nil ? .shownActionable : .shownEmpty,
+                supportsSelection: false,
+                footerAction: .none,
+                spendChart: nil,
+                entries: [],
+                emptyStateReason: paceEmptyStateReason(for: snapshot)
+            ),
+            // Snapshot source: report.drivers, projectedInsights.
+            // Omit never. Empty fallback: no material changes. Action affordances: Show Transactions via committed selection.
+            .init(
+                kind: .whatChanged,
+                visibility: whatChangedEntries.isEmpty ? .shownEmpty : .shownActionable,
+                supportsSelection: true,
+                footerAction: .init(primaryTitle: "Show Transactions", secondaryTitles: []),
+                spendChart: nil,
+                entries: whatChangedEntries,
+                emptyStateReason: whatChangedEmptyStateReason(for: whatChangedEntries)
+            ),
+            // Snapshot source: report.recurring.
+            // Omit when no recurring facts exist. Empty fallback: hidden for this pass. Action affordances: Show Transactions.
+            .init(
+                kind: .commitmentsNeedingAttention,
+                visibility: recurringEntries.isEmpty ? .hidden : .shownActionable,
+                supportsSelection: true,
+                footerAction: .init(primaryTitle: "Show Transactions", secondaryTitles: []),
+                spendChart: nil,
+                entries: recurringEntries,
+                emptyStateReason: nil
+            ),
+            // Snapshot source: monthlyReport.pendingReviewCount.
+            // Omit when no pending facts exist. Empty fallback: hidden for this pass. Action affordances: none.
+            .init(
                 kind: .dataTrust,
-                headline: "\(snapshot.monthlyReport.pendingReviewCount) review item(s) can still move this story.",
-                subtitle: "Accepted and pending expenses are included here, so categorization work can still reshape the final picture.",
-                caption: "The current view already reflects settled data.",
-                entries: []
-            )
+                visibility: snapshot.monthlyReport.pendingReviewCount > 0 ? .shownActionable : .hidden,
+                supportsSelection: false,
+                footerAction: .none,
+                spendChart: nil,
+                entries: [],
+                emptyStateReason: nil
+            ),
+            // Snapshot source: monthlyReport.targets, hasActiveTargets.
+            // Omit when targets are absent. Empty fallback: shown-empty when targets exist but pressure is clear. Action affordances: none.
+            .init(
+                kind: .targetPressure,
+                visibility: snapshot.monthlyReport.hasActiveTargets == false ? .hidden : (pressuredTargets.isEmpty ? .shownEmpty : .shownActionable),
+                supportsSelection: false,
+                footerAction: .none,
+                spendChart: nil,
+                entries: targetPressureEntries,
+                emptyStateReason: pressuredTargets.isEmpty ? .noMaterialChanges : nil
+            ),
+        ]
+    }
+
+    private nonisolated static func spendTrendChart(
+        for snapshot: AnalysisOverviewSnapshot
+    ) -> OverviewLayout.SpendTrendChart? {
+        guard let comparisonSpend = snapshot.report.comparisonSpend else {
+            return nil
         }
 
-        return nil
+        return OverviewLayout.SpendTrendChart(
+            currentSpend: snapshot.report.currentSpend,
+            comparisonSpend: comparisonSpend,
+            comparisonLabel: comparisonTrendLabel(for: snapshot.context.comparison)
+        )
+    }
+
+    private nonisolated static func comparisonTrendLabel(
+        for comparison: AnalysisComparisonMode
+    ) -> String {
+        switch comparison {
+        case .none:
+            return "Baseline"
+        case .previousPeriod:
+            return "Previous period"
+        case .samePeriodLastYear:
+            return "Same period last year"
+        case .rollingAverage:
+            return "Rolling average"
+        }
     }
 
     private nonisolated static func insightTitle(_ insight: WorkspaceInsight) -> String {
@@ -915,6 +1035,80 @@ extension AnalysisOverviewView {
     private nonisolated static func currency(_ amount: Decimal) -> String {
         CurrencyFormatter.shared.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
     }
+
+    nonisolated static func inspectorContent(for selection: AnalysisOverviewSelection) -> AnalysisInspectorDocument {
+        AnalysisInspectorDocument(
+            title: selection.title,
+            sections: [
+                .summary(title: "Selection Summary", text: selection.summaryText),
+                .evidenceKV(
+                    title: "Evidence",
+                    items: AnalysisInspectorView<AnalysisOverviewSelection, EmptyView>
+                        .evidenceGrouping(for: selection.evidence)
+                        .items
+                        .map { .init(label: $0.label, value: $0.value) }
+                ),
+                .metricRow(title: "Metrics", items: overviewMetrics(for: selection)),
+                .bulletList(title: "Reading", items: overviewBullets(for: selection)),
+            ]
+        )
+    }
+
+    private nonisolated static func overviewMetrics(
+        for selection: AnalysisOverviewSelection
+    ) -> [AnalysisInspectorMetric] {
+        switch selection {
+        case .insight(let insight):
+            switch insight.kind {
+            case .recurringCharge(let detail):
+                return [
+                    .init(label: "Observations", value: "\(detail.observationCount)"),
+                    .init(label: "Cadence", value: detail.cadence.rawValue.capitalized),
+                    .init(label: "Amount", value: currency(detail.amountRange.maximum)),
+                ]
+            case .spendDriverChange(let detail):
+                return [
+                    .init(label: "Current", value: currency(detail.currentSpend)),
+                    .init(label: "Comparison", value: currency(detail.comparisonSpend)),
+                    .init(label: "Delta", value: currency(detail.delta)),
+                ]
+            }
+        case .driver(let row):
+            return [
+                .init(label: "Current", value: currency(row.currentSpend)),
+                .init(label: "Comparison", value: currency(row.comparisonSpend)),
+                .init(label: "Delta", value: currency(row.delta)),
+            ]
+        case .recurring(let row):
+            return [
+                .init(label: "Observations", value: "\(row.detail.observationCount)"),
+                .init(label: "Cadence", value: row.detail.cadence.rawValue.capitalized),
+                .init(label: "Amount", value: currency(row.detail.amountRange.maximum)),
+            ]
+        }
+    }
+
+    private nonisolated static func overviewBullets(
+        for selection: AnalysisOverviewSelection
+    ) -> [String] {
+        switch selection {
+        case .insight:
+            return [
+                "This signal remains selectable from What Changed.",
+                "Use Show Transactions to audit the exact rows behind the comparison."
+            ]
+        case .driver:
+            return [
+                "Drivers stay as the primary committed-selection surface on Overview.",
+                "The drill-down must preserve the current analysis context."
+            ]
+        case .recurring:
+            return [
+                "Recurring commitments stay informational until a later recurring-first page rebuild.",
+                "Transaction drill-down remains exact to the detected merchant pattern."
+            ]
+        }
+    }
 }
 
 private struct OverviewBadge: View {
@@ -947,6 +1141,85 @@ private struct OverviewBadge: View {
         case .neutral:
             AnyShapeStyle(.thinMaterial)
         }
+    }
+}
+
+private struct OverviewSpendComparisonChart: View {
+    let chart: AnalysisOverviewView.OverviewLayout.SpendTrendChart
+
+    var body: some View {
+        GeometryReader { proxy in
+            let maximum = max(
+                NSDecimalNumber(decimal: chart.currentSpend).doubleValue,
+                NSDecimalNumber(decimal: chart.comparisonSpend).doubleValue,
+                1
+            )
+            let currentRatio = CGFloat(NSDecimalNumber(decimal: chart.currentSpend).doubleValue / maximum)
+            let comparisonRatio = CGFloat(NSDecimalNumber(decimal: chart.comparisonSpend).doubleValue / maximum)
+
+            VStack(alignment: .leading, spacing: 12) {
+                overlayRow(
+                    title: chart.comparisonLabel,
+                    ratio: comparisonRatio,
+                    fill: AnyShapeStyle(Color.secondary.opacity(0.22))
+                )
+                overlayRow(
+                    title: "Current",
+                    ratio: currentRatio,
+                    fill: AnyShapeStyle(Color.accentColor.opacity(0.8))
+                )
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        }
+        .padding(16)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.secondary.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private func overlayRow(
+        title: String,
+        ratio: CGFloat,
+        fill: AnyShapeStyle
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Color.primary.opacity(0.06))
+
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(fill)
+                        .frame(
+                            width: AnalysisOverviewView.comparisonChartFillWidth(
+                                containerWidth: proxy.size.width,
+                                ratio: ratio
+                            )
+                        )
+                }
+            }
+            .frame(height: 18)
+        }
+    }
+}
+
+extension AnalysisOverviewView {
+    nonisolated static func comparisonChartFillWidth(
+        containerWidth: CGFloat,
+        ratio: CGFloat
+    ) -> CGFloat {
+        let normalizedRatio = min(max(ratio, 0), 1)
+        guard normalizedRatio > 0, containerWidth > 0 else {
+            return 0
+        }
+
+        return max(containerWidth * normalizedRatio, min(24, containerWidth))
     }
 }
 

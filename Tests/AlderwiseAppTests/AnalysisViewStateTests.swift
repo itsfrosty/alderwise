@@ -18,6 +18,49 @@ func analysisOverviewStartsWithoutSelectionWhenPresented() {
 }
 
 @Test
+func analysisReadOnlyMetadataUsesVisiblePageContext() {
+    let categoriesContext = AnalysisContext(
+        range: .monthToDate,
+        scope: .workspace,
+        comparison: .previousPeriod,
+        metricBasis: .acceptedExpenses
+    )
+    let snapshot = AnalysisSnapshot(
+        overview: AnalysisOverviewSnapshot(
+            context: AnalysisContext(
+                range: .monthToDate,
+                scope: .workspace,
+                comparison: .previousPeriod,
+                metricBasis: .includedVisibleExpenses
+            ),
+            report: OverviewReport(
+                context: AnalysisContext(),
+                currentSpend: Decimal(120),
+                comparisonSpend: Decimal(80),
+                drivers: [],
+                recurring: []
+            ),
+            monthlyReport: .empty,
+            projectedInsights: []
+        ),
+        categories: AnalysisCategoriesSnapshot(
+            context: categoriesContext,
+            report: CategoryAnalysisReport(context: categoriesContext, rows: []),
+            targetProgress: []
+        )
+    )
+
+    #expect(
+        AnalysisView.readOnlyMetadata(for: .overview, snapshot: snapshot)
+            == AnalysisView.ReadOnlyMetadata(scopeLabel: "Workspace", basisLabel: "All visible spending")
+    )
+    #expect(
+        AnalysisView.readOnlyMetadata(for: .categories, snapshot: snapshot)
+            == AnalysisView.ReadOnlyMetadata(scopeLabel: "Workspace", basisLabel: "Accepted spending")
+    )
+}
+
+@Test
 @MainActor
 func analysisOverviewCommitsSelectionWithoutDismissingPresentation() {
     let model = WorkspaceShellModel(store: nil, service: nil)
@@ -388,9 +431,9 @@ func analysisNarrowWidthsUseTransientInspectorPresentationWhenRequested() {
 }
 
 @Test
-func transientInspectorRequiresACommittedSelectionBeforePresentingItsSheet() {
+func transientInspectorPresentationIsOwnedByToolbarVisibilityRatherThanSelection() {
     #expect(
-        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: false) == false
+        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: false)
     )
     #expect(
         AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: true)
@@ -405,6 +448,22 @@ func analysisWideWidthsUsePersistentInspectorPresentationWhenRequested() {
             availableWidth: AnalysisView.persistentInspectorMinimumWidth + 1
         ) == .persistent
     )
+}
+
+@Test
+func analysisWidthTransitionKeepsInspectorInVisibleModesWhenSelectionAlreadyExists() {
+    let persistent = AnalysisInspectorPresentation.resolve(
+        isRequested: true,
+        availableWidth: AnalysisView.persistentInspectorMinimumWidth + 1
+    )
+    let transient = AnalysisInspectorPresentation.resolve(
+        isRequested: true,
+        availableWidth: AnalysisView.persistentInspectorMinimumWidth
+    )
+
+    #expect(persistent == .persistent)
+    #expect(transient == .transient)
+    #expect(transient.shouldPresentTransientInspector(hasSelection: true))
 }
 
 @Test

@@ -23,12 +23,17 @@ enum AnalysisInspectorPresentation: Equatable {
     }
 
     func shouldPresentTransientInspector(hasSelection: Bool) -> Bool {
-        presentsTransientSheet && hasSelection
+        presentsTransientSheet
     }
 }
 
 struct AnalysisView: View {
     nonisolated static let persistentInspectorMinimumWidth = WorkspaceLayout.minimumWindowWidth - WorkspaceLayout.sidebarIdealWidth
+
+    struct ReadOnlyMetadata: Equatable {
+        let scopeLabel: String?
+        let basisLabel: String?
+    }
 
     @ObservedObject var model: WorkspaceShellModel
 
@@ -64,6 +69,7 @@ struct AnalysisView: View {
                 } else {
                     VStack(spacing: 0) {
                         familyStrip
+                        contextMetadata
                         selectedPageView(
                             inspectorPresentation: inspectorPresentation
                         )
@@ -102,6 +108,24 @@ struct AnalysisView: View {
         AnalysisToolbarState.availablePages(in: snapshot)
     }
 
+    nonisolated static func dismissTransientInspector(
+        setInspectorVisible: @escaping (Bool) -> Void
+    ) -> () -> Void {
+        {
+            setInspectorVisible(false)
+        }
+    }
+
+    nonisolated static func readOnlyMetadata(
+        for page: AnalysisPage,
+        snapshot: AnalysisSnapshot
+    ) -> ReadOnlyMetadata {
+        ReadOnlyMetadata(
+            scopeLabel: AnalysisContextControls.scopeLabel(for: page, snapshot: snapshot),
+            basisLabel: AnalysisContextControls.metricBasisLabel(for: page, snapshot: snapshot)
+        )
+    }
+
     private var familyStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
@@ -133,6 +157,44 @@ struct AnalysisView: View {
     }
 
     @ViewBuilder
+    private var contextMetadata: some View {
+        let metadata = Self.readOnlyMetadata(for: selectedPage, snapshot: model.analysisSnapshot)
+
+        if metadata.scopeLabel != nil || metadata.basisLabel != nil {
+            HStack(spacing: 16) {
+                if let scopeLabel = metadata.scopeLabel {
+                    metadataChip(title: "Scope", value: scopeLabel)
+                }
+
+                if let basisLabel = metadata.basisLabel {
+                    metadataChip(title: "Basis", value: basisLabel)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 24)
+            .padding(.vertical, 10)
+            .background(.bar)
+            .overlay(alignment: .bottom) {
+                Divider()
+            }
+        }
+    }
+
+    private func metadataChip(title: String, value: String) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .foregroundStyle(.secondary)
+            Text(value)
+        }
+        .font(.caption.weight(.semibold))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(.quinary, in: Capsule())
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
     private func selectedPageView(inspectorPresentation: AnalysisInspectorPresentation) -> some View {
         switch selectedPage {
         case .overview:
@@ -145,7 +207,9 @@ struct AnalysisView: View {
                     ),
                     inspectorPresentation: inspectorPresentation,
                     onDismissTransientInspector: {
-                        model.setAnalysisInspectorVisible(false)
+                        Self.dismissTransientInspector(
+                            setInspectorVisible: model.setAnalysisInspectorVisible
+                        )()
                     },
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
@@ -166,7 +230,9 @@ struct AnalysisView: View {
                     ),
                     inspectorPresentation: inspectorPresentation,
                     onDismissTransientInspector: {
-                        model.setAnalysisInspectorVisible(false)
+                        Self.dismissTransientInspector(
+                            setInspectorVisible: model.setAnalysisInspectorVisible
+                        )()
                     },
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
@@ -190,7 +256,9 @@ struct AnalysisView: View {
                     ),
                     inspectorPresentation: inspectorPresentation,
                     onDismissTransientInspector: {
-                        model.setAnalysisInspectorVisible(false)
+                        Self.dismissTransientInspector(
+                            setInspectorVisible: model.setAnalysisInspectorVisible
+                        )()
                     },
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)

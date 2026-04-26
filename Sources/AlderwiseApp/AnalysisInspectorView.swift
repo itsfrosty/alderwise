@@ -35,6 +35,22 @@ struct AnalysisInspectorActionLayout: Equatable {
     )
 }
 
+private func analysisDefaultInspectorContent<Selection: AnalysisInspectorPresentable>(
+    for selection: Selection
+) -> AnalysisInspectorDocument {
+    let evidenceGrouping = AnalysisInspectorView<Selection, EmptyView>.evidenceGrouping(for: selection.evidence)
+    return AnalysisInspectorDocument(
+        title: selection.title,
+        sections: [
+            .summary(title: "Selection Summary", text: selection.summaryText),
+            .evidenceKV(
+                title: evidenceGrouping.title,
+                items: evidenceGrouping.items.map { .init(label: $0.label, value: $0.value) }
+            ),
+        ]
+    )
+}
+
 struct AnalysisInspectorView<
     Selection: AnalysisInspectorPresentable,
     Actions: View
@@ -42,6 +58,7 @@ struct AnalysisInspectorView<
     let selection: Selection?
     let noSelectionDescription: String
     let actionLayout: AnalysisInspectorActionLayout
+    let inspectorContent: (Selection) -> AnalysisInspectorDocument
     @ViewBuilder let primaryActions: (Selection) -> Actions
     let secondaryActions: (Selection) -> AnyView
 
@@ -81,12 +98,14 @@ struct AnalysisInspectorView<
         selection: Selection?,
         noSelectionDescription: String,
         actionLayout: AnalysisInspectorActionLayout = .none,
+        inspectorContent: ((Selection) -> AnalysisInspectorDocument)? = nil,
         @ViewBuilder primaryActions: @escaping (Selection) -> Actions,
         @ViewBuilder secondaryActions: @escaping (Selection) -> some View
     ) {
         self.selection = selection
         self.noSelectionDescription = noSelectionDescription
         self.actionLayout = actionLayout
+        self.inspectorContent = inspectorContent ?? analysisDefaultInspectorContent(for:)
         self.primaryActions = primaryActions
         self.secondaryActions = { selection in
             AnyView(secondaryActions(selection))
@@ -111,12 +130,14 @@ struct AnalysisInspectorView<
         selection: Selection?,
         noSelectionDescription: String,
         actionLayout: AnalysisInspectorActionLayout,
+        inspectorContent: @escaping (Selection) -> AnalysisInspectorDocument,
         @ViewBuilder primaryActions: @escaping (Selection) -> Actions
     ) {
         self.init(
             selection: selection,
             noSelectionDescription: noSelectionDescription,
             actionLayout: actionLayout,
+            inspectorContent: inspectorContent,
             primaryActions: primaryActions
         ) { _ in
             EmptyView()
@@ -210,8 +231,11 @@ struct AnalysisInspectorView<
 
     @ViewBuilder
     private func selectedContent(_ selection: Selection) -> some View {
-        summaryBlock(selection)
-        evidenceBlock(selection.evidence)
+        let document = inspectorContent(selection)
+
+        ForEach(Array(document.sections.enumerated()), id: \.offset) { _, section in
+            inspectorSection(section, documentTitle: document.title)
+        }
 
         if actionLayout.primaryActionTitle != nil {
             actionSection(
@@ -232,14 +256,36 @@ struct AnalysisInspectorView<
         }
     }
 
-    private func summaryBlock(_ selection: Selection) -> some View {
+    @ViewBuilder
+    private func inspectorSection(
+        _ section: AnalysisInspectorSection,
+        documentTitle: String
+    ) -> some View {
+        switch section.kind {
+        case .summary:
+            summarySection(section, documentTitle: documentTitle)
+        case .evidenceKV:
+            keyValueSection(section)
+        case .metricRow:
+            metricSection(section)
+        case .bulletList:
+            bulletSection(section)
+        case .tagList:
+            tagSection(section)
+        }
+    }
+
+    private func summarySection(
+        _ section: AnalysisInspectorSection,
+        documentTitle: String
+    ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Selection Summary")
+                    Text(section.title)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
-                    Text(selection.title)
+                    Text(documentTitle)
                         .font(.title3.weight(.semibold))
                 }
 
@@ -250,9 +296,11 @@ struct AnalysisInspectorView<
                     .foregroundStyle(Color.accentColor)
             }
 
-            Text(selection.summaryText)
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if let summary = section.summary {
+                Text(summary)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -263,20 +311,73 @@ struct AnalysisInspectorView<
         )
     }
 
-    private func evidenceBlock(_ evidence: InsightEvidence) -> some View {
-        let grouping = Self.evidenceGrouping(for: evidence)
-
-        return VStack(alignment: .leading, spacing: 12) {
-            Text(grouping.title)
+    private func keyValueSection(_ section: AnalysisInspectorSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(section.title)
                 .font(.subheadline.weight(.semibold))
 
-            ForEach(grouping.items, id: \.label) { item in
+            ForEach(section.keyValues, id: \.label) { item in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.label)
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(item.value)
                         .font(.subheadline)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func metricSection(_ section: AnalysisInspectorSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(section.title)
+                .font(.subheadline.weight(.semibold))
+
+            ForEach(section.metrics, id: \.label) { metric in
+                HStack {
+                    Text(metric.label)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(metric.value)
+                        .font(.subheadline.monospacedDigit())
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func bulletSection(_ section: AnalysisInspectorSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(section.title)
+                .font(.subheadline.weight(.semibold))
+
+            ForEach(section.bullets, id: \.self) { bullet in
+                HStack(alignment: .top, spacing: 8) {
+                    Text("•")
+                    Text(bullet)
+                }
+                .font(.subheadline)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func tagSection(_ section: AnalysisInspectorSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(section.title)
+                .font(.subheadline.weight(.semibold))
+
+            HStack(spacing: 8) {
+                ForEach(section.tags, id: \.self) { tag in
+                    Text(tag)
+                        .analysisSharedBadgeStyle()
                 }
             }
         }
@@ -400,7 +501,7 @@ private func evidenceIntervalText(_ interval: DateInterval) -> String {
 }
 
 private func currency(_ amount: Decimal) -> String {
-    CurrencyFormatter.shared.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
+    analysisCurrency(amount)
 }
 
 private enum CurrencyFormatter {
