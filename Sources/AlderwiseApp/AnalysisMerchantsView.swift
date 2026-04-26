@@ -3,6 +3,12 @@ import Domain
 import SwiftUI
 
 struct AnalysisMerchantsView: View {
+    enum CardKind: String, Equatable {
+        case recurringCommitments
+        case topMerchants
+        case readiness
+    }
+
     struct InspectorActions: Equatable {
         var showsTransactions: Bool
         var ruleHandoffMerchantName: String?
@@ -55,6 +61,73 @@ struct AnalysisMerchantsView: View {
         )
     }
 
+    nonisolated static func pageLayout(
+        for snapshot: AnalysisMerchantsSnapshot,
+        sort: AnalysisScreenState.MerchantsState.Sort,
+        selection: AnalysisMerchantsSelection?
+    ) -> AnalysisPageContract<CardKind> {
+        let pageState = AnalysisScreenState.MerchantsState(sort: sort, selection: selection)
+        let merchants = pageState.sortedMerchants(in: snapshot)
+        let recurring = pageState.sortedRecurring(in: snapshot)
+        let footerAction: AnalysisCardFooterAction
+        if let selection {
+            let actions = inspectorActions(for: selection)
+            footerAction = .init(
+                primaryTitle: actions.showsTransactions ? "Show Transactions" : nil,
+                secondaryTitles: actions.ruleHandoffMerchantName == nil ? [] : ["Open Rules"]
+            )
+        } else {
+            footerAction = .none
+        }
+
+        return AnalysisPageContract(cards: [
+            // Snapshot source: report.recurring.
+            // Omit never. Empty fallback: shown-empty when no recurring patterns exist. Action affordances: selection + Show Transactions/Open Rules after selection.
+            .init(
+                kind: .recurringCommitments,
+                visibility: recurring.isEmpty ? .shownEmpty : .shownActionable,
+                supportsSelection: true,
+                footerAction: footerAction
+            ),
+            // Snapshot source: report.merchants sorted by page-local sort.
+            // Omit never. Empty fallback: shown-empty when no merchants exist. Action affordances: selection + Show Transactions/Open Rules after selection.
+            .init(
+                kind: .topMerchants,
+                visibility: merchants.isEmpty ? .shownEmpty : .shownActionable,
+                supportsSelection: true,
+                footerAction: footerAction
+            ),
+            // Snapshot source: none yet in current snapshot boundaries.
+            // Omit when no honest CTA exists. Empty fallback: hidden for this pass. Action affordances: none.
+            .init(
+                kind: .readiness,
+                visibility: .hidden,
+                supportsSelection: false,
+                footerAction: .none
+            ),
+        ])
+    }
+
+    nonisolated static func inspectorContent(
+        for selection: AnalysisMerchantsSelection
+    ) -> AnalysisInspectorDocument {
+        AnalysisInspectorDocument(
+            title: selection.title,
+            sections: [
+                .summary(title: "Selection Summary", text: selection.summaryText),
+                .evidenceKV(
+                    title: "Evidence",
+                    items: AnalysisInspectorView<AnalysisMerchantsSelection, EmptyView>
+                        .evidenceGrouping(for: selection.evidence)
+                        .items
+                        .map { .init(label: $0.label, value: $0.value) }
+                ),
+                .metricRow(title: "Metrics", items: merchantMetrics(for: selection)),
+                .tagList(title: "Workflow Handoff", tags: merchantTags(for: selection)),
+            ]
+        )
+    }
+
     var body: some View {
         Group {
             if inspectorPresentation == .persistent {
@@ -79,8 +152,8 @@ struct AnalysisMerchantsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: AnalysisTheme.SectionSpacing.group) {
                 header
-                merchantActivitySection
                 recurringCommitmentsSection
+                merchantActivitySection
             }
             .padding(24)
         }
@@ -160,7 +233,8 @@ struct AnalysisMerchantsView: View {
         AnalysisInspectorView(
             selection: selection,
             noSelectionDescription: "Select a merchant activity or recurring commitment row to inspect its evidence, open matching transactions, or hand off the selected merchant to Rules.",
-            actionLayout: selection.map(Self.inspectorActionLayout(for:)) ?? .none
+            actionLayout: selection.map(Self.inspectorActionLayout(for:)) ?? .none,
+            inspectorContent: Self.inspectorContent(for:)
         ) { selected in
             let actions = Self.inspectorActions(for: selected)
 
@@ -242,6 +316,42 @@ struct AnalysisMerchantsView: View {
             }
         }
         .analysisSharedCardStyle()
+    }
+
+    private nonisolated static func merchantMetrics(
+        for selection: AnalysisMerchantsSelection
+    ) -> [AnalysisInspectorMetric] {
+        switch selection {
+        case .merchant(let row):
+            return [
+                .init(label: "Current", value: analysisCurrency(row.currentSpend)),
+                .init(label: "Comparison", value: analysisCurrency(row.comparisonSpend)),
+                .init(label: "Delta", value: analysisCurrency(row.delta)),
+            ]
+        case .recurring(let row):
+            return [
+                .init(label: "Observations", value: "\(row.detail.observationCount)"),
+                .init(label: "Cadence", value: row.detail.cadence.rawValue.capitalized),
+                .init(label: "Amount", value: analysisCurrency(row.detail.amountRange.maximum)),
+            ]
+        }
+    }
+
+    private nonisolated static func merchantTags(
+        for selection: AnalysisMerchantsSelection
+    ) -> [String] {
+        switch selection {
+        case .merchant(let row):
+            return [
+                "Rules handoff: \(row.key.normalizedName)",
+                "Transactions drill-down"
+            ]
+        case .recurring(let row):
+            return [
+                "Rules handoff: \(row.detail.normalizedMerchantName)",
+                row.detail.cadence.rawValue.capitalized
+            ]
+        }
     }
 
     private func merchantRow(_ merchant: MerchantAnalysisRow) -> some View {

@@ -3,6 +3,12 @@ import Domain
 import SwiftUI
 
 struct AnalysisCategoriesView: View {
+    enum CardKind: String, Equatable {
+        case contribution
+        case selectedCategoryTrend
+        case rankedGroups
+    }
+
     let snapshot: AnalysisCategoriesSnapshot
     @Binding var sort: AnalysisScreenState.CategoriesState.Sort
     @Binding var selection: AnalysisCategoriesSelection?
@@ -23,8 +29,11 @@ struct AnalysisCategoriesView: View {
         pageState.selectedTargetProgress(in: snapshot)
     }
 
-    private var trackedTargetCount: Int {
-        snapshot.targetProgress.count
+    private var selectedRow: AnalysisSpendRow? {
+        guard case .row(let row)? = selection else {
+            return nil
+        }
+        return row
     }
 
     nonisolated static func rowIdentity(for row: AnalysisSpendRow) -> RowIdentity {
@@ -43,6 +52,88 @@ struct AnalysisCategoriesView: View {
         return AnalysisInspectorActionLayout(
             primaryActionTitle: "Show Transactions",
             secondaryActionTitles: secondaryTitles
+        )
+    }
+
+    nonisolated static func pageLayout(
+        for snapshot: AnalysisCategoriesSnapshot,
+        sort: AnalysisScreenState.CategoriesState.Sort,
+        selection: AnalysisCategoriesSelection?
+    ) -> AnalysisPageContract<CardKind> {
+        let pageState = AnalysisScreenState.CategoriesState(sort: sort, selection: selection)
+        let rows = pageState.sortedRows(in: snapshot)
+        let targetProgress = pageState.selectedTargetProgress(in: snapshot)
+
+        return AnalysisPageContract(cards: [
+            // Snapshot source: report.rows + committed row selection.
+            // Omit never. Empty fallback: shown-empty when no rows exist or no row has been committed yet. Action affordances: none.
+            .init(
+                kind: .contribution,
+                visibility: rows.isEmpty || selection == nil ? .shownEmpty : .shownActionable,
+                supportsSelection: false,
+                footerAction: .none
+            ),
+            // Snapshot source: committed row selection + targetProgress(for:).
+            // Omit never. Empty fallback: shown-empty when no selection exists. Action affordances: Show Transactions, Open Target when linked.
+            .init(
+                kind: .selectedCategoryTrend,
+                visibility: selection == nil ? .shownEmpty : .shownActionable,
+                supportsSelection: false,
+                footerAction: .init(
+                    primaryTitle: nil,
+                    secondaryTitles: targetProgress == nil ? [] : ["Open Target"]
+                )
+            ),
+            // Snapshot source: report.rows sorted by page-local state.
+            // Omit never. Empty fallback: shown-empty when no rows exist. Action affordances: selection only.
+            .init(
+                kind: .rankedGroups,
+                visibility: rows.isEmpty ? .shownEmpty : .shownActionable,
+                supportsSelection: true,
+                footerAction: .none
+            ),
+        ])
+    }
+
+    nonisolated static func inspectorContent(
+        for selection: AnalysisCategoriesSelection,
+        snapshot: AnalysisCategoriesSnapshot
+    ) -> AnalysisInspectorDocument {
+        var sections: [AnalysisInspectorSection] = [
+            .summary(title: "Selection Summary", text: selection.summaryText),
+            .evidenceKV(
+                title: "Evidence",
+                items: AnalysisInspectorView<AnalysisCategoriesSelection, EmptyView>
+                    .evidenceGrouping(for: selection.evidence)
+                    .items
+                    .map { .init(label: $0.label, value: $0.value) }
+            ),
+            .metricRow(
+                title: "Metrics",
+                items: categoryMetrics(for: selection)
+            ),
+        ]
+
+        if let targetProgress = snapshot.targetProgress(for: selection) {
+            sections.append(
+                .tagList(title: "Linked Target", tags: [
+                    targetProgress.name,
+                    "Limit \(analysisCurrency(targetProgress.monthlyLimit))",
+                    "Remaining \(analysisCurrency(targetProgress.remaining))"
+                ])
+            )
+        } else {
+            sections.append(
+                .bulletList(title: "Next Step", items: [
+                    "This category does not currently map to a linked target.",
+                    "Use Show Transactions to inspect the underlying spend before calibrating targets elsewhere."
+                ])
+            )
+        }
+
+        return AnalysisInspectorDocument(
+            title: selection.title,
+            sections: sections
         )
     }
 
@@ -71,7 +162,8 @@ struct AnalysisCategoriesView: View {
             VStack(alignment: .leading, spacing: AnalysisTheme.SectionSpacing.group) {
                 header
                 contributionSection
-                targetHandoffSection
+                selectedCategoryTrendSection
+                rankedGroupsSection
             }
             .padding(24)
         }
@@ -104,7 +196,8 @@ struct AnalysisCategoriesView: View {
         AnalysisInspectorView(
             selection: selection,
             noSelectionDescription: "Select a category or group contribution to inspect its evidence, open matching transactions, or hand off to its linked target.",
-            actionLayout: selection.map { Self.inspectorActionLayout(for: $0, snapshot: snapshot) } ?? .none
+            actionLayout: selection.map { Self.inspectorActionLayout(for: $0, snapshot: snapshot) } ?? .none,
+            inspectorContent: { Self.inspectorContent(for: $0, snapshot: snapshot) }
         ) { selected in
             Button {
                 onShowTransactions(snapshot.transactionFilter(for: selected))
@@ -158,7 +251,7 @@ struct AnalysisCategoriesView: View {
                 )
                 AnalysisCategoriesSummaryBadge(
                     title: "Targets",
-                    value: "\(trackedTargetCount)",
+                    value: "\(snapshot.targetProgress.count)",
                     systemImage: "target"
                 )
                 AnalysisCategoriesSummaryBadge(
@@ -171,10 +264,107 @@ struct AnalysisCategoriesView: View {
         .analysisSharedCardStyle()
     }
 
+    private nonisolated static func categoryMetrics(
+        for selection: AnalysisCategoriesSelection
+    ) -> [AnalysisInspectorMetric] {
+        switch selection {
+        case .row(let row):
+            return [
+                .init(label: "Current", value: analysisCurrency(row.currentSpend)),
+                .init(label: "Comparison", value: analysisCurrency(row.comparisonSpend)),
+                .init(label: "Delta", value: analysisCurrency(row.delta)),
+            ]
+        }
+    }
+
     private var contributionSection: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("Contribution")
+                .font(.headline)
+
+            if let selectedRow {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("\(selectedRow.title) is the active contribution signal for this page. Keep this committed selection stable while the ranked list, inspector, and target handoff stay aligned.")
+                        .foregroundStyle(.secondary)
+
+                    HStack(spacing: 10) {
+                        targetMetricBadge(title: "Current", value: currency(selectedRow.currentSpend))
+                        targetMetricBadge(title: "Comparison", value: currency(selectedRow.comparisonSpend))
+                        targetMetricBadge(title: "Delta", value: currency(selectedRow.delta))
+                    }
+                }
+            } else if sortedRows.isEmpty {
+                Text("No category or group contributions were detected for the active context.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            } else {
+                Text("Select a ranked group to anchor the contribution summary, trend evidence, and target handoff to one committed category.")
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 8)
+            }
+        }
+        .analysisSharedCardStyle()
+    }
+
+    private var selectedCategoryTrendSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Selected Category Trend")
+                .font(.headline)
+
+            if let selection, let row = selectedRow {
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text(selection.title)
+                                .font(.title3.weight(.semibold))
+                            Text("Current \(currency(row.currentSpend)) vs \(currency(row.comparisonSpend))")
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Text(currency(row.delta))
+                            .analysisSharedMetricValueStyle()
+                    }
+
+                    HStack(spacing: 10) {
+                        targetMetricBadge(title: "Current", value: currency(row.currentSpend))
+                        targetMetricBadge(title: "Comparison", value: currency(row.comparisonSpend))
+                        targetMetricBadge(title: "Delta", value: currency(row.delta))
+                    }
+
+                    if let targetProgress = selectedTargetProgress {
+                        HStack(spacing: 10) {
+                            targetMetricBadge(title: "Limit", value: currency(targetProgress.monthlyLimit))
+                            targetMetricBadge(title: "Remaining", value: currency(targetProgress.remaining))
+                            targetMetricBadge(title: "Pace", value: currency(targetProgress.paceDelta))
+                        }
+
+                        Button {
+                            onShowTarget(targetProgress.id)
+                        } label: {
+                            Label("Open Target", systemImage: "target")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    } else {
+                        Text("\(selection.title) does not currently map to a monthly target. Use Show Transactions from the inspector to audit the underlying spend before calibrating targets elsewhere.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Text("Select a ranked group to inspect its trend, compare current versus comparison spend, and expose any linked target handoff from the current selection.")
+                .foregroundStyle(.secondary)
+            }
+        }
+        .analysisSharedCardStyle()
+    }
+
+    private var rankedGroupsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Contribution")
+                Text("Ranked Groups")
                     .font(.headline)
                 Spacer()
                 Text(sort.supportingLabel)
@@ -198,60 +388,6 @@ struct AnalysisCategoriesView: View {
                         .buttonStyle(.plain)
                     }
                 }
-            }
-        }
-        .analysisSharedCardStyle()
-    }
-
-    private var targetHandoffSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Target Handoff")
-                .font(.headline)
-
-            if let selection, let targetProgress = selectedTargetProgress {
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack(alignment: .top, spacing: 16) {
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(selection.title)
-                                .font(.title3.weight(.semibold))
-                            Text(targetProgress.name)
-                                .foregroundStyle(.secondary)
-                        }
-
-                        Spacer()
-
-                        Text(currency(targetProgress.spent))
-                            .analysisSharedMetricValueStyle()
-                    }
-
-                    HStack(spacing: 10) {
-                        targetMetricBadge(
-                            title: "Limit",
-                            value: currency(targetProgress.monthlyLimit)
-                        )
-                        targetMetricBadge(
-                            title: "Remaining",
-                            value: currency(targetProgress.remaining)
-                        )
-                        targetMetricBadge(
-                            title: "Pace",
-                            value: currency(targetProgress.paceDelta)
-                        )
-                    }
-
-                    Button {
-                        onShowTarget(targetProgress.id)
-                    } label: {
-                        Label("Open Target", systemImage: "target")
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
-            } else if let selection {
-                Text("\(selection.title) does not currently map to a monthly target. Use the inspector to review evidence or jump into transactions instead.")
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Select a contribution row to inspect its target alignment and hand off to Targets from the current selection.")
-                    .foregroundStyle(.secondary)
             }
         }
         .analysisSharedCardStyle()
