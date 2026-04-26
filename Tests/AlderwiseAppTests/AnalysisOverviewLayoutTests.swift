@@ -34,6 +34,8 @@ func analysisOverviewLayoutShowsTheHeroAndRequiredPrimarySectionsWhenDataExists(
 
     let layout = AnalysisOverviewView.layout(for: snapshot)
 
+    #expect(layout.hero.kicker == "Analysis / Overview")
+    #expect(layout.hero.title == "Spend, pace, and the changes shaping this window")
     #expect(layout.hero.comparison != .none)
     #expect(layout.cards.map(\.kind) == [
         .spendOverTime,
@@ -63,6 +65,7 @@ func analysisOverviewLayoutDegradesCleanlyForNoComparisonAndLowDataStates() thro
 
     let layout = AnalysisOverviewView.layout(for: snapshot)
 
+    #expect(layout.hero.kicker == "Analysis / Overview")
     #expect(layout.cards.map(\.kind) == [
         .spendOverTime,
         .currentMonthPace,

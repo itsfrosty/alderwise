@@ -138,11 +138,15 @@ struct AnalysisOverviewView: View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("Overview")
-                        .font(.headline)
-                    Text("A tighter read on spend, pace, and the changes driving this window.")
+                    Text(hero.kicker)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(hero.title)
+                        .font(.title.weight(.semibold))
+                    Text(hero.body)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: 560, alignment: .leading)
                 }
 
                 Spacer(minLength: 16)
@@ -216,7 +220,7 @@ struct AnalysisOverviewView: View {
     private func spendTrendSection(_ card: OverviewLayout.Card) -> some View {
         VStack(alignment: .leading, spacing: AnalysisTheme.Card.contentSpacing) {
             sectionHeader(
-                title: "Spend Trend",
+                title: "Spend over time",
                 subtitle: spendTrendSubtitle(for: card)
             )
 
@@ -262,7 +266,7 @@ struct AnalysisOverviewView: View {
     private func paceSection(_ card: OverviewLayout.Card) -> some View {
         VStack(alignment: .leading, spacing: AnalysisTheme.Card.contentSpacing) {
             sectionHeader(
-                title: "Pace",
+                title: "Current month pace",
                 subtitle: paceSubtitle(for: card)
             )
 
@@ -710,6 +714,9 @@ extension AnalysisOverviewView {
         }
 
         struct Hero: Equatable {
+            let kicker: String
+            let title: String
+            let body: String
             let currentSpend: Decimal
             let comparisonSpend: Decimal?
             let comparison: OverviewComparisonDescriptor
@@ -745,6 +752,9 @@ extension AnalysisOverviewView {
 
     nonisolated static func layout(for snapshot: AnalysisOverviewSnapshot) -> OverviewLayout {
         let hero = OverviewLayout.Hero(
+            kicker: "Analysis / Overview",
+            title: "Spend, pace, and the changes shaping this window",
+            body: overviewHeroBody(for: snapshot),
             currentSpend: snapshot.report.currentSpend,
             comparisonSpend: snapshot.report.comparisonSpend,
             comparison: comparisonDescriptor(for: snapshot.context.comparison),
@@ -783,6 +793,16 @@ extension AnalysisOverviewView {
         }
 
         return OverviewDeltaDirection(delta: snapshot.report.currentSpend - comparisonSpend)
+    }
+
+    private nonisolated static func overviewHeroBody(
+        for snapshot: AnalysisOverviewSnapshot
+    ) -> String {
+        if snapshot.report.comparisonSpend == nil {
+            return "Start with current spend and pace, then use What Changed to explain the strongest signals in the active window."
+        }
+
+        return "Use the comparison overlay to frame the month, then follow What Changed into the drivers, commitments, and trust signals that still matter."
     }
 
     private nonisolated static func spendTrendEmptyStateReason(
