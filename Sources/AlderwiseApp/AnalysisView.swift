@@ -102,6 +102,14 @@ struct AnalysisView: View {
         AnalysisToolbarState.availablePages(in: snapshot)
     }
 
+    nonisolated static func dismissTransientInspector(
+        setInspectorVisible: @escaping (Bool) -> Void
+    ) -> () -> Void {
+        {
+            setInspectorVisible(false)
+        }
+    }
+
     private var familyStrip: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 10) {
@@ -145,7 +153,9 @@ struct AnalysisView: View {
                     ),
                     inspectorPresentation: inspectorPresentation,
                     onDismissTransientInspector: {
-                        model.setAnalysisInspectorVisible(false)
+                        Self.dismissTransientInspector(
+                            setInspectorVisible: model.setAnalysisInspectorVisible
+                        )()
                     },
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
@@ -166,7 +176,9 @@ struct AnalysisView: View {
                     ),
                     inspectorPresentation: inspectorPresentation,
                     onDismissTransientInspector: {
-                        model.setAnalysisInspectorVisible(false)
+                        Self.dismissTransientInspector(
+                            setInspectorVisible: model.setAnalysisInspectorVisible
+                        )()
                     },
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
@@ -190,7 +202,9 @@ struct AnalysisView: View {
                     ),
                     inspectorPresentation: inspectorPresentation,
                     onDismissTransientInspector: {
-                        model.setAnalysisInspectorVisible(false)
+                        Self.dismissTransientInspector(
+                            setInspectorVisible: model.setAnalysisInspectorVisible
+                        )()
                     },
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)

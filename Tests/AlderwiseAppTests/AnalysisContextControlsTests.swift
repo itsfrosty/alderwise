@@ -53,6 +53,14 @@ func analysisContextControlsDoNotExposeDeferredControls() {
 }
 
 @Test
+func analysisContextControlsKeepToolbarOwnershipBoundedToRangeAndCompare() {
+    #expect(AnalysisContextControls.supportedRanges.isEmpty == false)
+    #expect(AnalysisContextControls.supportedComparisons.isEmpty == false)
+    #expect(AnalysisContextControls.supportsInteractiveScope == false)
+    #expect(AnalysisContextControls.supportsAdvancedQualifiers == false)
+}
+
+@Test
 func analysisContextControlsDoNotCoerceUnsupportedSourceOfTruthValues() {
     let rangeBinding = AnalysisContextControls.rangeSelection(
         getContext: {

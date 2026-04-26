@@ -424,6 +424,8 @@ final class WorkspaceShellModel: ObservableObject {
         isPresentingAnalysisOverview = false
     }
 
+    // Committed selection is durable per page, but it never changes toolbar-owned
+    // inspector visibility on its own.
     func setAnalysisOverviewSelection(_ selection: AnalysisOverviewSelection?) {
         updateAnalysisScreenState {
             $0.setOverviewSelection(selection)

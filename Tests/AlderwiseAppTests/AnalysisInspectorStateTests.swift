@@ -330,6 +330,41 @@ func analysisInspectorRetainsCommittedSelectionAfterDrilldownAndReturn() {
     #expect(model.pendingAppSectionNavigation == .analysis)
 }
 
+@Test
+@MainActor
+func analysisTransientInspectorDismissalDoesNotClearCommittedSelection() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+    let selection = AnalysisMerchantsSelection.merchant(
+        MerchantAnalysisRow(
+            key: MerchantReportKey(normalizedName: "blue bottle"),
+            title: "blue bottle",
+            currentSpend: Decimal(48),
+            comparisonSpend: Decimal(12),
+            delta: Decimal(36),
+            evidence: InsightEvidence(
+                metricBasis: .includedVisibleExpenses,
+                resolvedInterval: DateInterval(
+                    start: analysisInspectorUTCDate(year: 2026, month: 4, day: 1),
+                    end: analysisInspectorUTCDate(year: 2026, month: 4, day: 16)
+                ),
+                scope: .merchant("blue bottle"),
+                reconciliationRule: .exactTransactionSum,
+                destination: InsightEvidenceDestination(
+                    scope: .merchant("blue bottle"),
+                    direction: .expense
+                )
+            )
+        )
+    )
+
+    model.showAnalysis(page: .merchants)
+    model.setAnalysisMerchantsSelection(selection)
+    model.setAnalysisInspectorVisible(false)
+
+    #expect(model.analysisMerchantsSelection == selection)
+    #expect(model.analysisToolbarState.isInspectorVisible == false)
+}
+
 private func analysisInspectorUTCDate(year: Int, month: Int, day: Int) -> Date {
     var components = DateComponents()
     components.year = year

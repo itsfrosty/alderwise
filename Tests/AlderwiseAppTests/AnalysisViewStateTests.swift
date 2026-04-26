@@ -388,7 +388,7 @@ func analysisNarrowWidthsUseTransientInspectorPresentationWhenRequested() {
 }
 
 @Test
-func transientInspectorRequiresACommittedSelectionBeforePresentingItsSheet() {
+func transientInspectorPresentationIsOwnedByToolbarVisibilityRatherThanSelection() {
     #expect(
         AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: false) == false
     )
@@ -405,6 +405,22 @@ func analysisWideWidthsUsePersistentInspectorPresentationWhenRequested() {
             availableWidth: AnalysisView.persistentInspectorMinimumWidth + 1
         ) == .persistent
     )
+}
+
+@Test
+func analysisWidthTransitionKeepsInspectorInVisibleModesWhenSelectionAlreadyExists() {
+    let persistent = AnalysisInspectorPresentation.resolve(
+        isRequested: true,
+        availableWidth: AnalysisView.persistentInspectorMinimumWidth + 1
+    )
+    let transient = AnalysisInspectorPresentation.resolve(
+        isRequested: true,
+        availableWidth: AnalysisView.persistentInspectorMinimumWidth
+    )
+
+    #expect(persistent == .persistent)
+    #expect(transient == .transient)
+    #expect(transient.shouldPresentTransientInspector(hasSelection: true))
 }
 
 @Test

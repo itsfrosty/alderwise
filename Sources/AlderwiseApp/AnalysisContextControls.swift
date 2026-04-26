@@ -126,6 +126,8 @@ struct AnalysisContextControls: ToolbarContent {
         .none,
     ]
 
+    // Toolbar ownership is intentionally narrow in Task 1. Scope and any page-level
+    // context summary stay read-only metadata, not alternate controls.
     nonisolated static let supportsInteractiveScope = false
     nonisolated static let supportsAdvancedQualifiers = false
 
