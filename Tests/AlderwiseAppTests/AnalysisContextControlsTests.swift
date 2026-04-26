@@ -139,4 +139,16 @@ func analysisContextControlsShowTheReadOnlyScopeLabelForTheVisiblePageOnly() {
             snapshot: snapshot
         ) == nil
     )
+    #expect(
+        AnalysisContextControls.metricBasisLabel(
+            for: .overview,
+            snapshot: snapshot
+        ) == "All visible spending"
+    )
+    #expect(
+        AnalysisContextControls.metricBasisLabel(
+            for: .categories,
+            snapshot: snapshot
+        ) == "Accepted spending"
+    )
 }

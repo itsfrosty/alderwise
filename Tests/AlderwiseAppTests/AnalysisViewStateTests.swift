@@ -18,6 +18,49 @@ func analysisOverviewStartsWithoutSelectionWhenPresented() {
 }
 
 @Test
+func analysisReadOnlyMetadataUsesVisiblePageContext() {
+    let categoriesContext = AnalysisContext(
+        range: .monthToDate,
+        scope: .workspace,
+        comparison: .previousPeriod,
+        metricBasis: .acceptedExpenses
+    )
+    let snapshot = AnalysisSnapshot(
+        overview: AnalysisOverviewSnapshot(
+            context: AnalysisContext(
+                range: .monthToDate,
+                scope: .workspace,
+                comparison: .previousPeriod,
+                metricBasis: .includedVisibleExpenses
+            ),
+            report: OverviewReport(
+                context: AnalysisContext(),
+                currentSpend: Decimal(120),
+                comparisonSpend: Decimal(80),
+                drivers: [],
+                recurring: []
+            ),
+            monthlyReport: .empty,
+            projectedInsights: []
+        ),
+        categories: AnalysisCategoriesSnapshot(
+            context: categoriesContext,
+            report: CategoryAnalysisReport(context: categoriesContext, rows: []),
+            targetProgress: []
+        )
+    )
+
+    #expect(
+        AnalysisView.readOnlyMetadata(for: .overview, snapshot: snapshot)
+            == AnalysisView.ReadOnlyMetadata(scopeLabel: "All visible spending", basisLabel: "All visible spending")
+    )
+    #expect(
+        AnalysisView.readOnlyMetadata(for: .categories, snapshot: snapshot)
+            == AnalysisView.ReadOnlyMetadata(scopeLabel: "Accepted spending", basisLabel: "Accepted spending")
+    )
+}
+
+@Test
 @MainActor
 func analysisOverviewCommitsSelectionWithoutDismissingPresentation() {
     let model = WorkspaceShellModel(store: nil, service: nil)
