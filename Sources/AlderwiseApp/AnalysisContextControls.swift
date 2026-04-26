@@ -3,23 +3,25 @@ import Domain
 import SwiftUI
 
 struct AnalysisContextControls: ToolbarContent {
-    struct SelectionBinding<Value> {
-        private let getValue: () -> Value
-        private let setValue: (Value) -> Void
+    struct SelectionBinding<Value: Sendable>: Sendable {
+        private let getValue: @MainActor @Sendable () -> Value
+        private let setValue: @MainActor @Sendable (Value) -> Void
 
         init(
-            getValue: @escaping () -> Value,
-            setValue: @escaping (Value) -> Void
+            getValue: @escaping @MainActor @Sendable () -> Value,
+            setValue: @escaping @MainActor @Sendable (Value) -> Void
         ) {
             self.getValue = getValue
             self.setValue = setValue
         }
 
+        @MainActor
         var wrappedValue: Value {
             get { getValue() }
             nonmutating set { setValue(newValue) }
         }
 
+        @MainActor
         var swiftUIBinding: Binding<Value> {
             let getValue = self.getValue
             let setValue = self.setValue
@@ -136,8 +138,8 @@ struct AnalysisContextControls: ToolbarContent {
     let page: AnalysisPage
     let context: AnalysisContext
     let snapshot: AnalysisSnapshot
-    let setRange: (AnalysisRange) -> Void
-    let setComparison: (AnalysisComparisonMode) -> Void
+    let setRange: @MainActor @Sendable (AnalysisRange) -> Void
+    let setComparison: @MainActor @Sendable (AnalysisComparisonMode) -> Void
 
     var body: some ToolbarContent {
         ToolbarItemGroup {
@@ -176,8 +178,8 @@ struct AnalysisContextControls: ToolbarContent {
     }
 
     nonisolated static func rangeSelection(
-        getContext: @escaping () -> AnalysisContext,
-        setRange: @escaping (AnalysisRange) -> Void
+        getContext: @escaping @MainActor @Sendable () -> AnalysisContext,
+        setRange: @escaping @MainActor @Sendable (AnalysisRange) -> Void
     ) -> SelectionBinding<RangeOption?> {
         SelectionBinding(
             getValue: {
@@ -193,8 +195,8 @@ struct AnalysisContextControls: ToolbarContent {
     }
 
     nonisolated static func comparisonSelection(
-        getContext: @escaping () -> AnalysisContext,
-        setComparison: @escaping (AnalysisComparisonMode) -> Void
+        getContext: @escaping @MainActor @Sendable () -> AnalysisContext,
+        setComparison: @escaping @MainActor @Sendable (AnalysisComparisonMode) -> Void
     ) -> SelectionBinding<ComparisonOption?> {
         SelectionBinding(
             getValue: {

@@ -5,6 +5,8 @@ import Testing
 
 @testable import AlderwiseApp
 
+private func requireSendable<T: Sendable>(_: T.Type) {}
+
 @Test
 func analysisContextControlsExposeOnlyTheSupportedRangeAndComparisonOptions() {
     #expect(AnalysisContextControls.supportedRanges == [
@@ -20,6 +22,7 @@ func analysisContextControlsExposeOnlyTheSupportedRangeAndComparisonOptions() {
 }
 
 @Test
+@MainActor
 func analysisContextControlsBindSelectionsThroughAnalysisContext() {
     var context = AnalysisContext(
         range: .lastFullMonth,
@@ -53,6 +56,12 @@ func analysisContextControlsDoNotExposeDeferredControls() {
 }
 
 @Test
+func analysisContextSelectionBindingsAreSendable() {
+    requireSendable(AnalysisContextControls.SelectionBinding<AnalysisContextControls.RangeOption?>.self)
+    requireSendable(AnalysisContextControls.SelectionBinding<AnalysisContextControls.ComparisonOption?>.self)
+}
+
+@Test
 func analysisContextControlsKeepToolbarOwnershipBoundedToRangeAndCompare() {
     #expect(AnalysisContextControls.supportedRanges.isEmpty == false)
     #expect(AnalysisContextControls.supportedComparisons.isEmpty == false)
@@ -61,6 +70,7 @@ func analysisContextControlsKeepToolbarOwnershipBoundedToRangeAndCompare() {
 }
 
 @Test
+@MainActor
 func analysisContextControlsDoNotCoerceUnsupportedSourceOfTruthValues() {
     let rangeBinding = AnalysisContextControls.rangeSelection(
         getContext: {
