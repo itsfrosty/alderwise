@@ -111,6 +111,32 @@ func merchantsPageLayoutDefinesRecurringFirstAndHidesReadinessWithoutCTA() throw
     #expect(try #require(layout.card(kind: .readiness)).visibility == .hidden)
 }
 
+@Test
+func merchantsPageLayoutRemovesFooterActionsWithoutSelection() throws {
+    let snapshot = AnalysisMerchantsSnapshot(
+        context: AnalysisContext(),
+        report: MerchantAnalysisReport(
+            context: AnalysisContext(),
+            merchants: [
+                analysisPageLayoutMerchantRow(name: "Blue Bottle", normalizedName: "blue bottle")
+            ],
+            recurring: [
+                analysisPageLayoutRecurringRow(name: "netflix", normalizedName: "netflix")
+            ]
+        )
+    )
+
+    let layout = AnalysisMerchantsView.pageLayout(
+        for: snapshot,
+        sort: .largestCurrentSpend,
+        selection: nil
+    )
+
+    #expect(try #require(layout.card(kind: .recurringCommitments)).footerAction.primaryTitle == nil)
+    #expect(try #require(layout.card(kind: .topMerchants)).footerAction.primaryTitle == nil)
+    #expect(try #require(layout.card(kind: .readiness)).visibility == .hidden)
+}
+
 private func analysisPageLayoutCategoryRow(
     title: String,
     scope: InsightEvidenceScope

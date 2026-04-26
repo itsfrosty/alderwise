@@ -108,6 +108,24 @@ func merchantsInspectorContentUsesTypedSectionsForRecurringSelections() {
     #expect(content.sections.map(\.kind) == [.summary, .evidenceKV, .metricRow, .tagList])
 }
 
+@Test
+func merchantsInspectorContentUsesTypedSectionsForMerchantSelections() {
+    let selection = AnalysisMerchantsSelection.merchant(
+        MerchantAnalysisRow(
+            key: MerchantReportKey(normalizedName: "blue bottle"),
+            title: "Blue Bottle",
+            currentSpend: Decimal(84),
+            comparisonSpend: Decimal(36),
+            delta: Decimal(48),
+            evidence: analysisInspectorContentEvidence(scope: .merchant("blue bottle"))
+        )
+    )
+
+    let content = AnalysisMerchantsView.inspectorContent(for: selection)
+
+    #expect(content.sections.map(\.kind) == [.summary, .evidenceKV, .metricRow, .tagList])
+}
+
 private func analysisInspectorContentEvidence(scope: InsightEvidenceScope) -> InsightEvidence {
     InsightEvidence(
         metricBasis: .includedVisibleExpenses,

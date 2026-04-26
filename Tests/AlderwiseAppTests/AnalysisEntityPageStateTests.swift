@@ -389,6 +389,42 @@ func merchantsPageRecurringSelectionRepairsWhenTheRecurringSeriesStillExistsAfte
     #expect(state.merchants.selectedRuleHandoffMerchantName == nil)
 }
 
+@Test
+func merchantsContractKeepsRulesHandoffAnchoredToTheSelectedIdentityAcrossSortChanges() throws {
+    let selectedMerchant = analysisEntityMerchantRow(
+        title: "Blue Bottle",
+        normalizedName: "blue bottle",
+        currentSpend: Decimal(120),
+        comparisonSpend: Decimal(80)
+    )
+    let otherMerchant = analysisEntityMerchantRow(
+        title: "Apple Market",
+        normalizedName: "apple market",
+        currentSpend: Decimal(320),
+        comparisonSpend: Decimal(60)
+    )
+    var state = AnalysisScreenState.MerchantsState()
+    state.selection = .merchant(selectedMerchant)
+
+    let snapshot = analysisEntityMerchantsSnapshot(merchants: [selectedMerchant, otherMerchant])
+    let initialLayout = AnalysisMerchantsView.pageLayout(
+        for: snapshot,
+        sort: state.sort,
+        selection: state.selection
+    )
+
+    state.sort = .alphabetical
+    let updatedLayout = AnalysisMerchantsView.pageLayout(
+        for: snapshot,
+        sort: state.sort,
+        selection: state.selection
+    )
+
+    #expect(try #require(initialLayout.card(kind: .topMerchants)).footerAction.secondaryTitles == ["Open Rules"])
+    #expect(try #require(updatedLayout.card(kind: .topMerchants)).footerAction.secondaryTitles == ["Open Rules"])
+    #expect(state.selectedRuleHandoffMerchantName == "blue bottle")
+}
+
 private func analysisEntityCategoriesSnapshot(
     rows: [AnalysisSpendRow],
     targetProgress: [TargetProgress] = []

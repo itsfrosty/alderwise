@@ -14,6 +14,21 @@ struct AnalysisMerchantsView: View {
         var ruleHandoffMerchantName: String?
     }
 
+    struct RecurringCommitmentSummary: Equatable {
+        let title: String
+        let body: String
+        let amountLabel: String
+        let badges: [String]
+    }
+
+    struct MerchantActivitySummary: Equatable {
+        let title: String
+        let body: String
+        let currentSpend: String
+        let comparisonSpend: String
+        let delta: String
+    }
+
     let snapshot: AnalysisMerchantsSnapshot
     @Binding var sort: AnalysisScreenState.MerchantsState.Sort
     @Binding var selection: AnalysisMerchantsSelection?
@@ -32,6 +47,20 @@ struct AnalysisMerchantsView: View {
 
     private var sortedRecurring: [MerchantRecurringReportRow] {
         pageState.sortedRecurring(in: snapshot)
+    }
+
+    private var selectedMerchant: MerchantAnalysisRow? {
+        guard case .merchant(let row)? = selection else {
+            return nil
+        }
+        return row
+    }
+
+    private var selectedRecurring: MerchantRecurringReportRow? {
+        guard case .recurring(let row)? = selection else {
+            return nil
+        }
+        return row
     }
 
     nonisolated static func inspectorActions(
@@ -58,6 +87,51 @@ struct AnalysisMerchantsView: View {
         return AnalysisInspectorActionLayout(
             primaryActionTitle: actions.showsTransactions ? "Show Transactions" : nil,
             secondaryActionTitles: actions.ruleHandoffMerchantName == nil ? [] : ["Open Rules"]
+        )
+    }
+
+    nonisolated static func recurringSummary(
+        selection: AnalysisMerchantsSelection?
+    ) -> RecurringCommitmentSummary {
+        guard case .recurring(let row)? = selection else {
+            return RecurringCommitmentSummary(
+                title: "Recurring commitments come first",
+                body: "Start here to separate durable commitments from one-off merchant spikes before jumping into transactions or rules cleanup.",
+                amountLabel: "Select a recurring row",
+                badges: []
+            )
+        }
+
+        return RecurringCommitmentSummary(
+            title: row.detail.normalizedMerchantName.localizedCapitalized,
+            body: "This cadence is already strong enough to review as a durable commitment. Audit the exact transactions or jump into Rules cleanup from this selected series.",
+            amountLabel: analysisCurrency(row.detail.amountRange.maximum),
+            badges: [
+                row.detail.cadence.displayTitle,
+                "\(row.detail.observationCount) observations",
+            ]
+        )
+    }
+
+    nonisolated static func merchantSummary(
+        selection: AnalysisMerchantsSelection?
+    ) -> MerchantActivitySummary {
+        guard case .merchant(let row)? = selection else {
+            return MerchantActivitySummary(
+                title: "Select a merchant",
+                body: "Use the ranked merchant list when you need transaction review or a rules handoff for one merchant identity.",
+                currentSpend: "—",
+                comparisonSpend: "—",
+                delta: "—"
+            )
+        }
+
+        return MerchantActivitySummary(
+            title: row.title.localizedCapitalized,
+            body: "This ranked merchant remains the committed selection for both transaction drill-down and Rules handoff.",
+            currentSpend: analysisCurrency(row.currentSpend),
+            comparisonSpend: analysisCurrency(row.comparisonSpend),
+            delta: analysisCurrency(row.delta)
         )
     }
 
@@ -168,21 +242,6 @@ struct AnalysisMerchantsView: View {
                     Text("Sort merchant activity and recurring commitments without losing the selected entity, then branch cleanly into transaction review or merchant rules cleanup.")
                         .foregroundStyle(.secondary)
                 }
-
-                Spacer(minLength: 0)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Sort")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Picker("Sort", selection: $sort) {
-                        ForEach(AnalysisScreenState.MerchantsState.Sort.allCases, id: \.self) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 300)
-                }
             }
 
             HStack(spacing: 10) {
@@ -261,14 +320,56 @@ struct AnalysisMerchantsView: View {
     }
 
     private var merchantActivitySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let summary = Self.merchantSummary(selection: selection)
+
+        return VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Merchant Activity")
+                Text("Top Merchants")
                     .font(.headline)
                 Spacer()
-                Text(sort.supportingLabel)
-                    .font(.caption)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Sort")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Picker("Sort", selection: $sort) {
+                        ForEach(AnalysisScreenState.MerchantsState.Sort.allCases, id: \.self) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 300)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(summary.title)
+                    .font(.title3.weight(.semibold))
+                Text(summary.body)
                     .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    merchantMetricBadge(title: "Current", value: summary.currentSpend)
+                    merchantMetricBadge(title: "Comparison", value: summary.comparisonSpend)
+                    merchantMetricBadge(title: "Delta", value: summary.delta)
+                }
+
+                if let selectedMerchant {
+                    HStack(spacing: 10) {
+                        Button {
+                            onShowTransactions(snapshot.transactionFilter(for: .merchant(selectedMerchant)))
+                        } label: {
+                            Label("Show Transactions", systemImage: "list.bullet.rectangle")
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            onShowRules(selectedMerchant.key.normalizedName)
+                        } label: {
+                            Label("Open Rules", systemImage: "slider.horizontal.3")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
             }
 
             if sortedMerchants.isEmpty {
@@ -293,9 +394,45 @@ struct AnalysisMerchantsView: View {
     }
 
     private var recurringCommitmentsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let summary = Self.recurringSummary(selection: selection)
+
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Recurring Commitments")
                 .font(.headline)
+
+            VStack(alignment: .leading, spacing: 12) {
+                Text(summary.title)
+                    .font(.title3.weight(.semibold))
+                Text(summary.body)
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 10) {
+                    Text(summary.amountLabel)
+                        .analysisSharedMetricValueStyle()
+                    ForEach(summary.badges, id: \.self) { badge in
+                        Text(badge)
+                            .analysisSharedBadgeStyle()
+                    }
+                }
+
+                if let selectedRecurring {
+                    HStack(spacing: 10) {
+                        Button {
+                            onShowTransactions(snapshot.transactionFilter(for: .recurring(selectedRecurring)))
+                        } label: {
+                            Label("Show Transactions", systemImage: "list.bullet.rectangle")
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button {
+                            onShowRules(selectedRecurring.detail.normalizedMerchantName)
+                        } label: {
+                            Label("Open Rules", systemImage: "slider.horizontal.3")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                }
+            }
 
             if sortedRecurring.isEmpty {
                 Text("No recurring merchant patterns were confidently detected in this scope.")
@@ -472,6 +609,20 @@ struct AnalysisMerchantsView: View {
         Label(title, systemImage: systemImage)
             .analysisSharedBadgeStyle()
             .foregroundStyle(Color.accentColor)
+    }
+
+    private func merchantMetricBadge(title: String, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+                .monospacedDigit()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(.quinary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func rowBackground(isSelected: Bool) -> some View {
