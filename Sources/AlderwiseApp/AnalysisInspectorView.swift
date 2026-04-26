@@ -8,48 +8,135 @@ protocol AnalysisInspectorPresentable {
     var evidence: InsightEvidence { get }
 }
 
-struct AnalysisInspectorView<Selection: AnalysisInspectorPresentable, Actions: View>: View {
+struct AnalysisInspectorPlaceholderContent: Equatable {
+    var title: String
+    var systemImage: String
+    var description: String
+    var guidance: [String]
+}
+
+struct AnalysisInspectorEvidenceGrouping: Equatable {
+    struct Item: Equatable {
+        var label: String
+        var value: String
+    }
+
+    var title: String
+    var items: [Item]
+}
+
+struct AnalysisInspectorActionLayout: Equatable {
+    var primaryActionTitle: String?
+    var secondaryActionTitles: [String]
+
+    static let none = AnalysisInspectorActionLayout(
+        primaryActionTitle: nil,
+        secondaryActionTitles: []
+    )
+}
+
+struct AnalysisInspectorView<
+    Selection: AnalysisInspectorPresentable,
+    Actions: View
+>: View {
     let selection: Selection?
     let noSelectionDescription: String
-    let onShowTransactions: ((Selection) -> Void)?
-    @ViewBuilder let actions: (Selection) -> Actions
+    let actionLayout: AnalysisInspectorActionLayout
+    @ViewBuilder let primaryActions: (Selection) -> Actions
+    let secondaryActions: (Selection) -> AnyView
 
-    init(
-        selection: Selection?,
-        noSelectionDescription: String,
-        onShowTransactions: ((Selection) -> Void)? = nil,
-        @ViewBuilder actions: @escaping (Selection) -> Actions
-    ) {
-        self.selection = selection
-        self.noSelectionDescription = noSelectionDescription
-        self.onShowTransactions = onShowTransactions
-        self.actions = actions
+    nonisolated static func showsPlaceholder(for selection: Selection?) -> Bool {
+        selection == nil
+    }
+
+    nonisolated static func placeholderContent(description: String) -> AnalysisInspectorPlaceholderContent {
+        AnalysisInspectorPlaceholderContent(
+            title: "Nothing Selected",
+            systemImage: "sidebar.right",
+            description: description,
+            guidance: [
+                "Select a row in the canvas to lock the inspector to that signal.",
+                "Use the primary action here to continue into transactions or the next workflow.",
+            ]
+        )
+    }
+
+    nonisolated static func evidenceGrouping(for evidence: InsightEvidence) -> AnalysisInspectorEvidenceGrouping {
+        AnalysisInspectorEvidenceGrouping(
+            title: "Evidence",
+            items: [
+                .init(
+                    label: "Window",
+                    value: evidenceIntervalText(evidence.resolvedInterval)
+                ),
+                .init(
+                    label: "Reconciled By",
+                    value: evidence.reconciliationRuleLabel
+                ),
+            ]
+        )
     }
 
     init(
         selection: Selection?,
         noSelectionDescription: String,
-        onShowTransactions: ((Selection) -> Void)? = nil
+        actionLayout: AnalysisInspectorActionLayout = .none,
+        @ViewBuilder primaryActions: @escaping (Selection) -> Actions,
+        @ViewBuilder secondaryActions: @escaping (Selection) -> some View
+    ) {
+        self.selection = selection
+        self.noSelectionDescription = noSelectionDescription
+        self.actionLayout = actionLayout
+        self.primaryActions = primaryActions
+        self.secondaryActions = { selection in
+            AnyView(secondaryActions(selection))
+        }
+    }
+
+    init(
+        selection: Selection?,
+        noSelectionDescription: String
     ) where Actions == EmptyView {
         self.init(
             selection: selection,
+            noSelectionDescription: noSelectionDescription
+        ) { _ in
+            EmptyView()
+        } secondaryActions: { _ in
+            EmptyView()
+        }
+    }
+
+    init(
+        selection: Selection?,
+        noSelectionDescription: String,
+        actionLayout: AnalysisInspectorActionLayout,
+        @ViewBuilder primaryActions: @escaping (Selection) -> Actions
+    ) {
+        self.init(
+            selection: selection,
             noSelectionDescription: noSelectionDescription,
-            onShowTransactions: onShowTransactions
+            actionLayout: actionLayout,
+            primaryActions: primaryActions
         ) { _ in
             EmptyView()
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            if let selection {
-                selectedContent(selection)
-            } else {
-                noSelectionContent
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                inspectorHeader
+
+                if let selection {
+                    selectedContent(selection)
+                } else {
+                    noSelectionContent
+                }
             }
-            Spacer(minLength: 0)
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(20)
         .frame(
             minWidth: WorkspaceLayout.analysisInspectorMinimumWidth,
             idealWidth: WorkspaceLayout.analysisInspectorIdealWidth,
@@ -60,62 +147,184 @@ struct AnalysisInspectorView<Selection: AnalysisInspectorPresentable, Actions: V
         .background(.thinMaterial)
     }
 
-    private var noSelectionContent: some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private var inspectorHeader: some View {
+        VStack(alignment: .leading, spacing: 6) {
             Text("Inspector")
                 .font(.headline)
-            Text(noSelectionDescription)
-                .font(.subheadline)
+            Text(selection == nil ? "Select a signal to inspect its evidence and next step." : "The canvas selection and next workflow stay anchored here.")
+                .font(.caption)
                 .foregroundStyle(.secondary)
         }
+    }
+
+    private var noSelectionContent: some View {
+        let placeholder = Self.placeholderContent(description: noSelectionDescription)
+
+        return VStack(alignment: .leading, spacing: 16) {
+            Label(placeholder.title, systemImage: placeholder.systemImage)
+                .font(.title3.weight(.semibold))
+
+            Text(placeholder.description)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 10) {
+                Text("How To Use This")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+
+                ForEach(placeholder.guidance, id: \.self) { step in
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(Color.accentColor)
+                            .padding(.top, 2)
+                        Text(step)
+                            .font(.subheadline)
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            LinearGradient(
+                colors: [
+                    Color.accentColor.opacity(0.12),
+                    Color.orange.opacity(0.08),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            ),
+            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.18))
+        )
     }
 
     @ViewBuilder
     private func selectedContent(_ selection: Selection) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Inspector")
-                .font(.headline)
+        summaryBlock(selection)
+        evidenceBlock(selection.evidence)
 
-            Text(selection.title)
-                .font(.title3.weight(.semibold))
+        if actionLayout.primaryActionTitle != nil {
+            actionSection(
+                title: "Primary Action",
+                subtitle: actionLayout.primaryActionTitle
+            ) {
+                primaryActions(selection)
+            }
+        }
+
+        if actionLayout.secondaryActionTitles.isEmpty == false {
+            actionSection(
+                title: "Workflow Handoffs",
+                subtitle: actionLayout.secondaryActionTitles.joined(separator: " • ")
+            ) {
+                secondaryActions(selection)
+            }
+        }
+    }
+
+    private func summaryBlock(_ selection: Selection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Selection Summary")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(selection.title)
+                        .font(.title3.weight(.semibold))
+                }
+
+                Spacer(minLength: 12)
+
+                Text("Canvas selected")
+                    .analysisSharedBadgeStyle()
+                    .foregroundStyle(Color.accentColor)
+            }
 
             Text(selection.summaryText)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.accentColor.opacity(0.35), lineWidth: 1)
+        )
+    }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Evidence")
-                    .font(.subheadline.weight(.semibold))
-                Text(evidenceSummary(selection.evidence))
+    private func evidenceBlock(_ evidence: InsightEvidence) -> some View {
+        let grouping = Self.evidenceGrouping(for: evidence)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            Text(grouping.title)
+                .font(.subheadline.weight(.semibold))
+
+            ForEach(grouping.items, id: \.label) { item in
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.label)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(item.value)
+                        .font(.subheadline)
+                }
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func actionSection<Content: View>(
+        title: String,
+        subtitle: String?,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+
+            if let subtitle, subtitle.isEmpty == false {
+                Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 
-            if let onShowTransactions {
-                Button {
-                    onShowTransactions(selection)
-                } label: {
-                    Label("Show Transactions", systemImage: "list.bullet.rectangle")
-                }
-                .buttonStyle(.borderedProminent)
-            }
-
-            actions(selection)
+            content()
         }
-    }
-
-    private func evidenceSummary(_ evidence: InsightEvidence) -> String {
-        let formatter = DateIntervalFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .none
-        let intervalText = formatter.string(from: evidence.resolvedInterval.start, to: evidence.resolvedInterval.end)
-        return "\(intervalText) • \(evidence.reconciliationRuleLabel)"
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quinary, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
 extension AnalysisOverviewSelection: AnalysisInspectorPresentable {
+    var title: String {
+        switch self {
+        case .insight(let insight):
+            switch insight.kind {
+            case .recurringCharge(let detail):
+                detail.normalizedMerchantName.localizedCapitalized
+            case .spendDriverChange(let detail):
+                detail.title
+            }
+        case .driver(let row):
+            row.title
+        case .recurring(let row):
+            row.detail.normalizedMerchantName.localizedCapitalized
+        }
+    }
+
     var summaryText: String {
         switch self {
         case .insight(let insight):
@@ -178,6 +387,16 @@ private extension InsightEvidence {
             "Recurring observation set"
         }
     }
+}
+
+private func evidenceIntervalText(_ interval: DateInterval) -> String {
+    let formatter = DateFormatter()
+    formatter.dateStyle = .medium
+    formatter.timeStyle = .none
+    formatter.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
+    let start = formatter.string(from: interval.start)
+    let end = formatter.string(from: interval.end)
+    return "\(start)\u{2009}\u{2013}\u{2009}\(end)"
 }
 
 private func currency(_ amount: Decimal) -> String {

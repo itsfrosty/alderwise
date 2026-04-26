@@ -81,3 +81,19 @@ func selectingRulesFromSidebarBuildsDefaultRulesRoute() {
             )
     )
 }
+
+@Test
+@MainActor
+func showLearnedRulesWithMerchantPatternStoresExplicitMerchantHandoff() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+
+    model.showLearnedRules(merchantPattern: "blue bottle")
+
+    #expect(model.settingsDestination == .learnedRulesRoute())
+    #expect(model.learnedRulesMerchantPatternHandoff == "blue bottle")
+    #expect(model.pendingAppSectionNavigation == .rules)
+
+    model.showLearnedRules(selectedLearnedRuleID: nil)
+
+    #expect(model.learnedRulesMerchantPatternHandoff == nil)
+}
