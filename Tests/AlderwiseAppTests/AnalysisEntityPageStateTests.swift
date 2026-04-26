@@ -181,6 +181,55 @@ func categoriesPageTargetHandoffFollowsTheSelectedRowInsteadOfTheSortedPosition(
 }
 
 @Test
+func categoriesCommittedSelectionDrivesTrendAndNextStepAcrossSortChanges() throws {
+    let selectedScope = analysisEntityPageStateID("00000000-0000-0000-0000-000000001071")
+    let selectedRow = analysisEntityCategoriesRow(
+        title: "Food",
+        scope: .category(selectedScope),
+        currentSpend: Decimal(180),
+        comparisonSpend: Decimal(120)
+    )
+    let otherRow = analysisEntityCategoriesRow(
+        title: "Travel",
+        scope: .category(analysisEntityPageStateID("00000000-0000-0000-0000-000000001072")),
+        currentSpend: Decimal(420),
+        comparisonSpend: Decimal(40)
+    )
+    let target = analysisEntityTargetProgress(
+        id: analysisEntityPageStateID("00000000-0000-0000-0000-000000001073"),
+        name: "Food Budget",
+        scope: .category(selectedScope)
+    )
+    var state = AnalysisScreenState.CategoriesState()
+    state.selection = .row(selectedRow)
+
+    let snapshot = analysisEntityCategoriesSnapshot(
+        rows: [otherRow, selectedRow],
+        targetProgress: [target]
+    )
+    let initialLayout = AnalysisCategoriesView.pageLayout(
+        for: snapshot,
+        sort: state.sort,
+        selection: state.selection
+    )
+
+    state.sort = .largestDelta
+    let updatedLayout = AnalysisCategoriesView.pageLayout(
+        for: snapshot,
+        sort: state.sort,
+        selection: state.selection
+    )
+    let nextStep = AnalysisCategoriesView.selectedCategoryNextStep(
+        selection: state.selection,
+        snapshot: snapshot
+    )
+
+    #expect(try #require(initialLayout.card(kind: .selectedCategoryTrend)).footerAction.secondaryTitles == ["Open Target"])
+    #expect(try #require(updatedLayout.card(kind: .selectedCategoryTrend)).footerAction.secondaryTitles == ["Open Target"])
+    #expect(nextStep.kind == .linkedTarget(targetID: target.id))
+}
+
+@Test
 func merchantsPageDefaultsToLargestCurrentSpend() {
     let bakery = analysisEntityMerchantRow(
         title: "Bakery",

@@ -44,9 +44,39 @@ func categoriesPageLayoutDefinesOrderedCardsAndSelectionStates() throws {
     #expect(layout.cards.map(\.kind) == [.contribution, .selectedCategoryTrend, .rankedGroups])
     #expect(try #require(layout.card(kind: .contribution)).visibility == .shownActionable)
     #expect(try #require(layout.card(kind: .selectedCategoryTrend)).visibility == .shownActionable)
-    #expect(try #require(layout.card(kind: .selectedCategoryTrend)).footerAction.primaryTitle == nil)
+    #expect(try #require(layout.card(kind: .selectedCategoryTrend)).footerAction.primaryTitle == "Show Transactions")
     #expect(try #require(layout.card(kind: .selectedCategoryTrend)).footerAction.secondaryTitles == ["Open Target"])
     #expect(try #require(layout.card(kind: .rankedGroups)).supportsSelection)
+}
+
+@Test
+func categoriesPageLayoutDefinesNoSelectionAndNoTargetNextSteps() throws {
+    let categoryID = analysisPageLayoutID("00000000-0000-0000-0000-000000002006")
+    let scope = InsightEvidenceScope.category(categoryID)
+    let row = analysisPageLayoutCategoryRow(title: "Food", scope: scope)
+    let snapshot = AnalysisCategoriesSnapshot(
+        context: AnalysisContext(),
+        report: CategoryAnalysisReport(context: AnalysisContext(), rows: [row]),
+        targetProgress: []
+    )
+
+    let noSelectionLayout = AnalysisCategoriesView.pageLayout(
+        for: snapshot,
+        sort: .largestCurrentSpend,
+        selection: nil
+    )
+    let selectedNoTargetLayout = AnalysisCategoriesView.pageLayout(
+        for: snapshot,
+        sort: .largestCurrentSpend,
+        selection: .row(row)
+    )
+
+    #expect(try #require(noSelectionLayout.card(kind: .contribution)).visibility == .shownEmpty)
+    #expect(try #require(noSelectionLayout.card(kind: .selectedCategoryTrend)).visibility == .shownEmpty)
+    #expect(try #require(noSelectionLayout.card(kind: .selectedCategoryTrend)).footerAction.primaryTitle == nil)
+    #expect(try #require(selectedNoTargetLayout.card(kind: .selectedCategoryTrend)).visibility == .shownActionable)
+    #expect(try #require(selectedNoTargetLayout.card(kind: .selectedCategoryTrend)).footerAction.primaryTitle == "Show Transactions")
+    #expect(try #require(selectedNoTargetLayout.card(kind: .selectedCategoryTrend)).footerAction.secondaryTitles.isEmpty)
 }
 
 @Test

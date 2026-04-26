@@ -17,6 +17,20 @@ struct AnalysisCategoriesView: View {
     let onShowTransactions: (TransactionLedgerFilter) -> Void
     let onShowTarget: (UUID) -> Void
 
+    struct SelectedCategoryNextStep: Equatable {
+        enum Kind: Equatable {
+            case noSelection
+            case linkedTarget(targetID: UUID)
+            case reviewTransactions
+        }
+
+        let kind: Kind
+        let title: String
+        let body: String
+        let primaryActionTitle: String?
+        let secondaryActionTitle: String?
+    }
+
     private var pageState: AnalysisScreenState.CategoriesState {
         AnalysisScreenState.CategoriesState(sort: sort, selection: selection)
     }
@@ -55,6 +69,39 @@ struct AnalysisCategoriesView: View {
         )
     }
 
+    nonisolated static func selectedCategoryNextStep(
+        selection: AnalysisCategoriesSelection?,
+        snapshot: AnalysisCategoriesSnapshot
+    ) -> SelectedCategoryNextStep {
+        guard let selection else {
+            return SelectedCategoryNextStep(
+                kind: .noSelection,
+                title: "Select a ranked group",
+                body: "Choose one ranked row to anchor the contribution summary, trend evidence, and target handoff to a single committed category.",
+                primaryActionTitle: nil,
+                secondaryActionTitle: nil
+            )
+        }
+
+        if let targetProgress = snapshot.targetProgress(for: selection) {
+            return SelectedCategoryNextStep(
+                kind: .linkedTarget(targetID: targetProgress.id),
+                title: targetProgress.name,
+                body: "This category already maps to a target. Keep the current selection anchored here, then jump into the target when you need to calibrate the monthly plan.",
+                primaryActionTitle: "Show Transactions",
+                secondaryActionTitle: "Open Target"
+            )
+        }
+
+        return SelectedCategoryNextStep(
+            kind: .reviewTransactions,
+            title: selection.title,
+            body: "\(selection.title) does not currently map to a monthly target. Audit the underlying spend first, then calibrate targets elsewhere if this pattern should become a plan.",
+            primaryActionTitle: "Show Transactions",
+            secondaryActionTitle: nil
+        )
+    }
+
     nonisolated static func pageLayout(
         for snapshot: AnalysisCategoriesSnapshot,
         sort: AnalysisScreenState.CategoriesState.Sort,
@@ -62,7 +109,7 @@ struct AnalysisCategoriesView: View {
     ) -> AnalysisPageContract<CardKind> {
         let pageState = AnalysisScreenState.CategoriesState(sort: sort, selection: selection)
         let rows = pageState.sortedRows(in: snapshot)
-        let targetProgress = pageState.selectedTargetProgress(in: snapshot)
+        let nextStep = selectedCategoryNextStep(selection: selection, snapshot: snapshot)
 
         return AnalysisPageContract(cards: [
             // Snapshot source: report.rows + committed row selection.
@@ -80,8 +127,8 @@ struct AnalysisCategoriesView: View {
                 visibility: selection == nil ? .shownEmpty : .shownActionable,
                 supportsSelection: false,
                 footerAction: .init(
-                    primaryTitle: nil,
-                    secondaryTitles: targetProgress == nil ? [] : ["Open Target"]
+                    primaryTitle: nextStep.primaryActionTitle,
+                    secondaryTitles: nextStep.secondaryActionTitle.map { [$0] } ?? []
                 )
             ),
             // Snapshot source: report.rows sorted by page-local state.
@@ -226,21 +273,6 @@ struct AnalysisCategoriesView: View {
                     Text("Rank the category and group contributions behind the current analysis context, then keep the inspector and target handoff anchored to the row you selected.")
                         .foregroundStyle(.secondary)
                 }
-
-                Spacer(minLength: 0)
-
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Sort")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Picker("Sort", selection: $sort) {
-                        ForEach(AnalysisScreenState.CategoriesState.Sort.allCases, id: \.self) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 300)
-                }
             }
 
             HStack(spacing: 10) {
@@ -309,7 +341,9 @@ struct AnalysisCategoriesView: View {
     }
 
     private var selectedCategoryTrendSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let nextStep = Self.selectedCategoryNextStep(selection: selection, snapshot: snapshot)
+
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Selected Category Trend")
                 .font(.headline)
 
@@ -335,6 +369,9 @@ struct AnalysisCategoriesView: View {
                         targetMetricBadge(title: "Delta", value: currency(row.delta))
                     }
 
+                    Text(nextStep.body)
+                        .foregroundStyle(.secondary)
+
                     if let targetProgress = selectedTargetProgress {
                         HStack(spacing: 10) {
                             targetMetricBadge(title: "Limit", value: currency(targetProgress.monthlyLimit))
@@ -342,20 +379,33 @@ struct AnalysisCategoriesView: View {
                             targetMetricBadge(title: "Pace", value: currency(targetProgress.paceDelta))
                         }
 
+                        HStack(spacing: 10) {
+                            Button {
+                                onShowTransactions(snapshot.transactionFilter(for: selection))
+                            } label: {
+                                Label("Show Transactions", systemImage: "list.bullet.rectangle")
+                            }
+                            .buttonStyle(.bordered)
+
+                            Button {
+                                onShowTarget(targetProgress.id)
+                            } label: {
+                                Label("Open Target", systemImage: "target")
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    } else {
                         Button {
-                            onShowTarget(targetProgress.id)
+                            onShowTransactions(snapshot.transactionFilter(for: selection))
                         } label: {
-                            Label("Open Target", systemImage: "target")
+                            Label("Show Transactions", systemImage: "list.bullet.rectangle")
                         }
                         .buttonStyle(.borderedProminent)
-                    } else {
-                        Text("\(selection.title) does not currently map to a monthly target. Use Show Transactions from the inspector to audit the underlying spend before calibrating targets elsewhere.")
-                            .foregroundStyle(.secondary)
                     }
                 }
             } else {
-                Text("Select a ranked group to inspect its trend, compare current versus comparison spend, and expose any linked target handoff from the current selection.")
-                .foregroundStyle(.secondary)
+                Text(nextStep.body)
+                    .foregroundStyle(.secondary)
             }
         }
         .analysisSharedCardStyle()
@@ -367,9 +417,18 @@ struct AnalysisCategoriesView: View {
                 Text("Ranked Groups")
                     .font(.headline)
                 Spacer()
-                Text(sort.supportingLabel)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Sort")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Picker("Sort", selection: $sort) {
+                        ForEach(AnalysisScreenState.CategoriesState.Sort.allCases, id: \.self) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 300)
+                }
             }
 
             if sortedRows.isEmpty {

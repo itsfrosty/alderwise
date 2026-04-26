@@ -60,6 +60,31 @@ func categoriesInspectorContentIncludesTargetTagsWhenLinkedTargetExists() {
 }
 
 @Test
+func categoriesInspectorContentUsesNextStepBulletsWithoutLinkedTarget() {
+    let categoryID = analysisInspectorContentID("00000000-0000-0000-0000-000000002106")
+    let scope = InsightEvidenceScope.category(categoryID)
+    let row = AnalysisSpendRow(
+        title: "Food",
+        scope: scope,
+        currentSpend: Decimal(220),
+        comparisonSpend: Decimal(160),
+        delta: Decimal(60),
+        evidence: analysisInspectorContentEvidence(scope: scope)
+    )
+    let selection = AnalysisCategoriesSelection.row(row)
+    let snapshot = AnalysisCategoriesSnapshot(
+        context: AnalysisContext(),
+        report: CategoryAnalysisReport(context: AnalysisContext(), rows: [row]),
+        targetProgress: []
+    )
+
+    let content = AnalysisCategoriesView.inspectorContent(for: selection, snapshot: snapshot)
+
+    #expect(content.sections.map(\.kind).contains(.bulletList))
+    #expect(content.sections.map(\.kind).contains(.tagList) == false)
+}
+
+@Test
 func merchantsInspectorContentUsesTypedSectionsForRecurringSelections() {
     let selection = AnalysisMerchantsSelection.recurring(
         MerchantRecurringReportRow(
