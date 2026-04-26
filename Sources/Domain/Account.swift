@@ -49,6 +49,32 @@ public struct Account: Identifiable, Codable, Equatable, Sendable {
     }
 }
 
+public extension Account {
+    var normalizedInferenceNameTokens: [String] {
+        Self.normalizedInferenceTokens(from: name)
+    }
+
+    var normalizedInferenceInstitutionTokens: [String] {
+        Self.normalizedInferenceTokens(from: institutionName ?? "")
+    }
+
+    static func normalizedInferenceTokens(from value: String) -> [String] {
+        let normalizedValue = value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+
+        var tokens: [String] = []
+        var seen = Set<String>()
+
+        for token in normalizedValue.split(separator: " ").map(String.init) where seen.insert(token).inserted {
+            tokens.append(token)
+        }
+
+        return tokens
+    }
+}
+
 public enum AccountManagementError: Error, Equatable, Sendable {
     case accountNotFound(UUID)
     case deleteBlockedByDependencies(UUID)
