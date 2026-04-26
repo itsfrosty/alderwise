@@ -676,6 +676,73 @@ public struct WorkspaceService: Sendable {
         )
     }
 
+    public func prepareImportAccountInferenceRequest(
+        originalFilename: String,
+        parsedArtifact: ImportParsedArtifact
+    ) throws -> ImportAccountInferenceRequest {
+        ImportAccountInferenceRequest(
+            originalFilename: originalFilename,
+            parsedArtifact: parsedArtifact,
+            importEligibleAccounts: try store.fetchImportEligibleAccounts(),
+            historicalMatchCountsByAccountID: try historicalImportAccountInferenceEvidence(
+                originalFilename: originalFilename,
+                parsedArtifact: parsedArtifact
+            ).historicalMatchCountsByAccountID
+        )
+    }
+
+    public func historicalImportAccountInferenceEvidence(
+        originalFilename: String,
+        parsedArtifact: ImportParsedArtifact
+    ) throws -> ImportAccountInferenceHistoricalEvidence {
+        guard let reader = store as? any ImportAccountInferenceReading else {
+            return .empty
+        }
+
+        let query = importAccountInferenceEvidenceQuery(
+            originalFilename: originalFilename,
+            parsedArtifact: parsedArtifact
+        )
+        let persistedEvidence = try reader.fetchImportAccountInferenceEvidence(for: query)
+        let bootstrapEvidence = try reader.fetchBootstrapImportAccountInferenceEvidence(for: query)
+
+        var accountEvidenceByID: [UUID: ImportAccountInferenceAccountMemory] = [:]
+        for (accountID, evidence) in persistedEvidence {
+            accountEvidenceByID[accountID] = ImportAccountInferenceAccountMemory(
+                positiveMatchCount: evidence.positiveMatchCount,
+                overrideCount: evidence.overrideCount,
+                bootstrapMatchCount: bootstrapEvidence[accountID] ?? 0
+            )
+        }
+        for (accountID, count) in bootstrapEvidence where accountEvidenceByID[accountID] == nil {
+            accountEvidenceByID[accountID] = ImportAccountInferenceAccountMemory(
+                bootstrapMatchCount: count
+            )
+        }
+
+        return ImportAccountInferenceHistoricalEvidence(accountEvidenceByID: accountEvidenceByID)
+    }
+
+    public func recordImportAccountInferenceFeedback(
+        finalAccountID: UUID,
+        feedbackContext: ImportAccountInferenceFeedbackContext?,
+        result: StagedCSVImportResult
+    ) throws {
+        guard result.outcome == .staged,
+              let feedbackContext,
+              let writer = store as? any ImportAccountInferenceWriting
+        else {
+            return
+        }
+
+        try writer.recordImportAccountInferenceFeedback(
+            for: importAccountInferenceEvidenceQuery(feedbackContext: feedbackContext),
+            stagedImportSessionID: result.session?.id,
+            selectedAccountID: finalAccountID,
+            suggestedAccountID: feedbackContext.selectedAccountID
+        )
+    }
+
     public static func rowHash(for row: CSVRow) throws -> String {
         try sha256Hex(rawPayload(for: row))
     }
@@ -754,6 +821,31 @@ public struct WorkspaceService: Sendable {
 
     private func learnedRuleReader() -> (any LearnedRuleReading)? {
         store as? any LearnedRuleReading
+    }
+
+    private func importAccountInferenceEvidenceQuery(
+        originalFilename: String,
+        parsedArtifact: ImportParsedArtifact
+    ) -> ImportAccountInferenceEvidenceQuery {
+        ImportAccountInferenceEvidenceQuery(
+            originalFilename: originalFilename,
+            normalizedHeaderNames: parsedArtifact.rowShapeSummary.normalizedHeaderNames,
+            nonBlankColumnIndexesByRow: parsedArtifact.rowShapeSummary.nonBlankColumnIndexesByRow,
+            profile: parsedArtifact.profile,
+            bootstrapMapping: parsedArtifact.inferredMapping
+        )
+    }
+
+    private func importAccountInferenceEvidenceQuery(
+        feedbackContext: ImportAccountInferenceFeedbackContext
+    ) -> ImportAccountInferenceEvidenceQuery {
+        ImportAccountInferenceEvidenceQuery(
+            originalFilename: feedbackContext.fingerprint.originalFilename,
+            normalizedHeaderNames: feedbackContext.fingerprint.normalizedHeaderNames,
+            nonBlankColumnIndexesByRow: feedbackContext.fingerprint.nonBlankColumnIndexesByRow,
+            profile: feedbackContext.fingerprint.profile,
+            bootstrapMapping: nil
+        )
     }
 
     private func previewMerchantPattern(

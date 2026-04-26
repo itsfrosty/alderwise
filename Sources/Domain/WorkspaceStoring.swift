@@ -36,6 +36,60 @@ public protocol ImportDecisionReading: Sendable {
     ) throws -> [LikelyDuplicateCandidate]
 }
 
+public struct ImportAccountInferenceEvidenceQuery: Equatable, Sendable {
+    public var originalFilename: String
+    public var normalizedHeaderNames: [String]
+    public var nonBlankColumnIndexesByRow: [[Int]]
+    public var profile: CSVImportProfile
+    public var bootstrapMapping: CSVColumnMapping?
+
+    public init(
+        originalFilename: String,
+        normalizedHeaderNames: [String],
+        nonBlankColumnIndexesByRow: [[Int]],
+        profile: CSVImportProfile,
+        bootstrapMapping: CSVColumnMapping?
+    ) {
+        self.originalFilename = originalFilename
+        self.normalizedHeaderNames = normalizedHeaderNames
+        self.nonBlankColumnIndexesByRow = nonBlankColumnIndexesByRow
+        self.profile = profile
+        self.bootstrapMapping = bootstrapMapping
+    }
+}
+
+public struct ImportAccountInferenceAccountEvidence: Equatable, Sendable {
+    public var positiveMatchCount: Int
+    public var overrideCount: Int
+
+    public init(
+        positiveMatchCount: Int = 0,
+        overrideCount: Int = 0
+    ) {
+        self.positiveMatchCount = positiveMatchCount
+        self.overrideCount = overrideCount
+    }
+}
+
+public protocol ImportAccountInferenceReading: Sendable {
+    func fetchImportAccountInferenceEvidence(
+        for query: ImportAccountInferenceEvidenceQuery
+    ) throws -> [UUID: ImportAccountInferenceAccountEvidence]
+
+    func fetchBootstrapImportAccountInferenceEvidence(
+        for query: ImportAccountInferenceEvidenceQuery
+    ) throws -> [UUID: Int]
+}
+
+public protocol ImportAccountInferenceWriting: Sendable {
+    func recordImportAccountInferenceFeedback(
+        for query: ImportAccountInferenceEvidenceQuery,
+        stagedImportSessionID: Int64?,
+        selectedAccountID: UUID,
+        suggestedAccountID: UUID?
+    ) throws
+}
+
 public protocol ReviewQueueReading: Sendable {
     func fetchPendingReviewItems() throws -> [PendingReviewItem]
 }

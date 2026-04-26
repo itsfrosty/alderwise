@@ -5,7 +5,7 @@ import GRDB
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
 
-public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, MerchantRecommendationEligibilityReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, AnalysisReportReading, WorkspaceInsightReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, MerchantRecommendationEligibilityReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ImportAccountInferenceReading, ImportAccountInferenceWriting, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, AnalysisReportReading, WorkspaceInsightReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
     private let databaseURL: URL?
 
@@ -442,6 +442,30 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                         TransactionReviewStatus.rejected.rawValue,
                     ]
                 )
+            }
+        }
+        migrator.registerMigration("add-import-account-inference-evidence") { db in
+            try db.execute(sql: "PRAGMA foreign_keys = ON")
+
+            if try !db.tableExists("import_account_inference_evidence") {
+                try db.create(table: "import_account_inference_evidence") { table in
+                    table.column("staged_import_session_id", .integer)
+                        .notNull()
+                        .primaryKey()
+                        .references("import_sessions", onDelete: .cascade)
+                    table.column("feedback_kind", .text).notNull()
+                    table.column("selected_account_id", .text)
+                        .notNull()
+                        .indexed()
+                        .references("accounts", onDelete: .cascade)
+                    table.column("losing_account_id", .text)
+                        .indexed()
+                        .references("accounts", onDelete: .cascade)
+                    table.column("normalized_filename", .text).notNull().indexed()
+                    table.column("profile", .text).notNull().indexed()
+                    table.column("normalized_header_names_json", .text).notNull()
+                    table.column("non_blank_column_indexes_by_row_json", .text).notNull()
+                }
             }
         }
 
@@ -2515,6 +2539,131 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
     }
 
+    public func fetchImportAccountInferenceEvidence(
+        for query: ImportAccountInferenceEvidenceQuery
+    ) throws -> [UUID: ImportAccountInferenceAccountEvidence] {
+        let normalizedFilename = normalizedInferenceFilename(query.originalFilename)
+        let normalizedHeaderNamesJSON = try makeInferenceJSON(query.normalizedHeaderNames)
+        let nonBlankColumnIndexesJSON = try makeInferenceJSON(query.nonBlankColumnIndexesByRow)
+
+        return try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT selected_account_id, losing_account_id
+                FROM import_account_inference_evidence
+                WHERE normalized_filename = ?
+                  AND profile = ?
+                  AND normalized_header_names_json = ?
+                  AND non_blank_column_indexes_by_row_json = ?
+                """,
+                arguments: [
+                    normalizedFilename,
+                    query.profile.rawValue,
+                    normalizedHeaderNamesJSON,
+                    nonBlankColumnIndexesJSON,
+                ]
+            )
+
+            var evidenceByAccountID: [UUID: ImportAccountInferenceAccountEvidence] = [:]
+            for row in rows {
+                let selectedAccountIDText: String = row["selected_account_id"]
+                guard let selectedAccountID = UUID(uuidString: selectedAccountIDText) else {
+                    throw WorkspaceStoreError.invalidStoredAccountID(selectedAccountIDText)
+                }
+
+                var selectedEvidence = evidenceByAccountID[selectedAccountID] ?? ImportAccountInferenceAccountEvidence()
+                selectedEvidence.positiveMatchCount += 1
+                evidenceByAccountID[selectedAccountID] = selectedEvidence
+
+                if let losingAccountIDText: String = row["losing_account_id"] {
+                    guard let losingAccountID = UUID(uuidString: losingAccountIDText) else {
+                        throw WorkspaceStoreError.invalidStoredAccountID(losingAccountIDText)
+                    }
+
+                    var losingEvidence = evidenceByAccountID[losingAccountID] ?? ImportAccountInferenceAccountEvidence()
+                    losingEvidence.overrideCount += 1
+                    evidenceByAccountID[losingAccountID] = losingEvidence
+                }
+            }
+
+            return evidenceByAccountID
+        }
+    }
+
+    public func fetchBootstrapImportAccountInferenceEvidence(
+        for query: ImportAccountInferenceEvidenceQuery
+    ) throws -> [UUID: Int] {
+        guard let bootstrapMapping = query.bootstrapMapping else {
+            return [:]
+        }
+
+        let normalizedFilename = normalizedInferenceFilename(query.originalFilename)
+
+        return try databaseQueue.read { db in
+            let rows = try Row.fetchAll(
+                db,
+                sql: """
+                SELECT
+                    import_sessions.account_id,
+                    source_files.original_filename,
+                    import_sessions.mapping_json
+                FROM import_sessions
+                JOIN source_files ON source_files.id = import_sessions.source_file_id
+                LEFT JOIN import_account_inference_evidence
+                    ON import_account_inference_evidence.staged_import_session_id = import_sessions.id
+                WHERE import_account_inference_evidence.staged_import_session_id IS NULL
+                """
+            )
+
+            var countsByAccountID: [UUID: Int] = [:]
+            for row in rows {
+                let accountIDText: String = row["account_id"]
+                guard let accountID = UUID(uuidString: accountIDText) else {
+                    throw WorkspaceStoreError.invalidStoredAccountID(accountIDText)
+                }
+
+                let originalFilename: String = row["original_filename"]
+                guard normalizedInferenceFilename(originalFilename) == normalizedFilename else {
+                    continue
+                }
+
+                let mappingJSON: String = row["mapping_json"]
+                let storedMapping: CSVColumnMapping
+                do {
+                    storedMapping = try JSONDecoder().decode(CSVColumnMapping.self, from: Data(mappingJSON.utf8))
+                } catch {
+                    throw WorkspaceStoreError.invalidStoredMapping(error)
+                }
+
+                guard storedMapping.canBootstrapInferenceEvidence(for: bootstrapMapping) else {
+                    continue
+                }
+
+                countsByAccountID[accountID, default: 0] += 1
+            }
+
+            return countsByAccountID
+        }
+    }
+
+    public func recordImportAccountInferenceFeedback(
+        for query: ImportAccountInferenceEvidenceQuery,
+        stagedImportSessionID: Int64?,
+        selectedAccountID: UUID,
+        suggestedAccountID: UUID?
+    ) throws {
+        try databaseQueue.write { db in
+            try recordImportAccountInferenceFeedback(
+                for: query,
+                stagedImportSessionID: stagedImportSessionID,
+                selectedAccountID: selectedAccountID,
+                suggestedAccountID: suggestedAccountID,
+                db: db
+            )
+        }
+    }
+
     private func fetchStagedImportSession(id: Int64, db: Database) throws -> StagedImportSession? {
         guard let sessionRow = try Row.fetchOne(
             db,
@@ -2605,6 +2754,60 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
             invalidRowCount: sessionRow["invalid_row_count"],
             status: ImportSessionStatus(rawValue: sessionRow["status"]) ?? .staged,
             rows: rows
+        )
+    }
+
+    func recordImportAccountInferenceFeedback(
+        for query: ImportAccountInferenceEvidenceQuery,
+        stagedImportSessionID: Int64?,
+        selectedAccountID: UUID,
+        suggestedAccountID: UUID?,
+        db: Database
+    ) throws {
+        guard let stagedImportSessionID else {
+            return
+        }
+
+        let normalizedFilename = normalizedInferenceFilename(query.originalFilename)
+        let normalizedHeaderNamesJSON = try makeInferenceJSON(query.normalizedHeaderNames)
+        let nonBlankColumnIndexesJSON = try makeInferenceJSON(query.nonBlankColumnIndexesByRow)
+        let losingAccountID = suggestedAccountID == selectedAccountID ? nil : suggestedAccountID
+
+        try db.execute(
+            sql: """
+            INSERT INTO import_account_inference_evidence (
+                staged_import_session_id,
+                feedback_kind,
+                selected_account_id,
+                losing_account_id,
+                normalized_filename,
+                profile,
+                normalized_header_names_json,
+                non_blank_column_indexes_by_row_json
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(staged_import_session_id) DO UPDATE SET
+                feedback_kind = excluded.feedback_kind,
+                selected_account_id = excluded.selected_account_id,
+                losing_account_id = excluded.losing_account_id,
+                normalized_filename = excluded.normalized_filename,
+                profile = excluded.profile,
+                normalized_header_names_json = excluded.normalized_header_names_json,
+                non_blank_column_indexes_by_row_json = excluded.non_blank_column_indexes_by_row_json
+            """,
+            arguments: [
+                stagedImportSessionID,
+                inferenceFeedbackKind(
+                    selectedAccountID: selectedAccountID,
+                    suggestedAccountID: suggestedAccountID
+                ),
+                selectedAccountID.uuidString,
+                losingAccountID?.uuidString,
+                normalizedFilename,
+                query.profile.rawValue,
+                normalizedHeaderNamesJSON,
+                nonBlankColumnIndexesJSON,
+            ]
         )
     }
 
@@ -4607,6 +4810,50 @@ private func accountCanBeDeleted(id: UUID, db: Database) throws -> Bool {
     return !hasTransactions
 }
 
+private func normalizedInferenceFilename(_ originalFilename: String) -> String {
+    originalFilename
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+        .replacingOccurrences(of: #"\.[a-z0-9]+$"#, with: " ", options: .regularExpression)
+        .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+        .split(separator: " ")
+        .joined(separator: " ")
+}
+
+private func makeInferenceJSON<T: Encodable>(_ value: T) throws -> String {
+    guard let json = String(data: try JSONEncoder().encode(value), encoding: .utf8) else {
+        throw WorkspaceStoreError.invalidStoredInferenceEncoding
+    }
+    return json
+}
+
+private func inferenceFeedbackKind(
+    selectedAccountID: UUID,
+    suggestedAccountID: UUID?
+) -> String {
+    guard let suggestedAccountID else {
+        return "manualAssignment"
+    }
+
+    if selectedAccountID == suggestedAccountID {
+        return "acceptedSuggestion"
+    }
+
+    return "overrodeSuggestion"
+}
+
+private extension CSVColumnMapping {
+    var isEmptyInferenceBootstrapMapping: Bool {
+        dateColumnIndex == nil &&
+        descriptionColumnIndex == nil &&
+        amount == nil
+    }
+
+    func canBootstrapInferenceEvidence(for queryMapping: CSVColumnMapping) -> Bool {
+        self == queryMapping || isEmptyInferenceBootstrapMapping
+    }
+}
+
 private func accountIsImportEligible(id: UUID, db: Database) throws -> Bool {
     try Bool.fetchOne(
         db,
@@ -5168,6 +5415,7 @@ private enum WorkspaceStoreError: Error {
     case accountNotImportEligible(UUID)
     case invalidStoredAccountID(String)
     case invalidStoredMapping(Error)
+    case invalidStoredInferenceEncoding
     case invalidStoredReviewItem(field: String, value: String)
     case reviewItemNotFound(UUID)
     case reviewItemNotPending(UUID)

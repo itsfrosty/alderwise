@@ -5439,12 +5439,12 @@ func fetchWorkspaceInsightSummaryRanksSpendDriverChangeAgainstRecurringInsights(
     #expect(summary.homeProjectedInsights.map(\.family) == [.spendDriverChange, .recurringCharge])
 }
 
-private func temporaryDatabaseURL() throws -> URL {
+func temporaryDatabaseURL() throws -> URL {
     let directory = try temporaryDirectoryURL()
     return directory.appending(path: "workspace.sqlite")
 }
 
-private func temporaryDirectoryURL() throws -> URL {
+func temporaryDirectoryURL() throws -> URL {
     let directory = FileManager.default.temporaryDirectory
         .appending(path: "AlderwisePersistenceTests-\(UUID().uuidString)", directoryHint: .isDirectory)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -5545,7 +5545,7 @@ private func setTransactionHidden(
     }
 }
 
-private func createWorkspaceAfterWorkspacePreferencesMigration(at databaseURL: URL) throws {
+func createWorkspaceAfterWorkspacePreferencesMigration(at databaseURL: URL) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
         try db.execute(sql: "PRAGMA foreign_keys = ON")
@@ -5600,6 +5600,55 @@ private func createWorkspaceAfterWorkspacePreferencesMigration(at databaseURL: U
         try db.execute(
             sql: "INSERT INTO workspace_preferences (key, value) VALUES (?, ?)",
             arguments: ["suggestions_enabled", "true"]
+        )
+    }
+}
+
+func createWorkspaceAtLatestPreInferenceSchema(at databaseURL: URL) throws {
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    try queue.write { db in
+        for identifier in [
+            "add-rule-match-kind",
+            "add-rule-lifecycle",
+            "add-seeded-heuristic-auto-accept-preference",
+            "accept-user-categorized-pending-transactions",
+            "enforce-target-scope-invariants",
+            "add-account-archive-state",
+            "add-transaction-hidden-state",
+        ] {
+            try db.execute(
+                sql: "INSERT INTO grdb_migrations (identifier) VALUES (?)",
+                arguments: [identifier]
+            )
+        }
+
+        try db.execute(
+            sql: """
+            ALTER TABLE rules
+            ADD COLUMN match_kind TEXT NOT NULL DEFAULT 'contains'
+            """
+        )
+        try db.execute(
+            sql: """
+            ALTER TABLE rules
+            ADD COLUMN disabled_at DATETIME
+            """
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO workspace_preferences (key, value)
+            VALUES (?, ?)
+            """,
+            arguments: ["seeded_heuristic_auto_accept_enabled", "false"]
+        )
+        try db.execute(sql: "ALTER TABLE accounts ADD COLUMN archived_at DATETIME")
+        try db.execute(
+            sql: """
+            ALTER TABLE transactions
+            ADD COLUMN is_hidden BOOLEAN NOT NULL DEFAULT 0
+            """
         )
     }
 }
@@ -5701,7 +5750,7 @@ private func insertAmbiguousLegacyTargetForReadRegression(databaseURL: URL) thro
     }
 }
 
-private func createLegacyWorkspaceWithFilenameSourceFiles(at databaseURL: URL) throws {
+func createLegacyWorkspaceWithFilenameSourceFiles(at databaseURL: URL) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
         try db.execute(sql: "PRAGMA foreign_keys = ON")
