@@ -433,7 +433,7 @@ func analysisNarrowWidthsUseTransientInspectorPresentationWhenRequested() {
 @Test
 func transientInspectorPresentationIsOwnedByToolbarVisibilityRatherThanSelection() {
     #expect(
-        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: false) == false
+        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: false)
     )
     #expect(
         AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: true)

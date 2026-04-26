@@ -129,6 +129,7 @@ func analysisShellWidthTransitionKeepsInspectorOwnershipWithSelectionAlreadyComm
     #expect(transient == .transient)
     #expect(hiddenWide == .hidden)
     #expect(hiddenNarrow == .hidden)
+    #expect(transient.shouldPresentTransientInspector(hasSelection: false))
     #expect(transient.shouldPresentTransientInspector(hasSelection: true))
 }
 

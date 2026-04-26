@@ -105,6 +105,22 @@ func analysisOverviewLayoutTreatsRecurringOnlyProjectedInsightsAsAWhatChangedEmp
 }
 
 @Test
+func spendOverTimeComparisonChartDoesNotRenderAPhantomBarForZeroValues() {
+    #expect(
+        AnalysisOverviewView.comparisonChartFillWidth(
+            containerWidth: 200,
+            ratio: 0
+        ) == 0
+    )
+    #expect(
+        AnalysisOverviewView.comparisonChartFillWidth(
+            containerWidth: 200,
+            ratio: 0.02
+        ) == 24
+    )
+}
+
+@Test
 @MainActor
 func analysisOverviewLayoutShowsOptionalSupportSectionsOnlyWhenBackedBySnapshotData() throws {
     let recurringLayout = AnalysisOverviewView.layout(for: analysisOverviewTestSnapshot(

@@ -23,7 +23,7 @@ enum AnalysisInspectorPresentation: Equatable {
     }
 
     func shouldPresentTransientInspector(hasSelection: Bool) -> Bool {
-        presentsTransientSheet && hasSelection
+        presentsTransientSheet
     }
 }
 

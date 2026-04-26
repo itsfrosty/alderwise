@@ -1196,11 +1196,30 @@ private struct OverviewSpendComparisonChart: View {
 
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(fill)
-                        .frame(width: max(proxy.size.width * max(min(ratio, 1), 0.12), 24))
+                        .frame(
+                            width: AnalysisOverviewView.comparisonChartFillWidth(
+                                containerWidth: proxy.size.width,
+                                ratio: ratio
+                            )
+                        )
                 }
             }
             .frame(height: 18)
         }
+    }
+}
+
+extension AnalysisOverviewView {
+    nonisolated static func comparisonChartFillWidth(
+        containerWidth: CGFloat,
+        ratio: CGFloat
+    ) -> CGFloat {
+        let normalizedRatio = min(max(ratio, 0), 1)
+        guard normalizedRatio > 0, containerWidth > 0 else {
+            return 0
+        }
+
+        return max(containerWidth * normalizedRatio, min(24, containerWidth))
     }
 }
 
