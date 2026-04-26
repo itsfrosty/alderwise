@@ -348,9 +348,9 @@ struct AnalysisMerchantsView: View {
                     .foregroundStyle(.secondary)
 
                 HStack(spacing: 10) {
-                    merchantMetricBadge(title: "Current", value: summary.currentSpend)
-                    merchantMetricBadge(title: "Comparison", value: summary.comparisonSpend)
-                    merchantMetricBadge(title: "Delta", value: summary.delta)
+                    AnalysisMetricPill(title: "Current", value: summary.currentSpend)
+                    AnalysisMetricPill(title: "Comparison", value: summary.comparisonSpend)
+                    AnalysisMetricPill(title: "Delta", value: summary.delta)
                 }
 
                 if let selectedMerchant {
@@ -532,11 +532,7 @@ struct AnalysisMerchantsView: View {
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .padding(.top, 6)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground(isSelected: isSelected))
-        .overlay(rowStroke(isSelected: isSelected))
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .analysisSelectableRowStyle(isSelected: isSelected)
     }
 
     private func recurringRow(_ recurring: MerchantRecurringReportRow) -> some View {
@@ -583,11 +579,7 @@ struct AnalysisMerchantsView: View {
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .padding(.top, 6)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(rowBackground(isSelected: isSelected))
-        .overlay(rowStroke(isSelected: isSelected))
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .analysisSelectableRowStyle(isSelected: isSelected)
     }
 
     private func merchantDeltaBadge(for delta: Decimal) -> some View {
@@ -609,33 +601,6 @@ struct AnalysisMerchantsView: View {
         Label(title, systemImage: systemImage)
             .analysisSharedBadgeStyle()
             .foregroundStyle(Color.accentColor)
-    }
-
-    private func merchantMetricBadge(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.quinary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-    }
-
-    private func rowBackground(isSelected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.white.opacity(0.0001))
-    }
-
-    private func rowStroke(isSelected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 16, style: .continuous)
-            .stroke(
-                isSelected ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.14),
-                lineWidth: isSelected ? 1.5 : 1
-            )
     }
 
     private func recurringAmountRangeText(_ range: RecurringChargeAmountRange) -> Text {

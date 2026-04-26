@@ -320,9 +320,9 @@ struct AnalysisCategoriesView: View {
                         .foregroundStyle(.secondary)
 
                     HStack(spacing: 10) {
-                        targetMetricBadge(title: "Current", value: currency(selectedRow.currentSpend))
-                        targetMetricBadge(title: "Comparison", value: currency(selectedRow.comparisonSpend))
-                        targetMetricBadge(title: "Delta", value: currency(selectedRow.delta))
+                        AnalysisMetricPill(title: "Current", value: currency(selectedRow.currentSpend))
+                        AnalysisMetricPill(title: "Comparison", value: currency(selectedRow.comparisonSpend))
+                        AnalysisMetricPill(title: "Delta", value: currency(selectedRow.delta))
                     }
                 }
             } else if sortedRows.isEmpty {
@@ -364,9 +364,9 @@ struct AnalysisCategoriesView: View {
                     }
 
                     HStack(spacing: 10) {
-                        targetMetricBadge(title: "Current", value: currency(row.currentSpend))
-                        targetMetricBadge(title: "Comparison", value: currency(row.comparisonSpend))
-                        targetMetricBadge(title: "Delta", value: currency(row.delta))
+                        AnalysisMetricPill(title: "Current", value: currency(row.currentSpend))
+                        AnalysisMetricPill(title: "Comparison", value: currency(row.comparisonSpend))
+                        AnalysisMetricPill(title: "Delta", value: currency(row.delta))
                     }
 
                     Text(nextStep.body)
@@ -374,9 +374,9 @@ struct AnalysisCategoriesView: View {
 
                     if let targetProgress = selectedTargetProgress {
                         HStack(spacing: 10) {
-                            targetMetricBadge(title: "Limit", value: currency(targetProgress.monthlyLimit))
-                            targetMetricBadge(title: "Remaining", value: currency(targetProgress.remaining))
-                            targetMetricBadge(title: "Pace", value: currency(targetProgress.paceDelta))
+                            AnalysisMetricPill(title: "Limit", value: currency(targetProgress.monthlyLimit))
+                            AnalysisMetricPill(title: "Remaining", value: currency(targetProgress.remaining))
+                            AnalysisMetricPill(title: "Pace", value: currency(targetProgress.paceDelta))
                         }
 
                         HStack(spacing: 10) {
@@ -500,17 +500,7 @@ struct AnalysisCategoriesView: View {
                 .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
                 .padding(.top, 6)
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.white.opacity(0.0001))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(isSelected ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.14), lineWidth: isSelected ? 1.5 : 1)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .analysisSelectableRowStyle(isSelected: isSelected)
     }
 
     private func deltaBadge(for delta: Decimal) -> some View {
@@ -526,20 +516,6 @@ struct AnalysisCategoriesView: View {
         .padding(.vertical, 6)
         .background(direction.color.opacity(0.12), in: Capsule())
         .foregroundStyle(direction.color)
-    }
-
-    private func targetMetricBadge(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.subheadline.weight(.semibold))
-                .monospacedDigit()
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(.quinary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func changeSummary(_ row: AnalysisSpendRow) -> String {
