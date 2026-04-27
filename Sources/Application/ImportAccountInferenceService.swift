@@ -32,7 +32,10 @@ public struct ImportAccountInferenceService: Sendable {
             makeCandidate(
                 for: account,
                 fingerprint: fingerprint,
-                historicalMatchCount: request.historicalMatchCountsByAccountID[account.id] ?? 0
+                historicalEvidence: request.historicalEvidenceByAccountID[account.id]
+                    ?? ImportAccountInferenceAccountMemory(
+                        positiveMatchCount: request.historicalMatchCountsByAccountID[account.id] ?? 0
+                    )
             )
         }
         .sorted(by: candidateSort)
@@ -44,10 +47,10 @@ public struct ImportAccountInferenceService: Sendable {
             disposition: disposition,
             selectedAccountID: selectedAccountID,
             fingerprint: fingerprint,
-            candidates: candidates,
+            candidates: candidates.map(\.candidate),
             feedbackContext: ImportAccountInferenceFeedbackContext(
                 fingerprint: fingerprint,
-                candidateAccountIDs: candidates.map(\.account.id),
+                candidateAccountIDs: candidates.map(\.candidate.account.id),
                 selectedAccountID: selectedAccountID,
                 disposition: disposition
             )
@@ -55,7 +58,7 @@ public struct ImportAccountInferenceService: Sendable {
     }
 
     private func makeFingerprint(for request: ImportAccountInferenceRequest) -> ImportFingerprint {
-        let normalizedFilename = normalize(request.originalFilename)
+        let normalizedFilename = normalizedFilenameIdentity(request.originalFilename)
         return ImportFingerprint(
             originalFilename: request.originalFilename,
             normalizedFilename: normalizedFilename,
@@ -69,8 +72,8 @@ public struct ImportAccountInferenceService: Sendable {
     private func makeCandidate(
         for account: Account,
         fingerprint: ImportFingerprint,
-        historicalMatchCount: Int
-    ) -> AccountInferenceCandidate {
+        historicalEvidence: ImportAccountInferenceAccountMemory
+    ) -> ScoredCandidate {
         var evidence: [AccountInferenceEvidence] = []
         var matchedTokens = Set<String>()
 
@@ -78,6 +81,10 @@ public struct ImportAccountInferenceService: Sendable {
         let nameTokens = account.normalizedInferenceNameTokens
         let institutionTokens = account.normalizedInferenceInstitutionTokens
         let strongNameTokens = nameTokens.filter { !genericFilenameTokens.contains($0) }
+        let historicalMatchCount = max(
+            historicalEvidence.historicalMatchCount - historicalEvidence.overrideCount,
+            0
+        )
 
         for token in strongNameTokens
         where filenameTokenSet.contains(token) && matchedTokens.insert(token).inserted {
@@ -99,26 +106,38 @@ public struct ImportAccountInferenceService: Sendable {
         if historicalMatchCount > 0 {
             evidence.append(.historicalMatch(count: historicalMatchCount))
         }
+        if historicalEvidence.overrideCount >= historicalEvidence.historicalMatchCount &&
+            historicalEvidence.overrideCount > 0 {
+            evidence.append(.historicalOverride(count: historicalEvidence.overrideCount))
+        }
 
-        return AccountInferenceCandidate(
-            account: account,
-            score: evidence.reduce(0) { partialResult, evidence in
+        let totalScore = max(
+            evidence.reduce(0) { partialResult, evidence in
                 partialResult + score(for: evidence)
             },
-            evidence: evidence,
-            explanation: evidence.map(\.summary).joined(separator: "; ")
+            0
+        )
+
+        return ScoredCandidate(
+            candidate: AccountInferenceCandidate(
+                account: account,
+                score: totalScore,
+                evidence: evidence,
+                explanation: evidence.map(\.summary).joined(separator: "; ")
+            )
         )
     }
 
-    private func resolveDisposition(for candidates: [AccountInferenceCandidate]) -> ImportAccountInferenceDisposition {
-        guard let winner = candidates.first, winner.score > 0 else {
+    private func resolveDisposition(for candidates: [ScoredCandidate]) -> ImportAccountInferenceDisposition {
+        guard let winner = candidates.first, winner.candidate.score > 0 else {
             return .unassigned
         }
 
-        let runnerUpScore = candidates.dropFirst().first?.score ?? 0
-        let margin = winner.score - runnerUpScore
+        let runnerUpScore = candidates.dropFirst().first?.candidate.score ?? 0
+        let margin = winner.candidate.score - runnerUpScore
 
-        if winner.score >= autoSelectScoreThreshold && margin >= autoSelectMarginThreshold {
+        if winner.candidate.score >= autoSelectScoreThreshold &&
+            margin >= autoSelectMarginThreshold {
             return .autoSelected
         }
 
@@ -131,11 +150,11 @@ public struct ImportAccountInferenceService: Sendable {
 
     private func selectedAccountID(
         for disposition: ImportAccountInferenceDisposition,
-        candidates: [AccountInferenceCandidate]
+        candidates: [ScoredCandidate]
     ) -> UUID? {
         switch disposition {
         case .autoSelected, .suggested:
-            candidates.first?.account.id
+            candidates.first?.candidate.account.id
         case .unassigned:
             nil
         }
@@ -149,17 +168,20 @@ public struct ImportAccountInferenceService: Sendable {
             1
         case .historicalMatch(let count):
             min(count, 1)
+        case .historicalOverride(let count):
+            -min(count, 1)
         }
     }
 
-    private func candidateSort(lhs: AccountInferenceCandidate, rhs: AccountInferenceCandidate) -> Bool {
-        if lhs.score != rhs.score {
-            return lhs.score > rhs.score
+    private func candidateSort(lhs: ScoredCandidate, rhs: ScoredCandidate) -> Bool {
+        if lhs.candidate.score != rhs.candidate.score {
+            return lhs.candidate.score > rhs.candidate.score
         }
-        if lhs.account.normalizedInferenceNameTokens != rhs.account.normalizedInferenceNameTokens {
-            return lhs.account.normalizedInferenceNameTokens.lexicographicallyPrecedes(rhs.account.normalizedInferenceNameTokens)
+        if lhs.candidate.account.normalizedInferenceNameTokens != rhs.candidate.account.normalizedInferenceNameTokens {
+            return lhs.candidate.account.normalizedInferenceNameTokens
+                .lexicographicallyPrecedes(rhs.candidate.account.normalizedInferenceNameTokens)
         }
-        return lhs.account.id.uuidString < rhs.account.id.uuidString
+        return lhs.candidate.account.id.uuidString < rhs.candidate.account.id.uuidString
     }
 
     private func normalize(_ value: String) -> String {
@@ -172,13 +194,12 @@ public struct ImportAccountInferenceService: Sendable {
             .joined(separator: " ")
     }
 
+    private func normalizedFilenameIdentity(_ value: String) -> String {
+        inferenceFilenameIdentityTokens(fromNormalizedValue: normalize(value)).joined(separator: " ")
+    }
+
     private func tokenize(_ normalizedValue: String) -> [String] {
-        normalizedValue
-            .split(separator: " ")
-            .map(String.init)
-            .filter { token in
-                token.count > 1 && Int(token) == nil
-            }
+        inferenceFilenameIdentityTokens(fromNormalizedValue: normalizedValue)
     }
 
     private var genericFilenameTokens: Set<String> {
@@ -213,6 +234,80 @@ public struct ImportAccountInferenceService: Sendable {
             "transactions",
         ]
     }
+
+    private var monthFilenameTokens: Set<String> {
+        [
+            "apr",
+            "april",
+            "aug",
+            "august",
+            "dec",
+            "december",
+            "feb",
+            "february",
+            "jan",
+            "january",
+            "jul",
+            "july",
+            "jun",
+            "june",
+            "mar",
+            "march",
+            "may",
+            "nov",
+            "november",
+            "oct",
+            "october",
+            "sep",
+            "sept",
+            "september",
+        ]
+    }
+
+    private func inferenceFilenameIdentityTokens(fromNormalizedValue normalizedValue: String) -> [String] {
+        let tokens = normalizedValue.split(separator: " ").map(String.init)
+
+        return tokens.enumerated().compactMap { index, token in
+            guard token.count > 1 else {
+                return nil
+            }
+            if Int(token) != nil, shouldDropNumericFilenameToken(tokens, index: index) {
+                return nil
+            }
+            return token
+        }
+    }
+
+    private func shouldDropNumericFilenameToken(_ tokens: [String], index: Int) -> Bool {
+        let token = tokens[index]
+        guard let value = Int(token) else {
+            return false
+        }
+        if (1900...2100).contains(value) {
+            return true
+        }
+        guard token.count <= 2 else {
+            return false
+        }
+
+        let neighbors = [index - 1, index + 1]
+            .filter { tokens.indices.contains($0) }
+            .map { tokens[$0] }
+
+        return neighbors.contains(where: monthFilenameTokens.contains) ||
+            neighbors.contains(where: isYearFilenameToken)
+    }
+
+    private func isYearFilenameToken(_ token: String) -> Bool {
+        guard let value = Int(token) else {
+            return false
+        }
+        return (1900...2100).contains(value)
+    }
+}
+
+private struct ScoredCandidate: Sendable {
+    let candidate: AccountInferenceCandidate
 }
 
 private extension Array {

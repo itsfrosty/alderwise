@@ -9,7 +9,13 @@ public struct ImportAccountInferenceHistoricalEvidence: Equatable, Sendable {
     }
 
     public var historicalMatchCountsByAccountID: [UUID: Int] {
-        accountEvidenceByID.mapValues(\.historicalMatchCount)
+        accountEvidenceByID.reduce(into: [:]) { result, entry in
+            let historicalMatchCount = entry.value.historicalMatchCount
+            guard historicalMatchCount > 0 else {
+                return
+            }
+            result[entry.key] = historicalMatchCount
+        }
     }
 
     public static let empty = ImportAccountInferenceHistoricalEvidence()

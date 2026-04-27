@@ -245,6 +245,59 @@ private struct StubWorkspaceStoreWithInsights: WorkspaceStoring, StagedImportWri
     }
 }
 
+private struct StubWorkspaceStoreWithImportInference: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, LearnedRuleReading, ImportAccountInferenceReading {
+    var base: StubWorkspaceStore
+    var persistedEvidence: [UUID: ImportAccountInferenceAccountEvidence] = [:]
+    var bootstrapEvidence: [UUID: Int] = [:]
+
+    func fetchSummary() throws -> WorkspaceSummary { try base.fetchSummary() }
+    func fetchAccounts() throws -> [Account] { try base.fetchAccounts() }
+    func fetchManagementAccounts() throws -> [Account] { try base.fetchManagementAccounts() }
+    func fetchImportEligibleAccounts() throws -> [Account] { try base.fetchImportEligibleAccounts() }
+    func fetchLedgerFilterAccounts() throws -> [Account] { try base.fetchLedgerFilterAccounts() }
+    func fetchPermanentlyDeletableAccountIDs() throws -> Set<UUID> { try base.fetchPermanentlyDeletableAccountIDs() }
+    func fetchCategories() throws -> [BudgetCategory] { try base.fetchCategories() }
+    func fetchCategoryGroups() throws -> [BudgetCategoryGroup] { try base.fetchCategoryGroups() }
+    func fetchPendingReviewItems() throws -> [PendingReviewItem] { try base.fetchPendingReviewItems() }
+    func fetchLearnedRuleSummaries() throws -> [LearnedRuleSummary] { try base.fetchLearnedRuleSummaries() }
+    func fetchLearnedRuleSummary(id: UUID) throws -> LearnedRuleSummary? { try base.fetchLearnedRuleSummary(id: id) }
+    func fetchLearnedRuleDetail(id: UUID) throws -> ManagedLearnedRule? { try base.fetchLearnedRuleDetail(id: id) }
+    func createAccount(named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try base.createAccount(named: named, kind: kind, institutionName: institutionName)
+    }
+    func updateAccount(id: UUID, named: String, kind: AccountKind, institutionName: String?) throws -> Account {
+        try base.updateAccount(id: id, named: named, kind: kind, institutionName: institutionName)
+    }
+    func archiveAccount(id: UUID, archivedAt: Date) throws -> Account { try base.archiveAccount(id: id, archivedAt: archivedAt) }
+    func restoreAccount(id: UUID) throws -> Account { try base.restoreAccount(id: id) }
+    func deleteAccountPermanently(id: UUID) throws { try base.deleteAccountPermanently(id: id) }
+    func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
+        try base.createStagedImportSession(draft)
+    }
+    func fetchExistingSourceRowHashes(accountID: UUID, rowHashes: Set<String>) throws -> Set<String> {
+        try base.fetchExistingSourceRowHashes(accountID: accountID, rowHashes: rowHashes)
+    }
+    func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
+        try base.fetchExistingSourceRowHashCounts(accountID: accountID, rowHashes: rowHashes)
+    }
+    func fetchLikelyDuplicateTransactions(
+        accountID: UUID,
+        candidates: [NormalizedImportCandidate]
+    ) throws -> [LikelyDuplicateCandidate] {
+        try base.fetchLikelyDuplicateTransactions(accountID: accountID, candidates: candidates)
+    }
+    func fetchImportAccountInferenceEvidence(
+        for query: ImportAccountInferenceEvidenceQuery
+    ) throws -> [UUID: ImportAccountInferenceAccountEvidence] {
+        persistedEvidence
+    }
+    func fetchBootstrapImportAccountInferenceEvidence(
+        for query: ImportAccountInferenceEvidenceQuery
+    ) throws -> [UUID: Int] {
+        bootstrapEvidence
+    }
+}
+
 private final class StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, LearnedRuleReading, WorkspaceInsightReading, AnalysisReportReading, @unchecked Sendable {
     var base: StubWorkspaceStore
     var insights: WorkspaceInsightSummary
@@ -315,7 +368,7 @@ private final class StubWorkspaceStoreWithInsightsAndAnalysis: WorkspaceStoring,
     }
 }
 
-private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, MerchantRecommendationEligibilityReading, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, @unchecked Sendable {
+private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ReviewQueueReading, ReviewQueueWriting, MerchantRecommendationEligibilityReading, TransactionLedgerReading, ClassificationRuleReading, LearnedRuleManaging, LearnedRulePreviewReading, TargetManaging, ReportingReading, WorkspacePreferencesManaging, ImportAccountInferenceReading, @unchecked Sendable {
     var summary: WorkspaceSummary
     var accounts: [Account]
     var categories: [BudgetCategory] = []
@@ -332,6 +385,8 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
     var monthlyReport = MonthlyReport.empty
     var managedTargets: [ManagedMonthlyTarget] = []
     var preferences = WorkspacePreferences()
+    var persistedImportInferenceEvidence: [UUID: ImportAccountInferenceAccountEvidence] = [:]
+    var bootstrapImportInferenceEvidence: [UUID: Int] = [:]
     var previewLearnedRuleImpactResult = LearnedRuleImpactPreview(
         matchedAcceptedTransactionCount: 0,
         matchedPendingReviewItemCount: 0
@@ -736,6 +791,18 @@ private final class MutableWorkspaceStore: WorkspaceStoring, StagedImportWriting
 
     func fetchMonthlyReport(referenceDate: Date) throws -> MonthlyReport {
         monthlyReport
+    }
+
+    func fetchImportAccountInferenceEvidence(
+        for query: ImportAccountInferenceEvidenceQuery
+    ) throws -> [UUID: ImportAccountInferenceAccountEvidence] {
+        persistedImportInferenceEvidence
+    }
+
+    func fetchBootstrapImportAccountInferenceEvidence(
+        for query: ImportAccountInferenceEvidenceQuery
+    ) throws -> [UUID: Int] {
+        bootstrapImportInferenceEvidence
     }
 }
 
@@ -2968,6 +3035,54 @@ func stageCSVImportAcceptsArtifactBackedPreviewAfterRemappingRecoversRows() thro
 }
 
 @Test
+func prepareImportAccountInferenceRequestCancelsHistoricalBoostWhenOverridesMatch() throws {
+    let preferred = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000971")!,
+        name: "Checking",
+        kind: .checking,
+        institutionName: "Chase",
+        createdAt: Date(timeIntervalSince1970: 0)
+    )
+    let other = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000972")!,
+        name: "Travel Card",
+        kind: .creditCard,
+        institutionName: "Chase",
+        createdAt: Date(timeIntervalSince1970: 0)
+    )
+    let store = StubWorkspaceStoreWithImportInference(
+        base: StubWorkspaceStore(
+            summary: .empty,
+            accounts: [preferred, other]
+        ),
+        persistedEvidence: [
+            preferred.id: ImportAccountInferenceAccountEvidence(
+                positiveMatchCount: 1,
+                overrideCount: 1
+            ),
+        ]
+    )
+    let service = WorkspaceService(store: store)
+    let parsedArtifact = try CSVImportPreviewService().makeParsedArtifact(
+        from: """
+        Date,Description,Amount
+        2026-04-01,Coffee Shop,-12.34
+        """
+    )
+
+    let request = try service.prepareImportAccountInferenceRequest(
+        originalFilename: "chase-statement-2026.csv",
+        parsedArtifact: parsedArtifact
+    )
+    let result = ImportAccountInferenceService().inferAccount(for: request)
+
+    #expect(request.historicalMatchCountsByAccountID[preferred.id] == 1)
+    #expect(request.historicalEvidenceByAccountID[preferred.id]?.overrideCount == 1)
+    #expect(result.disposition == .suggested)
+    #expect(result.selectedAccountID == other.id)
+}
+
+@Test
 func previewWithoutConfirmationDoesNotCreateStagedRecords() throws {
     let account = Account(name: "Checking", kind: .checking, institutionName: "Local Bank")
     let store = MutableWorkspaceStore(accounts: [account])
@@ -3717,6 +3832,91 @@ func fetchMerchantRecommendationEligibilityReturnsNilWithoutMatchingPendingRevie
     #expect(eligibility == nil)
 }
 
+@Test
+func prepareImportAccountInferenceRequestUsesOverrideHistoryToReduceConfidence() throws {
+    let preferred = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000580")!,
+        name: "Sapphire Reserve",
+        kind: .creditCard,
+        institutionName: "Chase",
+        createdAt: Date(timeIntervalSince1970: 0)
+    )
+    let other = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000581")!,
+        name: "Daily Checking",
+        kind: .checking,
+        institutionName: "Local Credit Union",
+        createdAt: Date(timeIntervalSince1970: 0)
+    )
+    let store = MutableWorkspaceStore(accounts: [other, preferred])
+    store.persistedImportInferenceEvidence[preferred.id] = ImportAccountInferenceAccountEvidence(
+        positiveMatchCount: 1,
+        overrideCount: 1
+    )
+    let service = WorkspaceService(store: store)
+
+    let request = try service.prepareImportAccountInferenceRequest(
+        originalFilename: "2026-04_chase_sapphire_reserve_statement.csv",
+        parsedArtifact: try parsedImportArtifact()
+    )
+    let result = ImportAccountInferenceService().inferAccount(for: request)
+
+    #expect(result.selectedAccountID == preferred.id)
+    #expect(result.disposition == .suggested)
+    #expect(result.candidates.first?.score == 2)
+}
+
+@Test
+func prepareImportAccountInferenceRequestBoundsOverridePenaltyToSinglePoint() throws {
+    let preferred = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000582")!,
+        name: "Sapphire Reserve",
+        kind: .creditCard,
+        institutionName: "Chase",
+        createdAt: Date(timeIntervalSince1970: 0)
+    )
+    let other = Account(
+        id: UUID(uuidString: "00000000-0000-0000-0000-000000000583")!,
+        name: "Daily Checking",
+        kind: .checking,
+        institutionName: "Local Credit Union",
+        createdAt: Date(timeIntervalSince1970: 0)
+    )
+
+    let oneOverrideStore = MutableWorkspaceStore(accounts: [other, preferred])
+    oneOverrideStore.persistedImportInferenceEvidence[preferred.id] = ImportAccountInferenceAccountEvidence(
+        positiveMatchCount: 1,
+        overrideCount: 1
+    )
+    let manyOverrideStore = MutableWorkspaceStore(accounts: [other, preferred])
+    manyOverrideStore.persistedImportInferenceEvidence[preferred.id] = ImportAccountInferenceAccountEvidence(
+        positiveMatchCount: 1,
+        overrideCount: 4
+    )
+
+    let filename = "2026-04_chase_sapphire_reserve_statement.csv"
+    let parsedArtifact = try parsedImportArtifact()
+    let oneOverrideResult = ImportAccountInferenceService().inferAccount(
+        for: try WorkspaceService(store: oneOverrideStore).prepareImportAccountInferenceRequest(
+            originalFilename: filename,
+            parsedArtifact: parsedArtifact
+        )
+    )
+    let manyOverrideResult = ImportAccountInferenceService().inferAccount(
+        for: try WorkspaceService(store: manyOverrideStore).prepareImportAccountInferenceRequest(
+            originalFilename: filename,
+            parsedArtifact: parsedArtifact
+        )
+    )
+
+    #expect(oneOverrideResult.selectedAccountID == preferred.id)
+    #expect(manyOverrideResult.selectedAccountID == preferred.id)
+    #expect(oneOverrideResult.disposition == .suggested)
+    #expect(manyOverrideResult.disposition == .suggested)
+    #expect(oneOverrideResult.candidates.first?.score == 2)
+    #expect(manyOverrideResult.candidates.first?.score == 2)
+}
+
 private func makeTransactionDetail(
     id: UUID,
     decisionSource: ClassificationDecisionSource?,
@@ -3753,4 +3953,13 @@ private func sourceText(in relativePath: String) throws -> String {
         .deletingLastPathComponent()
     let sourceURL = repoRoot.appendingPathComponent(relativePath)
     return try String(contentsOf: sourceURL, encoding: .utf8)
+}
+
+private func parsedImportArtifact() throws -> ImportParsedArtifact {
+    try CSVImportPreviewService().makeParsedArtifact(
+        from: """
+        Date,Description,Amount
+        2026-04-01,Sample transaction,-12.34
+        """
+    )
 }

@@ -2605,19 +2605,33 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                 db,
                 sql: """
                 SELECT
+                    import_sessions.id AS import_session_id,
                     import_sessions.account_id,
                     source_files.original_filename,
-                    import_sessions.mapping_json
+                    import_sessions.mapping_json,
+                    source_rows.raw_payload
                 FROM import_sessions
                 JOIN source_files ON source_files.id = import_sessions.source_file_id
+                JOIN source_rows ON source_rows.source_file_id = source_files.id
                 LEFT JOIN import_account_inference_evidence
                     ON import_account_inference_evidence.staged_import_session_id = import_sessions.id
                 WHERE import_account_inference_evidence.staged_import_session_id IS NULL
+                ORDER BY import_sessions.id ASC, source_rows.id ASC
                 """
             )
 
             var countsByAccountID: [UUID: Int] = [:]
+            var sessionRowsByID: [Int64: [Row]] = [:]
             for row in rows {
+                let sessionID: Int64 = row["import_session_id"]
+                sessionRowsByID[sessionID, default: []].append(row)
+            }
+
+            for rows in sessionRowsByID.values {
+                guard let row = rows.first else {
+                    continue
+                }
+
                 let accountIDText: String = row["account_id"]
                 guard let accountID = UUID(uuidString: accountIDText) else {
                     throw WorkspaceStoreError.invalidStoredAccountID(accountIDText)
@@ -2636,8 +2650,23 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
                     throw WorkspaceStoreError.invalidStoredMapping(error)
                 }
 
-                guard storedMapping.canBootstrapInferenceEvidence(for: bootstrapMapping) else {
+                let rowShapeSummary = try inferenceRowShapeSummary(for: rows)
+                guard rowShapeSummary == query.nonBlankColumnIndexesByRow else {
                     continue
+                }
+
+                if storedMapping.isEmptyInferenceBootstrapMapping {
+                    guard query.profile == .generic else {
+                        continue
+                    }
+                } else {
+                    guard storedMapping.profile == query.profile else {
+                        continue
+                    }
+
+                    guard storedMapping.canBootstrapInferenceEvidence(for: bootstrapMapping) else {
+                        continue
+                    }
                 }
 
                 countsByAccountID[accountID, default: 0] += 1
@@ -4811,14 +4840,102 @@ private func accountCanBeDeleted(id: UUID, db: Database) throws -> Bool {
 }
 
 private func normalizedInferenceFilename(_ originalFilename: String) -> String {
-    originalFilename
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-        .lowercased()
-        .replacingOccurrences(of: #"\.[a-z0-9]+$"#, with: " ", options: .regularExpression)
-        .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
-        .split(separator: " ")
-        .joined(separator: " ")
+    inferenceFilenameIdentityTokens(
+        originalFilename
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: #"\.[a-z0-9]+$"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+            .split(separator: " ")
+            .joined(separator: " ")
+    ).joined(separator: " ")
 }
+
+private func inferenceFilenameIdentityTokens(_ normalizedValue: String) -> [String] {
+    let tokens = normalizedValue
+        .split(separator: " ")
+        .map(String.init)
+
+    return tokens.enumerated().compactMap { index, token in
+        guard token.count > 1 else {
+            return nil
+        }
+        if Int(token) != nil, shouldDropNumericInferenceFilenameToken(tokens, index: index) {
+            return nil
+        }
+        return token
+    }
+}
+
+private func shouldDropNumericInferenceFilenameToken(_ tokens: [String], index: Int) -> Bool {
+    let token = tokens[index]
+    guard let value = Int(token) else {
+        return false
+    }
+    if (1900...2100).contains(value) {
+        return true
+    }
+    guard token.count <= 2 else {
+        return false
+    }
+
+    let neighbors = [index - 1, index + 1]
+        .filter { tokens.indices.contains($0) }
+        .map { tokens[$0] }
+
+    return neighbors.contains(where: { monthInferenceFilenameTokens.contains($0) }) ||
+        neighbors.contains(where: isYearInferenceFilenameToken)
+}
+
+private func isYearInferenceFilenameToken(_ token: String) -> Bool {
+    guard let value = Int(token) else {
+        return false
+    }
+    return (1900...2100).contains(value)
+}
+
+private func inferenceRowShapeSummary(for rows: [Row]) throws -> [[Int]] {
+    let decoder = JSONDecoder()
+
+    return try rows.map { row in
+        let rawPayload: String = row["raw_payload"]
+        guard let rawPayloadData = rawPayload.data(using: .utf8) else {
+            throw WorkspaceStoreError.invalidStoredInferenceEncoding
+        }
+
+        let values = try decoder.decode([String].self, from: rawPayloadData)
+        return values.enumerated().compactMap { index, value in
+            value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : index
+        }
+    }
+}
+
+private let monthInferenceFilenameTokens: Set<String> = [
+    "apr",
+    "april",
+    "aug",
+    "august",
+    "dec",
+    "december",
+    "feb",
+    "february",
+    "jan",
+    "january",
+    "jul",
+    "july",
+    "jun",
+    "june",
+    "mar",
+    "march",
+    "may",
+    "nov",
+    "november",
+    "oct",
+    "october",
+    "sep",
+    "sept",
+    "september",
+]
 
 private func makeInferenceJSON<T: Encodable>(_ value: T) throws -> String {
     guard let json = String(data: try JSONEncoder().encode(value), encoding: .utf8) else {

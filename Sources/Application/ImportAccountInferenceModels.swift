@@ -31,17 +31,20 @@ public struct ImportAccountInferenceRequest: Equatable, Sendable {
     public let parsedArtifact: ImportParsedArtifact
     public let importEligibleAccounts: [Account]
     public let historicalMatchCountsByAccountID: [UUID: Int]
+    public let historicalEvidenceByAccountID: [UUID: ImportAccountInferenceAccountMemory]
 
     public init(
         originalFilename: String,
         parsedArtifact: ImportParsedArtifact,
         importEligibleAccounts: [Account],
-        historicalMatchCountsByAccountID: [UUID: Int]
+        historicalMatchCountsByAccountID: [UUID: Int],
+        historicalEvidenceByAccountID: [UUID: ImportAccountInferenceAccountMemory] = [:]
     ) {
         self.originalFilename = originalFilename
         self.parsedArtifact = parsedArtifact
         self.importEligibleAccounts = importEligibleAccounts
         self.historicalMatchCountsByAccountID = historicalMatchCountsByAccountID
+        self.historicalEvidenceByAccountID = historicalEvidenceByAccountID
     }
 }
 
@@ -78,6 +81,7 @@ public enum AccountInferenceEvidence: Equatable, Sendable {
     case filenameToken(String)
     case institutionToken(String)
     case historicalMatch(count: Int)
+    case historicalOverride(count: Int)
 
     public var summary: String {
         switch self {
@@ -89,6 +93,8 @@ public enum AccountInferenceEvidence: Equatable, Sendable {
             "institution token: \(token)"
         case .historicalMatch(let count):
             "historical match count: \(count)"
+        case .historicalOverride(let count):
+            "historical override count: \(count)"
         }
     }
 }

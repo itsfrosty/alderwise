@@ -65,6 +65,78 @@ func feedbackWritesAreIdempotentPerStagedImportSession() throws {
 }
 
 @Test
+func persistedInferenceEvidenceReusesFilenameHistoryAcrossNumericVariations() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let session = try makeStagedImportSession(
+        store: store,
+        accountID: account.id,
+        originalFilename: "checking-april-2026.csv"
+    )
+
+    try store.recordImportAccountInferenceFeedback(
+        for: makeInferenceEvidenceQuery(originalFilename: "checking-april-2026.csv"),
+        stagedImportSessionID: session.id,
+        selectedAccountID: account.id,
+        suggestedAccountID: nil
+    )
+
+    let aggregated = try store.fetchImportAccountInferenceEvidence(
+        for: makeInferenceEvidenceQuery(originalFilename: "checking-april-2027.csv")
+    )
+
+    #expect(aggregated[account.id]?.positiveMatchCount == 1)
+}
+
+@Test
+func persistedInferenceEvidenceKeepsDistinctNonDateNumericDisambiguatorsSeparate() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let firstAccount = try store.createAccount(named: "Checking 1234", kind: .checking, institutionName: "Local Bank")
+    let secondAccount = try store.createAccount(named: "Checking 5678", kind: .checking, institutionName: "Local Bank")
+    let firstSession = try makeStagedImportSession(
+        store: store,
+        accountID: firstAccount.id,
+        originalFilename: "checking-1234.csv"
+    )
+    let secondSession = try makeStagedImportSession(
+        store: store,
+        accountID: secondAccount.id,
+        originalFilename: "checking-5678.csv"
+    )
+
+    try store.recordImportAccountInferenceFeedback(
+        for: makeInferenceEvidenceQuery(originalFilename: "checking-1234.csv"),
+        stagedImportSessionID: firstSession.id,
+        selectedAccountID: firstAccount.id,
+        suggestedAccountID: nil
+    )
+    try store.recordImportAccountInferenceFeedback(
+        for: makeInferenceEvidenceQuery(originalFilename: "checking-5678.csv"),
+        stagedImportSessionID: secondSession.id,
+        selectedAccountID: secondAccount.id,
+        suggestedAccountID: nil
+    )
+
+    let firstEvidence = try store.fetchImportAccountInferenceEvidence(
+        for: makeInferenceEvidenceQuery(originalFilename: "checking-1234.csv")
+    )
+    let secondEvidence = try store.fetchImportAccountInferenceEvidence(
+        for: makeInferenceEvidenceQuery(originalFilename: "checking-5678.csv")
+    )
+
+    #expect(firstEvidence[firstAccount.id]?.positiveMatchCount == 1)
+    #expect(firstEvidence[secondAccount.id] == nil)
+    #expect(secondEvidence[secondAccount.id]?.positiveMatchCount == 1)
+    #expect(secondEvidence[firstAccount.id] == nil)
+}
+
+@Test
 func manualAssignmentFromInitiallyUnassignedFileRecordsPositiveHistoryWithoutOverridePenalty() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -199,6 +271,33 @@ func importAccountInferenceEvidenceUsesForeignKeys() throws {
 }
 
 @Test
+func persistedInferenceEvidenceCarriesAcrossRoutineNumericFilenameChanges() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    let session = try makeStagedImportSession(
+        store: store,
+        accountID: account.id,
+        originalFilename: "Checking April 2026.csv"
+    )
+
+    try store.recordImportAccountInferenceFeedback(
+        for: makeInferenceEvidenceQuery(originalFilename: "Checking April 2026.csv"),
+        stagedImportSessionID: session.id,
+        selectedAccountID: account.id,
+        suggestedAccountID: nil
+    )
+
+    let carriedEvidence = try store.fetchImportAccountInferenceEvidence(
+        for: makeInferenceEvidenceQuery(originalFilename: "Checking April 2027.csv")
+    )
+
+    #expect(carriedEvidence[account.id]?.positiveMatchCount == 1)
+}
+
+@Test
 func bootstrapEvidenceReusesExistingImportHistoryFromSourceFilesAndMappings() throws {
     let databaseURL = try temporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
@@ -219,12 +318,12 @@ func bootstrapEvidenceReusesExistingImportHistoryFromSourceFilesAndMappings() th
 }
 
 @Test
-func bootstrapEvidenceReusesMigratedHistoryWhenLegacyMappingWasUnavailable() throws {
+func bootstrapEvidenceReusesLegacyEmptyMappingWhenGenericRowShapeMatches() throws {
     let databaseURL = try temporaryDatabaseURL()
     try createWorkspaceAtLatestPreInferenceSchema(at: databaseURL)
 
     let queue = try DatabaseQueue(path: databaseURL.path)
-    let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000801")!
+    let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000810")!
     try queue.write { db in
         try db.execute(
             sql: """
@@ -273,16 +372,273 @@ func bootstrapEvidenceReusesMigratedHistoryWhenLegacyMappingWasUnavailable() thr
                 Date(timeIntervalSince1970: 1_776_662_400),
             ]
         )
+        try db.execute(
+            sql: """
+            INSERT INTO source_rows (
+                source_file_id, source_line_number, row_hash, raw_payload, validation_status, import_decision_kind, decision_reason
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                2,
+                "row-hash-legacy-shape-match",
+                #"["2026-04-01","Coffee","-4.50"]"#,
+                StagedSourceRowValidationStatus.valid.rawValue,
+                "imported",
+                "New source row.",
+            ]
+        )
     }
 
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
 
     let bootstrapEvidence = try store.fetchBootstrapImportAccountInferenceEvidence(
-        for: makeInferenceEvidenceQuery(originalFilename: "checking-april-2026.csv")
+        for: makeInferenceEvidenceQuery(originalFilename: "checking-april-2027.csv")
     )
 
     #expect(bootstrapEvidence == [accountID: 1])
+}
+
+@Test
+func bootstrapEvidenceRejectsLegacyEmptyMappingWhenLayoutCompatibilityCannotBeProven() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
+    _ = try store.createStagedImportSession(
+        StagedImportSessionDraft(
+            accountID: account.id,
+            originalFilename: "statement.csv",
+            contentHash: "legacy-empty-mapping",
+            importedAt: Date(timeIntervalSince1970: 1_776_662_400),
+            rows: [
+                StagedSourceRowDraft(
+                    sourceLineNumber: 2,
+                    rawPayload: #"["2026-04-01","Coffee","-4.50"]"#,
+                    rowHash: "row-legacy-empty-mapping",
+                    validationStatus: .valid
+                ),
+            ],
+            mapping: CSVColumnMapping(
+                dateColumnIndex: nil,
+                descriptionColumnIndex: nil,
+                amount: nil,
+                profile: .generic
+            ),
+            validRowCount: 1,
+            invalidRowCount: 0,
+            status: .imported
+        )
+    )
+
+    let bootstrapEvidence = try store.fetchBootstrapImportAccountInferenceEvidence(
+        for: ImportAccountInferenceEvidenceQuery(
+            originalFilename: "statement.csv",
+            normalizedHeaderNames: ["date", "description", "amount"],
+            nonBlankColumnIndexesByRow: [[0, 1, 2], [0, 1, 2, 3]],
+            profile: .generic,
+            bootstrapMapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2),
+                profile: .generic
+            )
+        )
+    )
+
+    #expect(bootstrapEvidence.isEmpty)
+}
+
+@Test
+func bootstrapEvidenceRequiresMatchingProfileWhenLegacyMappingWasUnavailable() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAtLatestPreInferenceSchema(at: databaseURL)
+
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000811")!
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO accounts (id, name, kind, institution_name, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                accountID.uuidString,
+                "Checking",
+                AccountKind.checking.rawValue,
+                "Local Bank",
+                Date(timeIntervalSince1970: 1_776_662_400),
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO source_files (
+                id, account_id, original_filename, content_hash, imported_at, row_count
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                "Checking April 2026.csv",
+                "legacy-content-hash",
+                Date(timeIntervalSince1970: 1_776_662_400),
+                1,
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO import_sessions (
+                id, account_id, source_file_id, mapping_json, valid_row_count, invalid_row_count, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                1,
+                "{}",
+                1,
+                0,
+                ImportSessionStatus.imported.rawValue,
+                Date(timeIntervalSince1970: 1_776_662_400),
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO source_rows (
+                source_file_id, source_line_number, row_hash, raw_payload, validation_status, import_decision_kind, decision_reason
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                2,
+                "row-hash-legacy-profile",
+                #"["2026-04-01","Coffee","-4.50"]"#,
+                StagedSourceRowValidationStatus.valid.rawValue,
+                "imported",
+                "New source row.",
+            ]
+        )
+    }
+
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let bootstrapEvidence = try store.fetchBootstrapImportAccountInferenceEvidence(
+        for: makeInferenceEvidenceQuery(
+            originalFilename: "checking-april-2027.csv",
+            normalizedHeaderNames: ["datetime", "type", "status", "note", "from", "to", "amount"],
+            nonBlankColumnIndexesByRow: [[0, 1, 2]],
+            profile: .venmoStatement,
+            bootstrapMapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 3,
+                amount: .singleSignedAmount(columnIndex: 6),
+                profile: .venmoStatement
+            )
+        )
+    )
+
+    #expect(bootstrapEvidence.isEmpty)
+}
+
+@Test
+func bootstrapEvidenceRequiresMatchingRowShapeWhenLegacyMappingWasUnavailable() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAtLatestPreInferenceSchema(at: databaseURL)
+
+    let queue = try DatabaseQueue(path: databaseURL.path)
+    let accountID = UUID(uuidString: "00000000-0000-0000-0000-000000000812")!
+    try queue.write { db in
+        try db.execute(
+            sql: """
+            INSERT INTO accounts (id, name, kind, institution_name, created_at)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                accountID.uuidString,
+                "Checking",
+                AccountKind.checking.rawValue,
+                "Local Bank",
+                Date(timeIntervalSince1970: 1_776_662_400),
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO source_files (
+                id, account_id, original_filename, content_hash, imported_at, row_count
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                "Checking April 2026.csv",
+                "legacy-content-hash",
+                Date(timeIntervalSince1970: 1_776_662_400),
+                1,
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO import_sessions (
+                id, account_id, source_file_id, mapping_json, valid_row_count, invalid_row_count, status, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                accountID.uuidString,
+                1,
+                "{}",
+                1,
+                0,
+                ImportSessionStatus.imported.rawValue,
+                Date(timeIntervalSince1970: 1_776_662_400),
+            ]
+        )
+        try db.execute(
+            sql: """
+            INSERT INTO source_rows (
+                source_file_id, source_line_number, row_hash, raw_payload, validation_status, import_decision_kind, decision_reason
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            arguments: [
+                1,
+                2,
+                "row-hash-legacy-shape",
+                #"["2026-04-01","Coffee","-4.50"]"#,
+                StagedSourceRowValidationStatus.valid.rawValue,
+                "imported",
+                "New source row.",
+            ]
+        )
+    }
+
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+    try store.bootstrap()
+
+    let bootstrapEvidence = try store.fetchBootstrapImportAccountInferenceEvidence(
+        for: makeInferenceEvidenceQuery(
+            originalFilename: "checking-april-2027.csv",
+            normalizedHeaderNames: ["date", "description", "amount", "balance"],
+            nonBlankColumnIndexesByRow: [[0, 1, 2, 3]],
+            bootstrapMapping: CSVColumnMapping(
+                dateColumnIndex: 0,
+                descriptionColumnIndex: 1,
+                amount: .singleSignedAmount(columnIndex: 2),
+                profile: .generic
+            )
+        )
+    )
+
+    #expect(bootstrapEvidence.isEmpty)
 }
 
 @Test
@@ -368,6 +724,9 @@ private struct PersistedInferenceEvidenceRow: Equatable {
 
 private func makeInferenceEvidenceQuery(
     originalFilename: String,
+    normalizedHeaderNames: [String] = ["date", "description", "amount"],
+    nonBlankColumnIndexesByRow: [[Int]] = [[0, 1, 2]],
+    profile: CSVImportProfile = .generic,
     bootstrapMapping: CSVColumnMapping? = CSVColumnMapping(
         dateColumnIndex: 0,
         descriptionColumnIndex: 1,
@@ -377,9 +736,9 @@ private func makeInferenceEvidenceQuery(
 ) -> ImportAccountInferenceEvidenceQuery {
     ImportAccountInferenceEvidenceQuery(
         originalFilename: originalFilename,
-        normalizedHeaderNames: ["date", "description", "amount"],
-        nonBlankColumnIndexesByRow: [[0, 1, 2], [0, 1, 2]],
-        profile: .generic,
+        normalizedHeaderNames: normalizedHeaderNames,
+        nonBlankColumnIndexesByRow: nonBlankColumnIndexesByRow,
+        profile: profile,
         bootstrapMapping: bootstrapMapping
     )
 }

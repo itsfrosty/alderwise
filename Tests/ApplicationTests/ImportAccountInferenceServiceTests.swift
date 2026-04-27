@@ -233,6 +233,123 @@ func historicalEvidenceCanBreakTiesWithoutAutoSelecting() throws {
 }
 
 @Test
+func overrideHistoryReducesConfidenceWithoutChangingWinner() throws {
+    let preferred = account(
+        id: "00000000-0000-0000-0000-000000000172",
+        name: "Sapphire Reserve",
+        institutionName: "Chase"
+    )
+    let other = account(
+        id: "00000000-0000-0000-0000-000000000173",
+        name: "Daily Checking",
+        institutionName: "Local Credit Union"
+    )
+
+    let result = ImportAccountInferenceService().inferAccount(
+        for: try makeRequest(
+            filename: "2026-04_chase_sapphire_reserve_statement.csv",
+            accounts: [other, preferred],
+            historicalEvidenceByAccountID: [
+                preferred.id: ImportAccountInferenceAccountMemory(
+                    positiveMatchCount: 1,
+                    overrideCount: 1
+                ),
+            ]
+        )
+    )
+
+    #expect(result.selectedAccountID == preferred.id)
+    #expect(result.disposition == .suggested)
+    #expect(result.candidates.first?.score == 2)
+    #expect(result.candidates.first?.evidence.map(\.summary) == [
+        "filename token: sapphire",
+        "filename token: reserve",
+        "institution token: chase",
+        "historical override count: 1",
+    ])
+}
+
+@Test
+func overridePenaltyIsBoundedToSinglePoint() throws {
+    let preferred = account(
+        id: "00000000-0000-0000-0000-000000000174",
+        name: "Sapphire Reserve",
+        institutionName: "Chase"
+    )
+    let other = account(
+        id: "00000000-0000-0000-0000-000000000175",
+        name: "Daily Checking",
+        institutionName: "Local Credit Union"
+    )
+
+    let oneOverride = ImportAccountInferenceService().inferAccount(
+        for: try makeRequest(
+            filename: "2026-04_chase_sapphire_reserve_statement.csv",
+            accounts: [other, preferred],
+            historicalEvidenceByAccountID: [
+                preferred.id: ImportAccountInferenceAccountMemory(
+                    positiveMatchCount: 1,
+                    overrideCount: 1
+                ),
+            ]
+        )
+    )
+    let manyOverrides = ImportAccountInferenceService().inferAccount(
+        for: try makeRequest(
+            filename: "2026-04_chase_sapphire_reserve_statement.csv",
+            accounts: [other, preferred],
+            historicalEvidenceByAccountID: [
+                preferred.id: ImportAccountInferenceAccountMemory(
+                    positiveMatchCount: 1,
+                    overrideCount: 4
+                ),
+            ]
+        )
+    )
+
+    #expect(oneOverride.selectedAccountID == preferred.id)
+    #expect(manyOverrides.selectedAccountID == preferred.id)
+    #expect(oneOverride.disposition == .suggested)
+    #expect(manyOverrides.disposition == .suggested)
+    #expect(oneOverride.candidates.first?.score == 2)
+    #expect(manyOverrides.candidates.first?.score == 2)
+}
+
+@Test
+func fingerprintNormalizedFilenameDropsRoutineNumericTokens() throws {
+    let target = account(
+        id: "00000000-0000-0000-0000-000000000170",
+        name: "Checking",
+        institutionName: "Chase"
+    )
+
+    let result = try infer(
+        filename: "Checking-April-2026-04.csv",
+        accounts: [target]
+    )
+
+    #expect(result.fingerprint.normalizedFilename == "checking april")
+    #expect(result.fingerprint.filenameTokens == ["checking", "april"])
+}
+
+@Test
+func fingerprintNormalizedFilenamePreservesNonDateNumericDisambiguators() throws {
+    let target = account(
+        id: "00000000-0000-0000-0000-000000000176",
+        name: "Checking 1234",
+        institutionName: "Chase"
+    )
+
+    let result = try infer(
+        filename: "Checking-1234.csv",
+        accounts: [target]
+    )
+
+    #expect(result.fingerprint.normalizedFilename == "checking 1234")
+    #expect(result.fingerprint.filenameTokens == ["checking", "1234"])
+}
+
+@Test
 func singleAccountConveniencePathDoesNotParticipateInInferenceFeedback() throws {
     let onlyAccount = account(
         id: "00000000-0000-0000-0000-000000000171",
@@ -267,13 +384,21 @@ private func infer(filename: String, accounts: [Account]) throws -> ImportAccoun
 private func makeRequest(
     filename: String,
     accounts: [Account],
-    historicalMatchCountsByAccountID: [UUID: Int] = [:]
+    historicalMatchCountsByAccountID: [UUID: Int] = [:],
+    historicalEvidenceByAccountID: [UUID: ImportAccountInferenceAccountMemory] = [:]
 ) throws -> ImportAccountInferenceRequest {
-    ImportAccountInferenceRequest(
+    let mergedHistoricalMatchCountsByAccountID = historicalEvidenceByAccountID.reduce(
+        into: historicalMatchCountsByAccountID
+    ) { partialResult, entry in
+        partialResult[entry.key] = entry.value.historicalMatchCount
+    }
+
+    return ImportAccountInferenceRequest(
         originalFilename: filename,
         parsedArtifact: try CSVImportPreviewService().makeParsedArtifact(from: sampleCSV()),
         importEligibleAccounts: accounts,
-        historicalMatchCountsByAccountID: historicalMatchCountsByAccountID
+        historicalMatchCountsByAccountID: mergedHistoricalMatchCountsByAccountID,
+        historicalEvidenceByAccountID: historicalEvidenceByAccountID
     )
 }
 

@@ -680,14 +680,16 @@ public struct WorkspaceService: Sendable {
         originalFilename: String,
         parsedArtifact: ImportParsedArtifact
     ) throws -> ImportAccountInferenceRequest {
-        ImportAccountInferenceRequest(
+        let historicalEvidence = try historicalImportAccountInferenceEvidence(
+            originalFilename: originalFilename,
+            parsedArtifact: parsedArtifact
+        )
+        return ImportAccountInferenceRequest(
             originalFilename: originalFilename,
             parsedArtifact: parsedArtifact,
             importEligibleAccounts: try store.fetchImportEligibleAccounts(),
-            historicalMatchCountsByAccountID: try historicalImportAccountInferenceEvidence(
-                originalFilename: originalFilename,
-                parsedArtifact: parsedArtifact
-            ).historicalMatchCountsByAccountID
+            historicalMatchCountsByAccountID: historicalEvidence.historicalMatchCountsByAccountID,
+            historicalEvidenceByAccountID: historicalEvidence.accountEvidenceByID
         )
     }
 
