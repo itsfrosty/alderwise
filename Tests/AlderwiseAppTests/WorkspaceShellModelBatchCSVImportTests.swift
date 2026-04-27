@@ -256,6 +256,131 @@ struct WorkspaceShellModelBatchCSVImportTests {
 
     @Test
     @MainActor
+    func importingMultipleCSVFilesWithMultipleAccountsPrecomputesInferenceStates() throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [
+                ("2026-04_chase_sapphire_reserve_statement.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+                ("2026-04_chase_statement.csv", "Date,Description,Amount\n2026-04-02,Travel credit,20.00\n"),
+                ("generic_statement.csv", "Date,Description,Amount\n2026-04-03,Groceries,-45.21\n"),
+            ]
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore(
+            initialAccounts: [
+                existingAccount(
+                    id: "00000000-0000-0000-0000-000000000451",
+                    name: "Checking",
+                    institutionName: "Local Credit Union"
+                ),
+                existingAccount(
+                    id: "00000000-0000-0000-0000-000000000452",
+                    name: "Sapphire Reserve",
+                    institutionName: "Chase"
+                ),
+            ]
+        )
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+
+        let highConfidenceItem = try #require(
+            model.batchImportSession?.draft.items.first(where: { $0.originalFilename == "2026-04_chase_sapphire_reserve_statement.csv" })
+        )
+        let mediumConfidenceItem = try #require(
+            model.batchImportSession?.draft.items.first(where: { $0.originalFilename == "2026-04_chase_statement.csv" })
+        )
+        let lowConfidenceItem = try #require(
+            model.batchImportSession?.draft.items.first(where: { $0.originalFilename == "generic_statement.csv" })
+        )
+
+        #expect(highConfidenceItem.selectionSource == .inferred)
+        #expect(highConfidenceItem.selectedAccountID == store.accounts[1].id)
+        #expect(mediumConfidenceItem.selectionSource == .suggested)
+        #expect(mediumConfidenceItem.selectedAccountID == store.accounts[1].id)
+        #expect(lowConfidenceItem.selectionSource == .unassigned)
+        #expect(lowConfidenceItem.selectedAccountID == nil)
+        #expect(model.batchImportSession?.draft.selectedItem?.originalFilename == "generic_statement.csv")
+    }
+
+    @Test
+    @MainActor
+    func creatingAccountReevaluatesStillUnassignedBatchItemsWithoutMutatingManualRows() throws {
+        let checking = existingAccount(
+            id: "00000000-0000-0000-0000-000000000461",
+            name: "Checking",
+            institutionName: "Local Credit Union"
+        )
+        let savings = existingAccount(
+            id: "00000000-0000-0000-0000-000000000462",
+            name: "Savings",
+            institutionName: "Neighborhood Bank"
+        )
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [
+                ("2026-04_amex_travel_card_statement_a.csv", "Date,Description,Amount\n2026-04-01,Flight,-320.00\n"),
+                ("2026-04_amex_travel_card_statement_b.csv", "Date,Description,Amount\n2026-04-02,Hotel,-180.00\n"),
+            ]
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore(initialAccounts: [checking, savings])
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+        let manualItemID = try #require(model.batchImportSession?.draft.items.first?.id)
+        let untouchedItemID = try #require(model.batchImportSession?.draft.items.last?.id)
+
+        #expect(model.batchImportSession?.setSelectedAccount(id: checking.id, forItemID: manualItemID) == true)
+
+        let createdAccount = try model.createAccount(
+            name: "Travel Card",
+            kind: .creditCard,
+            institutionName: "Amex"
+        )
+
+        let manualItem = try #require(
+            model.batchImportSession?.draft.items.first(where: { $0.id == manualItemID })
+        )
+        let reevaluatedItem = try #require(
+            model.batchImportSession?.draft.items.first(where: { $0.id == untouchedItemID })
+        )
+
+        #expect(manualItem.selectedAccountID == checking.id)
+        #expect(manualItem.selectionSource == .manual)
+        #expect(reevaluatedItem.selectedAccountID == createdAccount.id)
+        #expect(reevaluatedItem.selectionSource == .inferred)
+    }
+
+    @Test
+    @MainActor
+    func creatingFirstEligibleAccountAppliesSingleAccountConvenienceToRemainingUnassignedRows() throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [
+                ("first.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+                ("second.csv", "Date,Description,Amount\n2026-04-02,Tea,-3.25\n"),
+            ]
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore(initialAccounts: [])
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+        let firstItemID = try #require(model.batchImportSession?.draft.items.first?.id)
+        let secondItemID = try #require(model.batchImportSession?.draft.items.last?.id)
+
+        model.beginBatchImportAccountCreation(itemID: firstItemID)
+        let createdAccount = try model.createAccount(
+            name: "Checking",
+            kind: .checking,
+            institutionName: "Local Bank"
+        )
+
+        #expect(accountID(for: firstItemID, in: model) == createdAccount.id)
+        #expect(accountID(for: secondItemID, in: model) == createdAccount.id)
+        #expect(
+            model.batchImportSession?.draft.items.first(where: { $0.id == secondItemID })?.selectionSource
+                == BatchCSVImportItemDraft.AccountSelectionSource.singleEligibleAccount
+        )
+    }
+
+    @Test
+    @MainActor
     func confirmingBatchImportAggregatesMixedStagedAndExactReimportResultsIntoOneSuccessMessage() async throws {
         let files = try BatchCSVImportSessionTestFiles.make(
             [
@@ -413,10 +538,10 @@ private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable,
     var createAccountError: BatchCSVImportTestError?
     private(set) var createdSessions: [StagedImportSessionDraft] = []
 
-    private var accounts: [Account]
+    private(set) var accounts: [Account]
 
-    init() {
-        accounts = [initialAccount]
+    init(initialAccounts: [Account]? = nil) {
+        accounts = initialAccounts ?? [initialAccount]
     }
 
     func fetchSummary() throws -> WorkspaceSummary {
@@ -573,11 +698,11 @@ private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable,
     func updateWorkspacePreferences(_ preferences: WorkspacePreferences) throws {}
 }
 
-private func existingAccount(id: String, name: String) -> Account {
+private func existingAccount(id: String, name: String, institutionName: String? = "Local Bank") -> Account {
     Account(
         id: UUID(uuidString: id)!,
         name: name,
         kind: .checking,
-        institutionName: "Local Bank"
+        institutionName: institutionName
     )
 }

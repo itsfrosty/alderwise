@@ -942,6 +942,7 @@ final class WorkspaceShellModel: ObservableObject {
         }
         accountCreationRoute = nil
         reload()
+        reevaluateBatchImportSessionAfterAccountChange()
         return account
     }
 
@@ -998,11 +999,7 @@ final class WorkspaceShellModel: ObservableObject {
                 throw CocoaError(.fileNoSuchFile)
             }
 
-            let session = BatchCSVImportSession(
-                selectedURLs: urls,
-                importEligibleAccounts: snapshot.importEligibleAccounts,
-                previewService: csvImportPreviewService
-            )
+            let session = try makeBatchImportSession(for: urls)
             presentBatchImportSession(session)
         } catch {
             dismissBatchImportSession()
@@ -1070,6 +1067,81 @@ final class WorkspaceShellModel: ObservableObject {
         }
 
         return "\(prefix) \(stagedContext) Earlier staged files remain available. \(failure.errorDescription)"
+    }
+
+    private func makeBatchImportSession(for urls: [URL]) throws -> BatchCSVImportSession {
+        let importEligibleAccounts = snapshot.importEligibleAccounts
+
+        guard importEligibleAccounts.count > 1, let service else {
+            return BatchCSVImportSession(
+                selectedURLs: urls,
+                importEligibleAccounts: importEligibleAccounts,
+                previewService: csvImportPreviewService
+            )
+        }
+
+        let inferenceRequestsByURL = try batchImportInferenceRequests(
+            for: urls,
+            service: service
+        )
+        let accountInferenceService = ImportAccountInferenceService()
+        let initialInferenceResultsByURL = inferenceRequestsByURL.mapValues {
+            accountInferenceService.inferAccount(for: $0)
+        }
+        return BatchCSVImportSession(
+            selectedURLs: urls,
+            importEligibleAccounts: importEligibleAccounts,
+            previewService: csvImportPreviewService,
+            initialInferenceRequestsByURL: inferenceRequestsByURL,
+            initialInferenceResultsByURL: initialInferenceResultsByURL
+        )
+    }
+
+    private func batchImportInferenceRequests(
+        for urls: [URL],
+        service: WorkspaceService
+    ) throws -> [URL: ImportAccountInferenceRequest] {
+        var requestsByURL: [URL: ImportAccountInferenceRequest] = [:]
+
+        for url in urls {
+            guard let parsedArtifact = loadParsedArtifactIfAvailable(from: url) else {
+                continue
+            }
+
+            requestsByURL[url] = try service.prepareImportAccountInferenceRequest(
+                originalFilename: url.lastPathComponent,
+                parsedArtifact: parsedArtifact
+            )
+        }
+
+        return requestsByURL
+    }
+
+    private func loadParsedArtifactIfAvailable(from url: URL) -> ImportParsedArtifact? {
+        let accessedSecurityScope = url.startAccessingSecurityScopedResource()
+        defer {
+            if accessedSecurityScope {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+
+        guard let csvText = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+
+        return try? csvImportPreviewService.makeParsedArtifact(from: csvText)
+    }
+
+    private func reevaluateBatchImportSessionAfterAccountChange() {
+        guard let batchImportSession, snapshot.importEligibleAccounts.isEmpty == false else {
+            return
+        }
+
+        batchImportSession.reevaluateUnassignedItems(
+            importEligibleAccounts: snapshot.importEligibleAccounts
+        ) { request in
+            ImportAccountInferenceService().inferAccount(for: request)
+        }
     }
 
     private func resetWorkspace() {

@@ -34,23 +34,38 @@ enum BatchCSVImportRunResult: Equatable {
 
 @MainActor
 final class BatchCSVImportSession: ObservableObject {
+    typealias ImportAccountInferrer = (ImportAccountInferenceRequest) -> ImportAccountInferenceResult
+
     @Published private(set) var draft: BatchCSVImportDraft
     @Published private(set) var importPhase: BatchCSVImportPhase = .editing
 
     init(
         selectedURLs: [URL],
         importEligibleAccounts: [Account],
-        previewService: CSVImportPreviewService = CSVImportPreviewService()
+        previewService: CSVImportPreviewService = CSVImportPreviewService(),
+        initialInferenceRequestsByURL: [URL: ImportAccountInferenceRequest] = [:],
+        initialInferenceResultsByURL: [URL: ImportAccountInferenceResult] = [:]
     ) {
         let items = selectedURLs.map { url in
             let content = Self.loadContent(from: url, previewService: previewService)
+            let inferenceRequest = initialInferenceRequestsByURL[url]
+            let inferenceResult = initialInferenceResultsByURL[url]
             return BatchCSVImportItemDraft(
                 originalFilename: url.lastPathComponent,
                 content: content,
-                selectedAccountID: Self.initialSelectedAccountID(
-                    for: content,
-                    importEligibleAccounts: importEligibleAccounts
-                )
+                selectedAccountID: nil,
+                initialInferenceDisposition: nil,
+                initialInferredOrSuggestedAccountID: nil,
+                selectionSource: .unassigned,
+                inferenceFeedbackContext: nil,
+                importAccountInferenceRequest: inferenceRequest,
+                initialInferenceResult: inferenceResult
+            )
+        }
+        .map { item in
+            Self.configuredInitialItem(
+                from: item,
+                importEligibleAccounts: importEligibleAccounts
             )
         }
 
@@ -85,6 +100,7 @@ final class BatchCSVImportSession: ObservableObject {
         }
 
         draft.items[index].selectedAccountID = accountID
+        draft.items[index].selectionSource = .manual
         return true
     }
 
@@ -130,6 +146,37 @@ final class BatchCSVImportSession: ObservableObject {
         }
 
         return true
+    }
+
+    func reevaluateUnassignedItems(
+        importEligibleAccounts: [Account],
+        using accountInferrer: ImportAccountInferrer
+    ) {
+        guard importPhase.isExecuting == false else {
+            return
+        }
+
+        for index in draft.items.indices where draft.items[index].shouldReevaluateInference {
+            if let onlyAccount = importEligibleAccounts.onlyElement {
+                draft.items[index].selectedAccountID = onlyAccount.id
+                draft.items[index].selectionSource = .singleEligibleAccount
+                draft.items[index].inferenceFeedbackContext = nil
+                continue
+            }
+
+            guard let request = draft.items[index].inferenceRequest(for: importEligibleAccounts) else {
+                continue
+            }
+
+            Self.applyInferenceResult(
+                accountInferrer(request),
+                to: &draft.items[index]
+            )
+        }
+
+        if draft.selectedItemID == nil || draft.selectedItem?.isReadyForImport == true {
+            draft.selectedItemID = Self.initialSelectionID(in: draft.items)
+        }
     }
 
     func confirmBatchCSVImport(
@@ -235,15 +282,35 @@ final class BatchCSVImportSession: ObservableObject {
         items.first(where: { $0.isReadyForImport == false })?.id ?? items.first?.id
     }
 
-    private static func initialSelectedAccountID(
-        for content: BatchCSVImportItemDraft.Content,
+    private static func configuredInitialItem(
+        from item: BatchCSVImportItemDraft,
         importEligibleAccounts: [Account]
-    ) -> UUID? {
-        guard case .loaded = content, importEligibleAccounts.count == 1 else {
-            return nil
+    ) -> BatchCSVImportItemDraft {
+        guard case .loaded = item.content else {
+            return item
         }
 
-        return importEligibleAccounts[0].id
+        if let onlyAccount = importEligibleAccounts.onlyElement {
+            var convenienceItem = item
+            convenienceItem.selectedAccountID = onlyAccount.id
+            convenienceItem.selectionSource = .singleEligibleAccount
+            convenienceItem.inferenceFeedbackContext = nil
+            convenienceItem.importAccountInferenceRequest = nil
+            return convenienceItem
+        }
+
+        guard
+            let result = item.initialInferenceResult
+        else {
+            return item
+        }
+
+        var inferredItem = item
+        applyInitialInferenceResult(
+            result,
+            to: &inferredItem
+        )
+        return inferredItem
     }
 
     private static func loadContent(
@@ -300,6 +367,31 @@ final class BatchCSVImportSession: ObservableObject {
             outcome
         }
     }
+
+    private static func applyInitialInferenceResult(
+        _ result: ImportAccountInferenceResult,
+        to item: inout BatchCSVImportItemDraft
+    ) {
+        item.initialInferenceDisposition = result.disposition
+        item.initialInferredOrSuggestedAccountID = result.selectedAccountID
+        applyInferenceResult(result, to: &item)
+    }
+
+    private static func applyInferenceResult(
+        _ result: ImportAccountInferenceResult,
+        to item: inout BatchCSVImportItemDraft
+    ) {
+        item.selectedAccountID = result.selectedAccountID
+        item.selectionSource = switch result.disposition {
+        case .autoSelected:
+            .inferred
+        case .suggested:
+            .suggested
+        case .unassigned:
+            .unassigned
+        }
+        item.inferenceFeedbackContext = result.feedbackContext
+    }
 }
 
 struct BatchCSVImportDraft: Equatable {
@@ -320,6 +412,14 @@ struct BatchCSVImportDraft: Equatable {
 }
 
 struct BatchCSVImportItemDraft: Identifiable, Equatable {
+    enum AccountSelectionSource: Equatable {
+        case singleEligibleAccount
+        case inferred
+        case suggested
+        case manual
+        case unassigned
+    }
+
     enum Content: Equatable {
         case loaded(csvText: String, preview: CSVImportPreview)
         case loadFailed(message: String)
@@ -329,17 +429,35 @@ struct BatchCSVImportItemDraft: Identifiable, Equatable {
     var originalFilename: String
     var content: Content
     var selectedAccountID: UUID?
+    var initialInferenceDisposition: ImportAccountInferenceDisposition?
+    var initialInferredOrSuggestedAccountID: UUID?
+    var selectionSource: AccountSelectionSource
+    var inferenceFeedbackContext: ImportAccountInferenceFeedbackContext?
+    var importAccountInferenceRequest: ImportAccountInferenceRequest?
+    var initialInferenceResult: ImportAccountInferenceResult?
 
     init(
         id: UUID = UUID(),
         originalFilename: String,
         content: Content,
-        selectedAccountID: UUID?
+        selectedAccountID: UUID?,
+        initialInferenceDisposition: ImportAccountInferenceDisposition?,
+        initialInferredOrSuggestedAccountID: UUID?,
+        selectionSource: AccountSelectionSource,
+        inferenceFeedbackContext: ImportAccountInferenceFeedbackContext?,
+        importAccountInferenceRequest: ImportAccountInferenceRequest?,
+        initialInferenceResult: ImportAccountInferenceResult?
     ) {
         self.id = id
         self.originalFilename = originalFilename
         self.content = content
         self.selectedAccountID = selectedAccountID
+        self.initialInferenceDisposition = initialInferenceDisposition
+        self.initialInferredOrSuggestedAccountID = initialInferredOrSuggestedAccountID
+        self.selectionSource = selectionSource
+        self.inferenceFeedbackContext = inferenceFeedbackContext
+        self.importAccountInferenceRequest = importAccountInferenceRequest
+        self.initialInferenceResult = initialInferenceResult
     }
 
     var isReadyForImport: Bool {
@@ -384,5 +502,32 @@ struct BatchCSVImportItemDraft: Identifiable, Equatable {
             }
             return preview.validation.isReadyForImport ? "Ready" : "Blocked"
         }
+    }
+
+    var shouldReevaluateInference: Bool {
+        guard case .loaded = content else {
+            return false
+        }
+
+        return selectedAccountID == nil && selectionSource == .unassigned
+    }
+
+    func inferenceRequest(for importEligibleAccounts: [Account]) -> ImportAccountInferenceRequest? {
+        guard let importAccountInferenceRequest else {
+            return nil
+        }
+
+        return ImportAccountInferenceRequest(
+            originalFilename: importAccountInferenceRequest.originalFilename,
+            parsedArtifact: importAccountInferenceRequest.parsedArtifact,
+            importEligibleAccounts: importEligibleAccounts,
+            historicalMatchCountsByAccountID: importAccountInferenceRequest.historicalMatchCountsByAccountID
+        )
+    }
+}
+
+private extension Array {
+    var onlyElement: Element? {
+        count == 1 ? first : nil
     }
 }
