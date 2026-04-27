@@ -32,6 +32,10 @@ struct BatchCSVImportPreflightSheet: View {
         .frame(minWidth: 920, minHeight: 620)
     }
 
+    private var accountsByID: [UUID: Account] {
+        Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+    }
+
     private var selectionBinding: Binding<UUID?> {
         Binding(
             get: { session.draft.selectedItemID },
@@ -41,6 +45,8 @@ struct BatchCSVImportPreflightSheet: View {
 
     @ViewBuilder
     private func sidebarRow(for item: BatchCSVImportItemDraft) -> some View {
+        let detailPresentation = item.sidebarDetailPresentation(using: accountsByID)
+
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(item.originalFilename)
@@ -53,10 +59,25 @@ struct BatchCSVImportPreflightSheet: View {
                     .foregroundStyle(statusColor(for: item))
             }
 
-            Text(sidebarSubtitle(for: item))
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                HStack(spacing: 4) {
+                    Text(detailPresentation.accountLabel)
+                    if let confidenceLabel = detailPresentation.confidenceLabel {
+                        Text("·")
+                        Text(confidenceLabel)
+                            .fontWeight(.semibold)
+                    }
+                }
                 .lineLimit(1)
+
+                Spacer(minLength: 8)
+
+                Text(detailPresentation.trailingSummary)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
     }
@@ -157,7 +178,17 @@ struct BatchCSVImportPreflightSheet: View {
             .labelsHidden()
             .pickerStyle(.menu)
 
-            if accounts.isEmpty {
+            if let confidenceLabel = item.confidenceLabel {
+                Text(confidenceLabel)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            if let inferenceExplanationText = item.inferenceExplanationText {
+                Text(inferenceExplanationText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if accounts.isEmpty {
                 Text("Create an account before importing this file.")
                     .font(.caption)
                     .foregroundStyle(.orange)
@@ -230,16 +261,6 @@ struct BatchCSVImportPreflightSheet: View {
             }
         )
     }
-
-    private func sidebarSubtitle(for item: BatchCSVImportItemDraft) -> String {
-        switch item.content {
-        case .loadFailed:
-            return "Load failure"
-        case .loaded(_, let preview):
-            return "\(preview.validation.validRowCount) valid, \(preview.validation.invalidRowCount) invalid"
-        }
-    }
-
     private func statusColor(for item: BatchCSVImportItemDraft) -> Color {
         switch item.statusText {
         case "Ready":

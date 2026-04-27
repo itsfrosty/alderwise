@@ -175,6 +175,9 @@ final class BatchCSVImportSession: ObservableObject {
                 draft.items[index].selectedAccountID = onlyAccount.id
                 draft.items[index].selectionSource = .singleEligibleAccount
                 draft.items[index].inferenceFeedbackContext = nil
+                draft.items[index].initialInferenceDisposition = nil
+                draft.items[index].initialInferredOrSuggestedAccountID = nil
+                draft.items[index].initialInferenceResult = nil
                 continue
             }
 
@@ -188,7 +191,7 @@ final class BatchCSVImportSession: ObservableObject {
             )
         }
 
-        if draft.selectedItemID == nil || draft.selectedItem?.isReadyForImport == true {
+        if draft.selectedItemID == nil {
             draft.selectedItemID = Self.initialSelectionID(in: draft.items)
         }
     }
@@ -325,6 +328,9 @@ final class BatchCSVImportSession: ObservableObject {
             convenienceItem.selectedAccountID = onlyAccount.id
             convenienceItem.selectionSource = .singleEligibleAccount
             convenienceItem.inferenceFeedbackContext = nil
+            convenienceItem.initialInferenceDisposition = nil
+            convenienceItem.initialInferredOrSuggestedAccountID = nil
+            convenienceItem.initialInferenceResult = nil
             convenienceItem.importAccountInferenceRequest = nil
             return convenienceItem
         }
@@ -412,6 +418,7 @@ final class BatchCSVImportSession: ObservableObject {
         to item: inout BatchCSVImportItemDraft
     ) {
         item.selectedAccountID = result.selectedAccountID
+        item.initialInferenceResult = result
         item.selectionSource = switch result.disposition {
         case .autoSelected:
             .inferred
@@ -442,6 +449,15 @@ struct BatchCSVImportDraft: Equatable {
 }
 
 struct BatchCSVImportItemDraft: Identifiable, Equatable {
+    private static let lowConfidenceNoMatchText =
+        "No likely account match was found for this file. Select a destination account to continue."
+
+    struct SidebarDetailPresentation: Equatable {
+        var accountLabel: String
+        var confidenceLabel: String?
+        var trailingSummary: String
+    }
+
     enum AccountSelectionSource: Equatable {
         case singleEligibleAccount
         case inferred
@@ -527,11 +543,59 @@ struct BatchCSVImportItemDraft: Identifiable, Equatable {
         case .loadFailed:
             return "Error"
         case .loaded(_, let preview):
-            if selectedAccountID == nil {
-                return "Choose Account"
-            }
-            return preview.validation.isReadyForImport ? "Ready" : "Blocked"
+            return selectedAccountID != nil && preview.validation.isReadyForImport ? "Ready" : "Blocked"
         }
+    }
+
+    func displayAccountLabel(using accountsByID: [UUID: Account]) -> String {
+        guard let selectedAccountID else {
+            return "Unassigned"
+        }
+
+        return accountDisplayLabel(for: accountsByID[selectedAccountID])
+    }
+
+    var confidenceLabel: String? {
+        switch presentedSelectionSource {
+        case .inferred:
+            return "Inferred"
+        case .suggested:
+            return "Suggested"
+        default:
+            return nil
+        }
+    }
+
+    var inferenceExplanationText: String? {
+        if presentedSelectionSource == .unassigned,
+           currentInferenceResult?.disposition == .unassigned,
+           selectedAccountID == nil {
+            return Self.lowConfidenceNoMatchText
+        }
+
+        switch presentedSelectionSource {
+        case .inferred, .suggested:
+            return currentInferenceExplanation
+        default:
+            return nil
+        }
+    }
+
+    func sidebarDetailPresentation(using accountsByID: [UUID: Account]) -> SidebarDetailPresentation {
+        SidebarDetailPresentation(
+            accountLabel: displayAccountLabel(using: accountsByID),
+            confidenceLabel: confidenceLabel,
+            trailingSummary: validationSummaryText ?? "Could not load preview"
+        )
+    }
+
+    func sidebarDetailText(using accountsByID: [UUID: Account]) -> String {
+        let presentation = sidebarDetailPresentation(using: accountsByID)
+        var components = [presentation.accountLabel]
+        if let confidenceLabel = presentation.confidenceLabel {
+            components.append(confidenceLabel)
+        }
+        return "\(components.joined(separator: " · ")) · \(presentation.trailingSummary)"
     }
 
     var shouldReevaluateInference: Bool {
@@ -553,6 +617,64 @@ struct BatchCSVImportItemDraft: Identifiable, Equatable {
             importEligibleAccounts: importEligibleAccounts,
             historicalMatchCountsByAccountID: importAccountInferenceRequest.historicalMatchCountsByAccountID
         )
+    }
+
+    private var presentedSelectionSource: AccountSelectionSource {
+        guard selectedAccountID != nil else {
+            return .unassigned
+        }
+
+        if selectionSource == .singleEligibleAccount {
+            return .singleEligibleAccount
+        }
+
+        guard
+            let currentInferenceResult,
+            selectedAccountID == currentInferenceResult.selectedAccountID
+        else {
+            return .manual
+        }
+
+        return switch currentInferenceResult.disposition {
+        case .autoSelected:
+            .inferred
+        case .suggested:
+            .suggested
+        case .unassigned:
+            .manual
+        }
+    }
+
+    private var currentInferenceResult: ImportAccountInferenceResult? {
+        initialInferenceResult
+    }
+
+    private var currentInferenceExplanation: String? {
+        guard let currentInferenceResult else {
+            return nil
+        }
+
+        return currentInferenceResult.candidates.first(
+            where: { $0.account.id == currentInferenceResult.selectedAccountID }
+        )?.explanation
+    }
+
+    private var validationSummaryText: String? {
+        guard case .loaded(_, let preview) = content else {
+            return nil
+        }
+
+        return "\(preview.validation.validRowCount) valid, \(preview.validation.invalidRowCount) invalid"
+    }
+
+    private func accountDisplayLabel(for account: Account?) -> String {
+        guard let account else {
+            return "Unknown Account"
+        }
+        if let institutionName = account.institutionName {
+            return "\(account.name) · \(institutionName)"
+        }
+        return account.name
     }
 }
 

@@ -223,6 +223,213 @@ func sessionRunsInferenceOncePerLoadedFileAppliesConfidenceStatesAndSelectsFirst
 
 @Test
 @MainActor
+func inferencePresentationHelpersShowSidebarAndDetailStateForInferredSuggestedAndUnassignedRows() throws {
+    let checking = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000354",
+        name: "Checking",
+        institutionName: "Local Credit Union"
+    )
+    let sapphire = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000355",
+        name: "Sapphire Reserve",
+        institutionName: "Chase"
+    )
+    let files = try BatchCSVImportSessionTestFiles.make(
+        [
+            ("2026-04_chase_sapphire_reserve_statement.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+            ("2026-04_chase_statement.csv", "Date,Description,Amount\n2026-04-02,Travel credit,20.00\n"),
+            ("generic_statement.csv", "Date,Description,Amount\n2026-04-03,Groceries,-45.21\n"),
+        ]
+    )
+    let accounts = [checking, sapphire]
+    let requests = try Dictionary(
+        uniqueKeysWithValues: files.urls.map { url in
+            (
+                url,
+                try batchCSVImportInferenceRequest(
+                    originalFilename: url.lastPathComponent,
+                    accounts: accounts
+                )
+            )
+        }
+    )
+    let results = requests.mapValues { ImportAccountInferenceService().inferAccount(for: $0) }
+    let accountsByID = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+
+    let session = BatchCSVImportSession(
+        selectedURLs: files.urls,
+        importEligibleAccounts: accounts,
+        initialInferenceRequestsByURL: requests,
+        initialInferenceResultsByURL: results
+    )
+
+    let highConfidenceItem = try #require(
+        session.draft.items.first(where: { $0.originalFilename == "2026-04_chase_sapphire_reserve_statement.csv" })
+    )
+    let mediumConfidenceItem = try #require(
+        session.draft.items.first(where: { $0.originalFilename == "2026-04_chase_statement.csv" })
+    )
+    let lowConfidenceItem = try #require(
+        session.draft.items.first(where: { $0.originalFilename == "generic_statement.csv" })
+    )
+
+    #expect(highConfidenceItem.statusText == "Ready")
+    let highConfidenceSidebar = highConfidenceItem.sidebarDetailPresentation(using: accountsByID)
+    #expect(highConfidenceItem.displayAccountLabel(using: accountsByID) == "Sapphire Reserve · Chase")
+    #expect(highConfidenceItem.confidenceLabel == "Inferred")
+    #expect(highConfidenceSidebar.accountLabel == "Sapphire Reserve · Chase")
+    #expect(highConfidenceSidebar.confidenceLabel == "Inferred")
+    #expect(highConfidenceSidebar.trailingSummary == "1 valid, 0 invalid")
+    #expect(highConfidenceItem.inferenceExplanationText?.contains("filename token: sapphire") == true)
+
+    #expect(mediumConfidenceItem.statusText == "Ready")
+    let mediumConfidenceSidebar = mediumConfidenceItem.sidebarDetailPresentation(using: accountsByID)
+    #expect(mediumConfidenceItem.displayAccountLabel(using: accountsByID) == "Sapphire Reserve · Chase")
+    #expect(mediumConfidenceItem.confidenceLabel == "Suggested")
+    #expect(mediumConfidenceSidebar.accountLabel == "Sapphire Reserve · Chase")
+    #expect(mediumConfidenceSidebar.confidenceLabel == "Suggested")
+    #expect(mediumConfidenceSidebar.trailingSummary == "1 valid, 0 invalid")
+    #expect(mediumConfidenceItem.inferenceExplanationText?.contains("institution token: chase") == true)
+
+    #expect(lowConfidenceItem.statusText == "Blocked")
+    let lowConfidenceSidebar = lowConfidenceItem.sidebarDetailPresentation(using: accountsByID)
+    #expect(lowConfidenceItem.displayAccountLabel(using: accountsByID) == "Unassigned")
+    #expect(lowConfidenceItem.confidenceLabel == nil)
+    #expect(lowConfidenceSidebar.accountLabel == "Unassigned")
+    #expect(lowConfidenceSidebar.confidenceLabel == nil)
+    #expect(lowConfidenceSidebar.trailingSummary == "1 valid, 0 invalid")
+    #expect(
+        lowConfidenceItem.inferenceExplanationText
+            == "No likely account match was found for this file. Select a destination account to continue."
+    )
+}
+
+@Test
+@MainActor
+func suggestedPresentationHidesAndRestoresCueAndExplanationAsPickerSelectionChanges() throws {
+    let checking = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000356",
+        name: "Checking",
+        institutionName: "Local Credit Union"
+    )
+    let sapphire = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000357",
+        name: "Sapphire Reserve",
+        institutionName: "Chase"
+    )
+    let files = try BatchCSVImportSessionTestFiles.make(
+        [
+            ("2026-04_chase_statement.csv", "Date,Description,Amount\n2026-04-02,Travel credit,20.00\n"),
+        ]
+    )
+    let accounts = [checking, sapphire]
+    let request = try batchCSVImportInferenceRequest(
+        originalFilename: "2026-04_chase_statement.csv",
+        accounts: accounts
+    )
+    let result = ImportAccountInferenceService().inferAccount(for: request)
+    let accountsByID = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+
+    let session = BatchCSVImportSession(
+        selectedURLs: files.urls,
+        importEligibleAccounts: accounts,
+        initialInferenceRequestsByURL: [files.urls[0]: request],
+        initialInferenceResultsByURL: [files.urls[0]: result]
+    )
+    let itemID = try #require(session.draft.items.first?.id)
+
+    let initialItem = try #require(session.draft.items.first)
+    #expect(initialItem.confidenceLabel == "Suggested")
+    #expect(initialItem.inferenceExplanationText?.contains("institution token: chase") == true)
+
+    #expect(session.setSelectedAccount(id: checking.id, forItemID: itemID))
+    let changedItem = try #require(session.draft.items.first)
+    #expect(changedItem.displayAccountLabel(using: accountsByID) == "Checking · Local Credit Union")
+    #expect(changedItem.confidenceLabel == nil)
+    #expect(changedItem.inferenceExplanationText == nil)
+
+    #expect(session.setSelectedAccount(id: sapphire.id, forItemID: itemID))
+    let restoredItem = try #require(session.draft.items.first)
+    #expect(restoredItem.displayAccountLabel(using: accountsByID) == "Sapphire Reserve · Chase")
+    #expect(restoredItem.confidenceLabel == "Suggested")
+    #expect(restoredItem.inferenceExplanationText?.contains("institution token: chase") == true)
+
+    #expect(session.setSelectedAccount(id: nil, forItemID: itemID))
+    let clearedItem = try #require(session.draft.items.first)
+    #expect(clearedItem.statusText == "Blocked")
+    #expect(clearedItem.selectionSource == .manual)
+    #expect(clearedItem.displayAccountLabel(using: accountsByID) == "Unassigned")
+    #expect(clearedItem.confidenceLabel == nil)
+    #expect(clearedItem.inferenceExplanationText == nil)
+}
+
+@Test
+@MainActor
+func mixedInferenceStatesRemainScannableFromSidebarWithoutOpeningEachItem() throws {
+    let checking = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000358",
+        name: "Checking",
+        institutionName: "Local Credit Union"
+    )
+    let sapphire = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000359",
+        name: "Sapphire Reserve",
+        institutionName: "Chase"
+    )
+    let files = try BatchCSVImportSessionTestFiles.make(
+        [
+            ("2026-04_chase_sapphire_reserve_statement.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+            ("2026-04_chase_statement.csv", "Date,Description,Amount\n2026-04-02,Travel credit,20.00\n"),
+            ("generic_statement.csv", "Date,Description,Amount\n2026-04-03,Groceries,-45.21\n"),
+        ]
+    )
+    let unreadableURL = files.directoryURL.appendingPathComponent("unreadable.csv", isDirectory: true)
+    try FileManager.default.createDirectory(at: unreadableURL, withIntermediateDirectories: true)
+
+    let accounts = [checking, sapphire]
+    let filenames = [
+        "2026-04_chase_sapphire_reserve_statement.csv",
+        "2026-04_chase_statement.csv",
+        "generic_statement.csv",
+        "unreadable.csv",
+    ]
+    let requests = try Dictionary(
+        uniqueKeysWithValues: zip(files.urls + [unreadableURL], filenames).map { url, filename in
+            (
+                url,
+                try batchCSVImportInferenceRequest(
+                    originalFilename: filename,
+                    accounts: accounts
+                )
+            )
+        }
+    )
+    let results = requests.mapValues { ImportAccountInferenceService().inferAccount(for: $0) }
+    let accountsByID = Dictionary(uniqueKeysWithValues: accounts.map { ($0.id, $0) })
+
+    let session = BatchCSVImportSession(
+        selectedURLs: files.urls + [unreadableURL],
+        importEligibleAccounts: accounts,
+        initialInferenceRequestsByURL: requests,
+        initialInferenceResultsByURL: results
+    )
+
+    let sidebarRows = session.draft.items.map { item in
+        "\(item.originalFilename) | \(item.statusText) | \(item.sidebarDetailText(using: accountsByID))"
+    }
+
+    #expect(
+        sidebarRows == [
+            "2026-04_chase_sapphire_reserve_statement.csv | Ready | Sapphire Reserve · Chase · Inferred · 1 valid, 0 invalid",
+            "2026-04_chase_statement.csv | Ready | Sapphire Reserve · Chase · Suggested · 1 valid, 0 invalid",
+            "generic_statement.csv | Blocked | Unassigned · 1 valid, 0 invalid",
+            "unreadable.csv | Error | Unassigned · Could not load preview",
+        ]
+    )
+}
+
+@Test
+@MainActor
 func reevaluatingStillUnassignedItemsAfterAccountChangesPreservesManualRows() throws {
     let checking = batchCSVImportAccount(
         id: "00000000-0000-0000-0000-000000000361",
@@ -267,6 +474,7 @@ func reevaluatingStillUnassignedItemsAfterAccountChangesPreservesManualRows() th
     )
     let manualItemID = try #require(session.draft.items.first?.id)
     let untouchedItemID = try #require(session.draft.items.last?.id)
+    session.selectItem(id: untouchedItemID)
 
     #expect(session.draft.items.allSatisfy { $0.selectionSource == BatchCSVImportItemDraft.AccountSelectionSource.unassigned })
     #expect(session.setSelectedAccount(id: checking.id, forItemID: manualItemID))
@@ -283,12 +491,103 @@ func reevaluatingStillUnassignedItemsAfterAccountChangesPreservesManualRows() th
     let reevaluatedItem = try #require(session.draft.items.first(where: { $0.id == untouchedItemID }))
 
     #expect(reevaluatedFilenames == ["2026-04_amex_travel_card_statement_b.csv"])
+    #expect(session.draft.selectedItemID == untouchedItemID)
     #expect(manualItem.selectedAccountID == checking.id)
     #expect(manualItem.selectionSource == BatchCSVImportItemDraft.AccountSelectionSource.manual)
     #expect(reevaluatedItem.selectedAccountID == travelCard.id)
     #expect(reevaluatedItem.selectionSource == BatchCSVImportItemDraft.AccountSelectionSource.inferred)
     #expect(reevaluatedItem.initialInferenceDisposition == ImportAccountInferenceDisposition.unassigned)
     #expect(reevaluatedItem.initialInferredOrSuggestedAccountID == nil)
+}
+
+@Test
+@MainActor
+func singleEligibleAccountConvenienceSuppressesStaleInferenceCueAndExplanation() throws {
+    let checking = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000364",
+        name: "Checking",
+        institutionName: "Local Credit Union"
+    )
+    let savings = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000365",
+        name: "Savings",
+        institutionName: "Neighborhood Bank"
+    )
+    let files = try BatchCSVImportSessionTestFiles.make(
+        [("generic_statement.csv", "Date,Description,Amount\n2026-04-02,Travel credit,20.00\n")]
+    )
+    let request = try batchCSVImportInferenceRequest(
+        originalFilename: "generic_statement.csv",
+        accounts: [checking, savings]
+    )
+    let result = ImportAccountInferenceService().inferAccount(for: request)
+    let accountsByID = [checking.id: checking]
+
+    let session = BatchCSVImportSession(
+        selectedURLs: files.urls,
+        importEligibleAccounts: [],
+        initialInferenceRequestsByURL: [files.urls[0]: request],
+        initialInferenceResultsByURL: [files.urls[0]: result]
+    )
+    session.reevaluateUnassignedItems(importEligibleAccounts: [checking]) { _ in
+        Issue.record("Single-account convenience should not invoke the inferrer.")
+        return result
+    }
+
+    let item = try #require(session.draft.items.first)
+    #expect(item.selectedAccountID == checking.id)
+    #expect(item.selectionSource == .singleEligibleAccount)
+    #expect(item.confidenceLabel == nil)
+    #expect(item.inferenceExplanationText == nil)
+    #expect(item.displayAccountLabel(using: accountsByID) == "Checking · Local Credit Union")
+}
+
+@Test
+@MainActor
+func clearingASuggestedSelectionKeepsTheRowManualAndPreventsFutureAutoReevaluation() throws {
+    let checking = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000366",
+        name: "Checking",
+        institutionName: "Local Credit Union"
+    )
+    let sapphire = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000367",
+        name: "Sapphire Reserve",
+        institutionName: "Chase"
+    )
+    let travelCard = batchCSVImportAccount(
+        id: "00000000-0000-0000-0000-000000000368",
+        name: "Travel Card",
+        institutionName: "Amex"
+    )
+    let files = try BatchCSVImportSessionTestFiles.make(
+        [("2026-04_chase_statement.csv", "Date,Description,Amount\n2026-04-02,Travel credit,20.00\n")]
+    )
+    let request = try batchCSVImportInferenceRequest(
+        originalFilename: "2026-04_chase_statement.csv",
+        accounts: [checking, sapphire]
+    )
+    let result = ImportAccountInferenceService().inferAccount(for: request)
+
+    let session = BatchCSVImportSession(
+        selectedURLs: files.urls,
+        importEligibleAccounts: [checking, sapphire],
+        initialInferenceRequestsByURL: [files.urls[0]: request],
+        initialInferenceResultsByURL: [files.urls[0]: result]
+    )
+    let itemID = try #require(session.draft.items.first?.id)
+    #expect(session.setSelectedAccount(id: nil, forItemID: itemID))
+
+    session.reevaluateUnassignedItems(importEligibleAccounts: [checking, sapphire, travelCard]) { _ in
+        Issue.record("Manually cleared rows should not be auto-reevaluated.")
+        return result
+    }
+
+    let item = try #require(session.draft.items.first)
+    #expect(item.selectionSource == .manual)
+    #expect(item.selectedAccountID == nil)
+    #expect(item.displayAccountLabel(using: [checking.id: checking, sapphire.id: sapphire, travelCard.id: travelCard]) == "Unassigned")
+    #expect(item.confidenceLabel == nil)
 }
 
 @Test
