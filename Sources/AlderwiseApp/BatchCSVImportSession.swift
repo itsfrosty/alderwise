@@ -25,10 +25,24 @@ struct BatchCSVImportFailureContext: Equatable {
     var errorDescription: String
     var summary: StagedImportDecisionSummary
     var outcome: StagedCSVImportOutcome?
+    var fileResults: [BatchCSVImportFileResult]
+}
+
+struct BatchCSVImportFileResult: Equatable {
+    var itemID: UUID
+    var originalFilename: String
+    var stagedImportSessionID: Int64?
+    var outcome: StagedCSVImportOutcome
+    var finalSelectedAccountID: UUID
+    var inferenceFeedbackContext: ImportAccountInferenceFeedbackContext?
 }
 
 enum BatchCSVImportRunResult: Equatable {
-    case success(summary: StagedImportDecisionSummary, outcome: StagedCSVImportOutcome)
+    case success(
+        summary: StagedImportDecisionSummary,
+        outcome: StagedCSVImportOutcome,
+        fileResults: [BatchCSVImportFileResult]
+    )
     case partialFailure(BatchCSVImportFailureContext)
 }
 
@@ -193,7 +207,8 @@ final class BatchCSVImportSession: ObservableObject {
                     stagedFileCount: 0,
                     errorDescription: WorkspaceServiceError.importPreviewNotReady.localizedDescription,
                     summary: summary,
-                    outcome: nil
+                    outcome: nil,
+                    fileResults: []
                 )
             )
         }
@@ -208,7 +223,8 @@ final class BatchCSVImportSession: ObservableObject {
                     stagedFileCount: 0,
                     errorDescription: WorkspaceServiceError.importPreviewNotReady.localizedDescription,
                     summary: summary,
-                    outcome: nil
+                    outcome: nil,
+                    fileResults: []
                 )
             )
         }
@@ -218,6 +234,7 @@ final class BatchCSVImportSession: ObservableObject {
         var aggregateSummary = Self.emptySummary
         var aggregateOutcome: StagedCSVImportOutcome?
         var stagedFileCount = 0
+        var fileResults: [BatchCSVImportFileResult] = []
 
         for (index, item) in draft.items.enumerated() {
             importPhase = .importing(currentIndex: index + 1, totalCount: totalCount)
@@ -238,7 +255,8 @@ final class BatchCSVImportSession: ObservableObject {
                         stagedFileCount: stagedFileCount,
                         errorDescription: WorkspaceServiceError.importPreviewNotReady.localizedDescription,
                         summary: aggregateSummary,
-                        outcome: aggregateOutcome
+                        outcome: aggregateOutcome,
+                        fileResults: fileResults
                     )
                 )
             }
@@ -255,6 +273,16 @@ final class BatchCSVImportSession: ObservableObject {
                 }
                 aggregateSummary = Self.accumulate(summary: aggregateSummary, with: result.summary)
                 aggregateOutcome = Self.accumulate(outcome: aggregateOutcome, with: result.outcome)
+                fileResults.append(
+                    BatchCSVImportFileResult(
+                        itemID: item.id,
+                        originalFilename: item.originalFilename,
+                        stagedImportSessionID: result.session?.id,
+                        outcome: result.outcome,
+                        finalSelectedAccountID: accountID,
+                        inferenceFeedbackContext: item.inferenceFeedbackContext
+                    )
+                )
             } catch {
                 draft.selectedItemID = item.id
                 importPhase = .editing
@@ -265,7 +293,8 @@ final class BatchCSVImportSession: ObservableObject {
                         stagedFileCount: stagedFileCount,
                         errorDescription: error.localizedDescription,
                         summary: aggregateSummary,
-                        outcome: aggregateOutcome
+                        outcome: aggregateOutcome,
+                        fileResults: fileResults
                     )
                 )
             }
@@ -274,7 +303,8 @@ final class BatchCSVImportSession: ObservableObject {
         importPhase = .editing
         return .success(
             summary: aggregateSummary,
-            outcome: aggregateOutcome ?? .exactReimportNoOp
+            outcome: aggregateOutcome ?? .exactReimportNoOp,
+            fileResults: fileResults
         )
     }
 

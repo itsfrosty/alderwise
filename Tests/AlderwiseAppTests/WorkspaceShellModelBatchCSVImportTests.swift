@@ -458,6 +458,206 @@ struct WorkspaceShellModelBatchCSVImportTests {
         #expect(store.createdSessions.map(\.originalFilename) == ["april.csv"])
     }
 
+    @Test
+    @MainActor
+    func confirmingBatchImportRecordsAcceptedOverrideAndManualFeedbackForStagedFiles() async throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [
+                ("2026-04_chase_sapphire_reserve_statement.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+                ("2026-04_chase_statement_override.csv", "Date,Description,Amount\n2026-04-02,Travel credit,20.00\n"),
+                ("generic_statement.csv", "Date,Description,Amount\n2026-04-03,Groceries,-45.21\n"),
+                ("2026-04_chase_sapphire_reserve_statement_copy.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+            ]
+        )
+        let checking = existingAccount(
+            id: "00000000-0000-0000-0000-000000000471",
+            name: "Checking",
+            institutionName: "Local Credit Union"
+        )
+        let sapphire = existingAccount(
+            id: "00000000-0000-0000-0000-000000000472",
+            name: "Sapphire Reserve",
+            institutionName: "Chase"
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore(initialAccounts: [checking, sapphire])
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+
+        let acceptedItemID = try #require(
+            model.batchImportSession?.draft.items.first(where: {
+                $0.originalFilename == "2026-04_chase_sapphire_reserve_statement.csv"
+            })?.id
+        )
+        let overrideItemID = try #require(
+            model.batchImportSession?.draft.items.first(where: {
+                $0.originalFilename == "2026-04_chase_statement_override.csv"
+            })?.id
+        )
+        let manualItemID = try #require(
+            model.batchImportSession?.draft.items.first(where: {
+                $0.originalFilename == "generic_statement.csv"
+            })?.id
+        )
+
+        #expect(model.batchImportSession?.setSelectedAccount(id: checking.id, forItemID: acceptedItemID) == true)
+        #expect(model.batchImportSession?.setSelectedAccount(id: sapphire.id, forItemID: acceptedItemID) == true)
+        #expect(model.batchImportSession?.setSelectedAccount(id: checking.id, forItemID: overrideItemID) == true)
+        #expect(model.batchImportSession?.setSelectedAccount(id: checking.id, forItemID: manualItemID) == true)
+
+        model.confirmBatchCSVImport()
+        await waitForBatchImportCompletion(in: model)
+
+        #expect(model.importErrorMessage == nil)
+        #expect(model.batchImportSession == nil)
+        #expect(store.createdSessions.map(\.originalFilename) == [
+            "2026-04_chase_sapphire_reserve_statement.csv",
+            "2026-04_chase_statement_override.csv",
+            "generic_statement.csv",
+        ])
+        #expect(store.recordedImportInferenceFeedback.map(\.originalFilename) == [
+            "2026-04_chase_sapphire_reserve_statement.csv",
+            "2026-04_chase_statement_override.csv",
+            "generic_statement.csv",
+        ])
+        #expect(store.recordedImportInferenceFeedback.map(\.kind) == [
+            .acceptedSuggestion,
+            .overrodeSuggestion,
+            .manualAssignment,
+        ])
+        #expect(store.recordedImportInferenceFeedback.map(\.selectedAccountID) == [
+            sapphire.id,
+            checking.id,
+            checking.id,
+        ])
+        #expect(store.recordedImportInferenceFeedback.map(\.suggestedAccountID) == [
+            sapphire.id,
+            sapphire.id,
+            nil,
+        ])
+        #expect(store.recordedImportInferenceFeedback.map(\.stagedImportSessionID) == [1, 2, 3])
+    }
+
+    @Test
+    @MainActor
+    func confirmingBatchImportSkipsInferenceFeedbackForSingleAccountConvenienceRows() async throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [("checking-april.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n")]
+        )
+        let checking = existingAccount(
+            id: "00000000-0000-0000-0000-000000000473",
+            name: "Checking",
+            institutionName: "Local Credit Union"
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore(initialAccounts: [checking])
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+        model.confirmBatchCSVImport()
+        await waitForBatchImportCompletion(in: model)
+
+        #expect(model.importErrorMessage == nil)
+        #expect(store.createdSessions.map(\.originalFilename) == ["checking-april.csv"])
+        #expect(store.recordedImportInferenceFeedback.isEmpty)
+    }
+
+    @Test
+    @MainActor
+    func retryingBatchImportAfterPartialFailureDoesNotDuplicateFeedbackForEarlierStagedFiles() async throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [
+                ("2026-04_chase_sapphire_reserve_statement.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n"),
+                ("generic_statement.csv", "Date,Description,Amount\n2026-04-03,Groceries,-45.21\n"),
+            ]
+        )
+        let checking = existingAccount(
+            id: "00000000-0000-0000-0000-000000000474",
+            name: "Checking",
+            institutionName: "Local Credit Union"
+        )
+        let sapphire = existingAccount(
+            id: "00000000-0000-0000-0000-000000000475",
+            name: "Sapphire Reserve",
+            institutionName: "Chase"
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore(initialAccounts: [checking, sapphire])
+        store.createSessionFailuresByFilename = [
+            "generic_statement.csv": [BatchCSVImportTestError(message: "Temporary staging failure")]
+        ]
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+        let manualItemID = try #require(
+            model.batchImportSession?.draft.items.first(where: { $0.originalFilename == "generic_statement.csv" })?.id
+        )
+        #expect(model.batchImportSession?.setSelectedAccount(id: checking.id, forItemID: manualItemID) == true)
+
+        model.confirmBatchCSVImport()
+        await waitForBatchImportCompletion(in: model)
+
+        #expect(model.importResultMessage == nil)
+        #expect(model.importErrorMessage?.contains("generic_statement.csv") == true)
+        #expect(store.recordedImportInferenceFeedback.map(\.originalFilename) == [
+            "2026-04_chase_sapphire_reserve_statement.csv"
+        ])
+        #expect(store.recordedImportInferenceFeedback.map(\.kind) == [.acceptedSuggestion])
+
+        model.confirmBatchCSVImport()
+        await waitForBatchImportCompletion(in: model)
+
+        #expect(model.importErrorMessage == nil)
+        #expect(model.batchImportSession == nil)
+        #expect(store.createdSessions.map(\.originalFilename) == [
+            "2026-04_chase_sapphire_reserve_statement.csv",
+            "generic_statement.csv",
+        ])
+        #expect(store.recordedImportInferenceFeedback.map(\.originalFilename) == [
+            "2026-04_chase_sapphire_reserve_statement.csv",
+            "generic_statement.csv",
+        ])
+        #expect(store.recordedImportInferenceFeedback.map(\.kind) == [
+            .acceptedSuggestion,
+            .manualAssignment,
+        ])
+        #expect(store.recordedImportInferenceFeedback.map(\.stagedImportSessionID) == [1, 2])
+    }
+
+    @Test
+    @MainActor
+    func feedbackWriteFailuresDoNotChangeSuccessfulBatchImportUserFeedback() async throws {
+        let files = try BatchCSVImportSessionTestFiles.make(
+            [("2026-04_chase_sapphire_reserve_statement.csv", "Date,Description,Amount\n2026-04-01,Coffee,-4.75\n")]
+        )
+        let checking = existingAccount(
+            id: "00000000-0000-0000-0000-000000000478",
+            name: "Checking",
+            institutionName: "Local Credit Union"
+        )
+        let sapphire = existingAccount(
+            id: "00000000-0000-0000-0000-000000000479",
+            name: "Sapphire Reserve",
+            institutionName: "Chase"
+        )
+        let store = WorkspaceShellModelBatchCSVImportStore(initialAccounts: [checking, sapphire])
+        store.recordImportInferenceFeedbackError = BatchCSVImportTestError(message: "Feedback write failed")
+        let model = makeModel(store: store)
+
+        model.importCSV(from: .success(files.urls))
+        model.confirmBatchCSVImport()
+        await waitForBatchImportCompletion(in: model)
+
+        #expect(model.batchImportSession == nil)
+        #expect(model.importErrorMessage == nil)
+        #expect(
+            model.importResultMessage
+                == "1 imported to Transactions, 0 skipped, 1 sent to Review, 0 likely duplicates waiting in Review."
+        )
+        #expect(store.createdSessions.map(\.originalFilename) == [
+            "2026-04_chase_sapphire_reserve_statement.csv"
+        ])
+        #expect(store.recordedImportInferenceFeedback.isEmpty)
+    }
+
     @MainActor
     private func makeModel(
         store: WorkspaceShellModelBatchCSVImportStore = WorkspaceShellModelBatchCSVImportStore()
@@ -529,14 +729,31 @@ private struct BatchCSVImportTestError: Error, Equatable, LocalizedError {
     var errorDescription: String? { message }
 }
 
-private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, ImportAccountInferenceWriting, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
+    struct RecordedImportInferenceFeedback: Equatable {
+        enum Kind: Equatable {
+            case acceptedSuggestion
+            case overrodeSuggestion
+            case manualAssignment
+        }
+
+        var stagedImportSessionID: Int64?
+        var originalFilename: String
+        var selectedAccountID: UUID
+        var suggestedAccountID: UUID?
+        var kind: Kind
+    }
+
     let initialAccount = existingAccount(
         id: "00000000-0000-0000-0000-000000000404",
         name: "Checking"
     )
 
     var createAccountError: BatchCSVImportTestError?
+    var createSessionFailuresByFilename: [String: [BatchCSVImportTestError]] = [:]
+    var recordImportInferenceFeedbackError: BatchCSVImportTestError?
     private(set) var createdSessions: [StagedImportSessionDraft] = []
+    private(set) var recordedImportInferenceFeedback: [RecordedImportInferenceFeedback] = []
 
     private(set) var accounts: [Account]
 
@@ -601,6 +818,12 @@ private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable,
     func deleteAccountPermanently(id: UUID) throws {}
 
     func createStagedImportSession(_ draft: StagedImportSessionDraft) throws -> StagedImportSession {
+        if var failures = createSessionFailuresByFilename[draft.originalFilename], failures.isEmpty == false {
+            let failure = failures.removeFirst()
+            createSessionFailuresByFilename[draft.originalFilename] = failures
+            throw failure
+        }
+
         createdSessions.append(draft)
 
         let sourceFile = StagedSourceFile(
@@ -640,7 +863,11 @@ private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable,
 
     func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
         let existingHashes = Set(
-            createdSessions.flatMap(\.rows).map(\.rowHash).filter { rowHashes.contains($0) }
+            createdSessions
+                .filter { $0.accountID == accountID }
+                .flatMap(\.rows)
+                .map(\.rowHash)
+                .filter { rowHashes.contains($0) }
         )
         return Dictionary(uniqueKeysWithValues: existingHashes.map { ($0, 1) })
     }
@@ -650,6 +877,41 @@ private final class WorkspaceShellModelBatchCSVImportStore: @unchecked Sendable,
         candidates: [NormalizedImportCandidate]
     ) throws -> [LikelyDuplicateCandidate] {
         []
+    }
+
+    func recordImportAccountInferenceFeedback(
+        for query: ImportAccountInferenceEvidenceQuery,
+        stagedImportSessionID: Int64?,
+        selectedAccountID: UUID,
+        suggestedAccountID: UUID?
+    ) throws {
+        if let recordImportInferenceFeedbackError {
+            throw recordImportInferenceFeedbackError
+        }
+
+        let kind: RecordedImportInferenceFeedback.Kind
+        if let suggestedAccountID {
+            kind = suggestedAccountID == selectedAccountID ? .acceptedSuggestion : .overrodeSuggestion
+        } else {
+            kind = .manualAssignment
+        }
+
+        let feedback = RecordedImportInferenceFeedback(
+            stagedImportSessionID: stagedImportSessionID,
+            originalFilename: query.originalFilename,
+            selectedAccountID: selectedAccountID,
+            suggestedAccountID: suggestedAccountID,
+            kind: kind
+        )
+
+        if let stagedImportSessionID,
+           let existingIndex = recordedImportInferenceFeedback.firstIndex(where: {
+               $0.stagedImportSessionID == stagedImportSessionID
+           }) {
+            recordedImportInferenceFeedback[existingIndex] = feedback
+        } else {
+            recordedImportInferenceFeedback.append(feedback)
+        }
     }
 
     func fetchManagedTargets(referenceDate: Date) throws -> [ManagedMonthlyTarget] {

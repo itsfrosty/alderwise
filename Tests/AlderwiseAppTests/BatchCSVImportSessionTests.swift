@@ -483,17 +483,26 @@ func confirmBatchImportStagesFilesSequentiallyAndAggregatesMixedStagedAndExactRe
 
     let result = await session.confirmBatchCSVImport(service: service, accounts: [account])
 
+    guard case .success(let summary, let outcome, let fileResults) = result else {
+        Issue.record("Expected the batch import to succeed.")
+        return
+    }
+
     #expect(
-        result == .success(
-            summary: StagedImportDecisionSummary(
-                importedRowCount: 2,
-                skippedRowCount: 1,
-                pendingClassificationReviewRowCount: 2,
-                flaggedDuplicateRowCount: 0
-            ),
-            outcome: .staged
+        summary == StagedImportDecisionSummary(
+            importedRowCount: 2,
+            skippedRowCount: 1,
+            pendingClassificationReviewRowCount: 2,
+            flaggedDuplicateRowCount: 0
         )
     )
+    #expect(outcome == .staged)
+    #expect(fileResults.map(\.itemID) == session.draft.items.map(\.id))
+    #expect(fileResults.map(\.originalFilename) == ["april.csv", "april-renamed.csv", "may.csv"])
+    #expect(fileResults.map(\.stagedImportSessionID) == [1, nil, 2])
+    #expect(fileResults.map(\.outcome) == [.staged, .exactReimportNoOp, .staged])
+    #expect(fileResults.map(\.finalSelectedAccountID) == [account.id, account.id, account.id])
+    #expect(fileResults.allSatisfy { $0.inferenceFeedbackContext == nil })
     #expect(store.createdSessions.map(\.originalFilename) == ["april.csv", "may.csv"])
     #expect(session.importPhase == .editing)
 }
@@ -524,23 +533,33 @@ func confirmBatchImportStopsOnFirstUnexpectedFailureAndDoesNotAttemptLaterFiles(
 
     let result = await session.confirmBatchCSVImport(service: service, accounts: [account])
 
+    guard case .partialFailure(let failure) = result else {
+        Issue.record("Expected the batch import to stop on the broken file.")
+        return
+    }
+
+    #expect(failure.failedItemID == failedItemID)
+    #expect(failure.failedFilename == "broken.csv")
+    #expect(failure.stagedFileCount == 1)
     #expect(
-        result == .partialFailure(
-            BatchCSVImportFailureContext(
-                failedItemID: failedItemID,
-                failedFilename: "broken.csv",
-                stagedFileCount: 1,
-                errorDescription: WorkspaceServiceError.importPreviewCouldNotNormalizeRow(line: 2).localizedDescription,
-                summary: StagedImportDecisionSummary(
-                    importedRowCount: 1,
-                    skippedRowCount: 0,
-                    pendingClassificationReviewRowCount: 1,
-                    flaggedDuplicateRowCount: 0
-                ),
-                outcome: .staged
-            )
+        failure.errorDescription
+            == WorkspaceServiceError.importPreviewCouldNotNormalizeRow(line: 2).localizedDescription
+    )
+    #expect(
+        failure.summary == StagedImportDecisionSummary(
+            importedRowCount: 1,
+            skippedRowCount: 0,
+            pendingClassificationReviewRowCount: 1,
+            flaggedDuplicateRowCount: 0
         )
     )
+    #expect(failure.outcome == .staged)
+    #expect(failure.fileResults.map(\.itemID) == [session.draft.items[0].id])
+    #expect(failure.fileResults.map(\.originalFilename) == ["april.csv"])
+    #expect(failure.fileResults.map(\.stagedImportSessionID) == [1])
+    #expect(failure.fileResults.map(\.outcome) == [.staged])
+    #expect(failure.fileResults.map(\.finalSelectedAccountID) == [account.id])
+    #expect(failure.fileResults.allSatisfy { $0.inferenceFeedbackContext == nil })
     #expect(store.createdSessions.map(\.originalFilename) == ["april.csv"])
     #expect(session.draft.selectedItemID == failedItemID)
     #expect(session.importPhase == .editing)
@@ -717,7 +736,11 @@ private final class BatchCSVImportSessionExecutionStore: @unchecked Sendable, Wo
 
     func fetchExistingSourceRowHashCounts(accountID: UUID, rowHashes: Set<String>) throws -> [String: Int] {
         let existingHashes = Set(
-            createdSessions.flatMap(\.rows).map(\.rowHash).filter { rowHashes.contains($0) }
+            createdSessions
+                .filter { $0.accountID == accountID }
+                .flatMap(\.rows)
+                .map(\.rowHash)
+                .filter { rowHashes.contains($0) }
         )
         return Dictionary(uniqueKeysWithValues: existingHashes.map { ($0, 1) })
     }

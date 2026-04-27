@@ -728,7 +728,21 @@ public struct WorkspaceService: Sendable {
         feedbackContext: ImportAccountInferenceFeedbackContext?,
         result: StagedCSVImportResult
     ) throws {
-        guard result.outcome == .staged,
+        try recordImportAccountInferenceFeedback(
+            finalAccountID: finalAccountID,
+            feedbackContext: feedbackContext,
+            outcome: result.outcome,
+            stagedImportSessionID: result.session?.id
+        )
+    }
+
+    public func recordImportAccountInferenceFeedback(
+        finalAccountID: UUID,
+        feedbackContext: ImportAccountInferenceFeedbackContext?,
+        outcome: StagedCSVImportOutcome,
+        stagedImportSessionID: Int64?
+    ) throws {
+        guard outcome == .staged,
               let feedbackContext,
               let writer = store as? any ImportAccountInferenceWriting
         else {
@@ -737,7 +751,7 @@ public struct WorkspaceService: Sendable {
 
         try writer.recordImportAccountInferenceFeedback(
             for: importAccountInferenceEvidenceQuery(feedbackContext: feedbackContext),
-            stagedImportSessionID: result.session?.id,
+            stagedImportSessionID: stagedImportSessionID,
             selectedAccountID: finalAccountID,
             suggestedAccountID: feedbackContext.selectedAccountID
         )

@@ -1038,11 +1038,19 @@ final class WorkspaceShellModel: ObservableObject {
             }
 
             switch result {
-            case .success(let summary, let outcome):
+            case .success(let summary, let outcome, let fileResults):
+                recordBatchImportInferenceFeedback(
+                    for: fileResults,
+                    service: service
+                )
                 dismissBatchImportSession()
                 reload()
                 importResultMessage = ImportResultMessage.make(for: outcome, summary: summary)
             case .partialFailure(let failure):
+                recordBatchImportInferenceFeedback(
+                    for: failure.fileResults,
+                    service: service
+                )
                 if failure.outcome == .staged {
                     reload()
                 }
@@ -1067,6 +1075,26 @@ final class WorkspaceShellModel: ObservableObject {
         }
 
         return "\(prefix) \(stagedContext) Earlier staged files remain available. \(failure.errorDescription)"
+    }
+
+    private func recordBatchImportInferenceFeedback(
+        for fileResults: [BatchCSVImportFileResult],
+        service: WorkspaceService
+    ) {
+        for fileResult in fileResults {
+            do {
+                try service.recordImportAccountInferenceFeedback(
+                    finalAccountID: fileResult.finalSelectedAccountID,
+                    feedbackContext: fileResult.inferenceFeedbackContext,
+                    outcome: fileResult.outcome,
+                    stagedImportSessionID: fileResult.stagedImportSessionID
+                )
+            } catch {
+                // Staging is the durable user-visible commit point. Learning writes stay best-effort
+                // so feedback failures do not rewrite the import success/partial-failure outcome.
+                continue
+            }
+        }
     }
 
     private func makeBatchImportSession(for urls: [URL]) throws -> BatchCSVImportSession {
