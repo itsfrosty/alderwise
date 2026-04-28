@@ -8,9 +8,7 @@ struct TargetEditSheet: View {
     var onCancel: () -> Void
     var onSave: (MonthlyTargetDraft) throws -> Void
 
-    @State private var selectedScopeKind: TargetScopeKind
     @State private var selectedCategoryID: UUID?
-    @State private var selectedCategoryGroupID: UUID?
     @State private var monthlyLimit: String
     @State private var errorMessage: String?
 
@@ -27,16 +25,7 @@ struct TargetEditSheet: View {
         self.onCancel = onCancel
         self.onSave = onSave
 
-        switch target.scope {
-        case .category(let categoryID):
-            _selectedScopeKind = State(initialValue: .category)
-            _selectedCategoryID = State(initialValue: categoryID)
-            _selectedCategoryGroupID = State(initialValue: nil)
-        case .categoryGroup(let groupID):
-            _selectedScopeKind = State(initialValue: .categoryGroup)
-            _selectedCategoryID = State(initialValue: nil)
-            _selectedCategoryGroupID = State(initialValue: groupID)
-        }
+        _selectedCategoryID = State(initialValue: TargetEditorLogic.initialSelectedCategoryID(for: target.scope))
         _monthlyLimit = State(initialValue: NSDecimalNumber(decimal: target.monthlyLimit).stringValue)
     }
 
@@ -46,9 +35,7 @@ struct TargetEditSheet: View {
             submitTitle: "Save",
             categories: categories,
             categoryGroups: categoryGroups,
-            selectedScopeKind: $selectedScopeKind,
             selectedCategoryID: $selectedCategoryID,
-            selectedCategoryGroupID: $selectedCategoryGroupID,
             monthlyLimit: $monthlyLimit,
             errorMessage: errorMessage,
             onCancel: onCancel
