@@ -4532,8 +4532,9 @@ private func seededCategoryGroupIDPreservingTargetDisjointness(
 
     // Bootstrap may normalize seeded memberships, but it must not implicitly create
     // an overlap between an existing category target and an existing group target.
-    if try targetExists(categoryID: category.id, excluding: nil, db: db),
-       try targetExists(categoryGroupID: category.groupID, excluding: nil, db: db) {
+    if let targetGroupID = category.groupID,
+       try targetExists(categoryID: category.id, excluding: nil, db: db),
+       try targetExists(categoryGroupID: targetGroupID, excluding: nil, db: db) {
         return currentGroupID
     }
 
@@ -5293,6 +5294,24 @@ private func pruneObsoleteDefaultCategories(currentCategoryIDs: Set<String>, db:
 }
 
 private func pruneObsoleteDefaultGroups(currentGroupIDs: Set<String>, db: Database) throws {
+    guard currentGroupIDs.isEmpty == false else {
+        try db.execute(
+            sql: """
+            DELETE FROM category_groups
+            WHERE id LIKE '10000000-0000-0000-0000-000000000%'
+                AND NOT EXISTS (
+                    SELECT 1 FROM categories
+                    WHERE categories.category_group_id = category_groups.id
+                )
+                AND NOT EXISTS (
+                    SELECT 1 FROM targets
+                    WHERE targets.category_group_id = category_groups.id
+                )
+            """
+        )
+        return
+    }
+
     let placeholders = Array(repeating: "?", count: currentGroupIDs.count).joined(separator: ", ")
     var arguments = StatementArguments()
     currentGroupIDs.sorted().forEach { appendArgument($0, to: &arguments) }
@@ -5324,6 +5343,10 @@ private func defaultBudgetCategoryOrderSQL(column: String) -> String {
 }
 
 private func defaultOrderSQL(ids: [UUID], column: String) -> String {
+    guard ids.isEmpty == false else {
+        return column
+    }
+
     let cases = ids.enumerated().map { index, id in
         "WHEN '\(id.uuidString)' THEN \(index)"
     }
