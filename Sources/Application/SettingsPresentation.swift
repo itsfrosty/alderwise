@@ -138,6 +138,14 @@ public struct SettingsPresentation: Equatable, Sendable {
                         detail: "The expected workspace file is missing from this Mac. Restore a backup file to recover safely.",
                         systemImage: "externaldrive.badge.exclamationmark"
                     )
+                } else if let metadata, metadata.requiresReset {
+                    self.init(
+                        state: .recoveryNeeded,
+                        title: "Workspace reset required",
+                        detail: metadata.resetReason
+                            ?? "This workspace must be reset before it can be used with this version of Alderwise.",
+                        systemImage: "arrow.trianglehead.counterclockwise.rotate.90"
+                    )
                 } else {
                     self.init(
                         state: .healthy,

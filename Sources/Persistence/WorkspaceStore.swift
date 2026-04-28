@@ -4,6 +4,10 @@ import GRDB
 
 private let workspacePreferenceSuggestionsEnabledKey = "suggestions_enabled"
 private let workspacePreferenceSeededHeuristicAutoAcceptEnabledKey = "seeded_heuristic_auto_accept_enabled"
+private let workspacePreferenceDefaultTaxonomyVersionKey = "default_taxonomy_version"
+private let simplifiedDefaultTaxonomyVersion = "simplified-default-taxonomy-2026-04-28"
+private let simplifiedDefaultTaxonomyResetReason =
+    "This workspace was created with an older default taxonomy. Back up if needed, then reset and reimport to continue with this version of Alderwise."
 
 public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, LearnedRuleManaging, LearnedRulePreviewReading, MerchantRecommendationEligibilityReading, StagedImportWriting, StagedImportReading, ImportDecisionReading, ImportAccountInferenceReading, ImportAccountInferenceWriting, ReviewQueueReading, ReviewQueueWriting, ReviewDecisionReading, ClassificationRuleReading, TransactionLedgerReading, TransactionLedgerWriting, ReportingReading, AnalysisReportReading, WorkspaceInsightReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging {
     private let databaseQueue: DatabaseQueue
@@ -470,7 +474,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
 
         try migrator.migrate(databaseQueue)
-        try seedDefaultBudgetTaxonomy()
+        try seedDefaultBudgetTaxonomyIfEligible()
     }
 
     public func fetchSummary() throws -> WorkspaceSummary {
@@ -638,13 +642,17 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
     }
 
-    private func seedDefaultBudgetTaxonomy() throws {
+    private func seedDefaultBudgetTaxonomyIfEligible() throws {
         try databaseQueue.write { db in
             try db.execute(sql: "PRAGMA foreign_keys = ON")
             guard try db.tableExists("categories"),
                   try db.tableExists("category_groups"),
                   try columnNames(in: "categories", db: db).contains("category_group_id")
             else {
+                return
+            }
+
+            guard try shouldSeedSimplifiedDefaultTaxonomy(db: db) else {
                 return
             }
 
@@ -685,6 +693,7 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
             }
 
             try pruneObsoleteDefaultTaxonomy(taxonomy: taxonomy, db: db)
+            try writeSimplifiedDefaultTaxonomyVersion(db: db)
         }
     }
 
@@ -1848,11 +1857,16 @@ public final class WorkspaceStore: @unchecked Sendable, WorkspaceStoring, Learne
         }
 
         let attributes = try? FileManager.default.attributesOfItem(atPath: databaseURL.path)
+        let requiresReset = try databaseQueue.read { db in
+            try workspaceRequiresSimplifiedDefaultTaxonomyReset(db: db)
+        }
         return WorkspaceMetadata(
             databaseURL: databaseURL,
             databaseExists: FileManager.default.fileExists(atPath: databaseURL.path),
             databaseSizeBytes: (attributes?[.size] as? NSNumber)?.int64Value ?? 0,
-            modifiedAt: attributes?[.modificationDate] as? Date
+            modifiedAt: attributes?[.modificationDate] as? Date,
+            requiresReset: requiresReset,
+            resetReason: requiresReset ? simplifiedDefaultTaxonomyResetReason : nil
         )
     }
 
@@ -5232,6 +5246,90 @@ private func currentDefaultBudgetTaxonomy() -> DefaultBudgetTaxonomySnapshot {
         groups: DefaultBudgetTaxonomy.categoryGroups,
         categories: DefaultBudgetTaxonomy.categories
     )
+}
+
+private func shouldSeedSimplifiedDefaultTaxonomy(db: Database) throws -> Bool {
+    if try currentDefaultTaxonomyVersion(db: db) == simplifiedDefaultTaxonomyVersion {
+        return true
+    }
+
+    return try workspaceIsEmptyForSimplifiedDefaultTaxonomyBootstrap(db: db)
+}
+
+private func workspaceRequiresSimplifiedDefaultTaxonomyReset(db: Database) throws -> Bool {
+    guard try currentDefaultTaxonomyVersion(db: db) != simplifiedDefaultTaxonomyVersion else {
+        return false
+    }
+
+    return try workspaceIsEmptyForSimplifiedDefaultTaxonomyBootstrap(db: db) == false
+}
+
+private func currentDefaultTaxonomyVersion(db: Database) throws -> String? {
+    guard try db.tableExists("workspace_preferences") else {
+        return nil
+    }
+
+    return try String.fetchOne(
+        db,
+        sql: """
+        SELECT value
+        FROM workspace_preferences
+        WHERE key = ?
+        """,
+        arguments: [workspacePreferenceDefaultTaxonomyVersionKey]
+    )
+}
+
+private func writeSimplifiedDefaultTaxonomyVersion(db: Database) throws {
+    guard try db.tableExists("workspace_preferences") else {
+        return
+    }
+
+    try db.execute(
+        sql: """
+        INSERT INTO workspace_preferences (key, value)
+        VALUES (?, ?)
+        ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        """,
+        arguments: [
+            workspacePreferenceDefaultTaxonomyVersionKey,
+            simplifiedDefaultTaxonomyVersion,
+        ]
+    )
+}
+
+private func workspaceIsEmptyForSimplifiedDefaultTaxonomyBootstrap(db: Database) throws -> Bool {
+    let occupiedTableNames = [
+        "accounts",
+        "source_files",
+        "source_rows",
+        "import_sessions",
+        "merchants",
+        "categories",
+        "category_groups",
+        "transactions",
+        "rules",
+        "review_items",
+        "targets",
+        "decision_events",
+        "review_decision_events",
+    ]
+
+    for tableName in occupiedTableNames {
+        guard try db.tableExists(tableName) else {
+            continue
+        }
+
+        let rowCount = try Int.fetchOne(
+            db,
+            sql: "SELECT COUNT(*) FROM \(tableName)"
+        ) ?? 0
+        if rowCount > 0 {
+            return false
+        }
+    }
+
+    return true
 }
 
 private func withBootstrappedReplacementWorkspaceStore<R>(

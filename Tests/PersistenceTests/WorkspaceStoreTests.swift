@@ -134,7 +134,7 @@ func workspaceStoreSeedsSimplifiedCategoriesIntoFreshWorkspace() throws {
 }
 
 @Test
-func workspaceStoreUpsertsSimplifiedTaxonomyIntoExistingWorkspace() throws {
+func legacyWorkspaceBootstrapDefersSimplifiedTaxonomyUntilReset() throws {
     let databaseURL = try temporaryDatabaseURL()
     try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
     try insertLegacyDefaultTaxonomyWithoutTravel(databaseURL: databaseURL)
@@ -144,14 +144,12 @@ func workspaceStoreUpsertsSimplifiedTaxonomyIntoExistingWorkspace() throws {
 
     let categories = try store.fetchCategories()
     let groups = try store.fetchCategoryGroups()
-    let travel = try #require(categories.first { $0.name == "Travel" })
+    let metadata = try store.fetchWorkspaceMetadata()
 
-    #expect(groups.isEmpty)
-    #expect(categories.count == 11)
-    #expect(Set(categories.map(\.id)) == DefaultBudgetTaxonomy.canonicalCategoryIDs)
-    #expect(Set(categories.map(\.id)).isDisjoint(with: DefaultBudgetTaxonomy.removedLegacyCategoryIDs))
-    #expect(travel.id == DefaultBudgetTaxonomy.CategoryID.travel)
-    #expect(travel.groupID == nil)
+    #expect(metadata.requiresReset)
+    #expect(categories.contains { $0.name == "Travel" } == false)
+    #expect(categories.contains { $0.name == "Restaurants & Bars" })
+    #expect(groups.contains { $0.name == "Food & Drink" })
 }
 
 @Test
@@ -359,6 +357,42 @@ func workspaceMetadataReportsOnDiskLocationAndSize() throws {
     #expect(metadata.databaseExists)
     #expect(metadata.databaseSizeBytes > 0)
     #expect(metadata.modifiedAt != nil)
+    #expect(metadata.requiresReset == false)
+    #expect(metadata.resetReason == nil)
+}
+
+@Test
+func legacyWorkspaceMetadataRequiresResetBeforeNormalUse() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    try insertLegacyDefaultTaxonomyWithoutTravel(databaseURL: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+    let metadata = try store.fetchWorkspaceMetadata()
+    let categories = try store.fetchCategories()
+
+    #expect(metadata.requiresReset)
+    #expect(metadata.resetReason?.contains("reset") == true)
+    #expect(categories.contains { $0.name == "Restaurants & Bars" })
+    #expect(categories.contains { $0.name == "Home & Utilities" } == false)
+}
+
+@Test
+func bootstrapDoesNotReseedLegacyWorkspaceBeforeReset() throws {
+    let databaseURL = try temporaryDatabaseURL()
+    try createWorkspaceAfterWorkspacePreferencesMigration(at: databaseURL)
+    try insertLegacyDefaultTaxonomyWithoutTravel(databaseURL: databaseURL)
+    let store = try WorkspaceStore.at(databaseURL: databaseURL)
+
+    try store.bootstrap()
+
+    let categories = try store.fetchCategories()
+    let groups = try store.fetchCategoryGroups()
+
+    #expect(categories.contains { $0.name == "Restaurants & Bars" })
+    #expect(categories.contains { $0.name == "Travel" } == false)
+    #expect(groups.contains { $0.name == "Food & Drink" })
 }
 
 @Test
@@ -499,7 +533,9 @@ func resetWorkspaceCreatesMandatoryBackupAndLeavesBootstrappedEmptyWorkspace() t
     #expect(try backupStore.fetchSummary().accountCount == 1)
     #expect(try store.fetchSummary() == .empty)
     #expect(try store.fetchAccounts().isEmpty)
-    #expect(try store.fetchCategories().isEmpty == false)
+    #expect(try store.fetchCategories().map(\.name) == DefaultBudgetTaxonomy.categories.map(\.name))
+    #expect(try store.fetchCategoryGroups().isEmpty)
+    #expect(try store.fetchWorkspaceMetadata().requiresReset == false)
 }
 
 @Test
@@ -629,13 +665,12 @@ func travelTaxonomyDoesNotCreateTargetOverlapRegression() throws {
 
     let categories = try store.fetchCategories()
     let managedTargets = try store.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
-    let travel = try #require(categories.first { $0.name == "Travel" })
 
-    #expect(travel.groupID == nil)
-    #expect(managedTargets.map(\.name) == ["Category Group", "Travel"])
+    #expect(categories.contains { $0.name == "Travel" } == false)
+    #expect(managedTargets.map(\.name) == ["Category Group", "Flights"])
     #expect(managedTargets.map(\.scope) == [
         .categoryGroup(travelCategoryGroupID),
-        .category(DefaultBudgetTaxonomy.CategoryID.travel),
+        .category(flightsCategoryID),
     ])
 }
 

@@ -5,17 +5,23 @@ public struct WorkspaceMetadata: Equatable, Sendable {
     public var databaseExists: Bool
     public var databaseSizeBytes: Int64
     public var modifiedAt: Date?
+    public var requiresReset: Bool
+    public var resetReason: String?
 
     public init(
         databaseURL: URL,
         databaseExists: Bool,
         databaseSizeBytes: Int64,
-        modifiedAt: Date?
+        modifiedAt: Date?,
+        requiresReset: Bool = false,
+        resetReason: String? = nil
     ) {
         self.databaseURL = databaseURL
         self.databaseExists = databaseExists
         self.databaseSizeBytes = databaseSizeBytes
         self.modifiedAt = modifiedAt
+        self.requiresReset = requiresReset
+        self.resetReason = resetReason
     }
 }
 

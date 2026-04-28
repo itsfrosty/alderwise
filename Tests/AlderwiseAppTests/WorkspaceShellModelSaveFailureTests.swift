@@ -114,10 +114,37 @@ func successfulTransactionSaveFallsBackToWorkspaceFailureWhenReloadFails() {
     }())
 }
 
+@Test
+@MainActor
+func resetRequiredWorkspaceBlocksNormalUseAndKeepsRecoveryActionsAvailable() {
+    let store = WorkspaceShellModelFailureStore(behavior: .requiresReset)
+    let service = WorkspaceService(store: store)
+    let model = WorkspaceShellModel(store: nil, service: service)
+
+    #expect({
+        if case .failed(let message) = model.state {
+            return message.contains("older default taxonomy")
+        }
+        return false
+    }())
+    #expect(model.workspaceMetadata?.requiresReset == true)
+    #expect(model.workspaceStatus == .available(WorkspaceMetadata(
+        databaseURL: URL(fileURLWithPath: "/tmp/alderwise-test.sqlite"),
+        databaseExists: true,
+        databaseSizeBytes: 0,
+        modifiedAt: nil,
+        requiresReset: true,
+        resetReason: "This workspace was created with an older default taxonomy. Back up if needed, then reset and reimport to continue with this version of Alderwise."
+    )))
+    #expect(model.selectedTransactionID == nil)
+    #expect(model.learnedRuleManagerSnapshot == nil)
+}
+
 private final class WorkspaceShellModelFailureStore: @unchecked Sendable, WorkspaceStoring, StagedImportWriting, ImportDecisionReading, TargetManaging, WorkspaceMaintenanceManaging, WorkspacePreferencesManaging, TransactionLedgerReading, TransactionLedgerWriting {
     enum Behavior {
         case writeFails
         case reloadFailsAfterWrite
+        case requiresReset
     }
 
     static let updateError = SaveFailureError()
@@ -223,7 +250,11 @@ private final class WorkspaceShellModelFailureStore: @unchecked Sendable, Worksp
             databaseURL: URL(fileURLWithPath: "/tmp/alderwise-test.sqlite"),
             databaseExists: true,
             databaseSizeBytes: 0,
-            modifiedAt: nil
+            modifiedAt: nil,
+            requiresReset: behavior == .requiresReset,
+            resetReason: behavior == .requiresReset
+                ? "This workspace was created with an older default taxonomy. Back up if needed, then reset and reimport to continue with this version of Alderwise."
+                : nil
         )
     }
 
@@ -255,6 +286,8 @@ private final class WorkspaceShellModelFailureStore: @unchecked Sendable, Worksp
             throw Self.updateError
         case .reloadFailsAfterWrite:
             didWriteTransaction = true
+        case .requiresReset:
+            Issue.record("updateTransactionLedgerFields should not be reached for reset-required workspace tests")
         }
     }
 
@@ -264,6 +297,8 @@ private final class WorkspaceShellModelFailureStore: @unchecked Sendable, Worksp
             throw Self.updateError
         case .reloadFailsAfterWrite:
             didWriteTransaction = true
+        case .requiresReset:
+            Issue.record("setTransactionHidden should not be reached for reset-required workspace tests")
         }
     }
 

@@ -419,11 +419,18 @@ struct WorkspaceRootView: View {
     private func detailView(for section: AppSection) -> some View {
         switch model.state {
         case .failed(let message):
+            let resetRequired = model.workspaceMetadata?.requiresReset == true
             VStack(spacing: 16) {
                 ContentUnavailableView(
-                    "Workspace Needs Recovery",
-                    systemImage: "externaldrive.badge.exclamationmark",
-                    description: Text("Alderwise could not open this Mac's workspace. Restore a backup to recover safely, or try again after checking file access.")
+                    resetRequired ? "Workspace Reset Required" : "Workspace Needs Recovery",
+                    systemImage: resetRequired
+                        ? "arrow.trianglehead.counterclockwise.rotate.90"
+                        : "externaldrive.badge.exclamationmark",
+                    description: Text(
+                        resetRequired
+                            ? "This workspace was created with an older default taxonomy. Reset creates a backup first, then replaces the local workspace with a clean simplified-taxonomy workspace."
+                            : "Alderwise could not open this Mac's workspace. Restore a backup to recover safely, or try again after checking file access."
+                    )
                 )
                 Text(message)
                     .font(.caption)
@@ -432,16 +439,34 @@ struct WorkspaceRootView: View {
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 560)
                 HStack(spacing: 12) {
-                    Button {
-                        model.beginWorkspaceRestore()
-                    } label: {
-                        Label("Restore Backup", systemImage: "externaldrive.badge.arrowtriangle.2.circlepath")
+                    if resetRequired {
+                        Button {
+                            model.beginWorkspaceResetConfirmation()
+                        } label: {
+                            Label("Reset Workspace", systemImage: "trash")
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .buttonStyle(.borderedProminent)
-                    Button {
-                        model.retryFailedWorkspaceRecovery()
-                    } label: {
-                        Label("Try Again", systemImage: "arrow.clockwise")
+                    if resetRequired {
+                        Button {
+                            model.beginWorkspaceRestore()
+                        } label: {
+                            Label("Restore Backup", systemImage: "externaldrive.badge.arrowtriangle.2.circlepath")
+                        }
+                    } else {
+                        Button {
+                            model.beginWorkspaceRestore()
+                        } label: {
+                            Label("Restore Backup", systemImage: "externaldrive.badge.arrowtriangle.2.circlepath")
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                    if resetRequired == false {
+                        Button {
+                            model.retryFailedWorkspaceRecovery()
+                        } label: {
+                            Label("Try Again", systemImage: "arrow.clockwise")
+                        }
                     }
                 }
             }

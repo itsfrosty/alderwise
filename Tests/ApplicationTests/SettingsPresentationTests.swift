@@ -8,6 +8,12 @@ func overviewHealthStatusUsesHealthyAndRecoveryNeededCopy() {
     let healthyPresentation = SettingsPresentation(
         workspaceStatus: .available(makeWorkspaceMetadata())
     )
+    let resetRequiredPresentation = SettingsPresentation(
+        workspaceStatus: .available(makeWorkspaceMetadata(
+            requiresReset: true,
+            resetReason: "Reset is required."
+        ))
+    )
     let recoveryPresentation = SettingsPresentation(
         workspaceStatus: .failedToOpen("The workspace file could not be opened.")
     )
@@ -18,6 +24,9 @@ func overviewHealthStatusUsesHealthyAndRecoveryNeededCopy() {
     #expect(healthyPresentation.overview.healthStatus.state == .healthy)
     #expect(healthyPresentation.overview.healthSectionTitle == "Workspace health")
     #expect(healthyPresentation.overview.healthStatus.title == "Workspace looks healthy")
+    #expect(resetRequiredPresentation.overview.healthStatus.state == .recoveryNeeded)
+    #expect(resetRequiredPresentation.overview.healthStatus.title == "Workspace reset required")
+    #expect(resetRequiredPresentation.overview.healthStatus.detail == "Reset is required.")
     #expect(recoveryPresentation.overview.healthStatus.state == .recoveryNeeded)
     #expect(recoveryPresentation.overview.healthStatus.title == "Workspace needs recovery")
     #expect(metadataUnavailablePresentation.overview.healthStatus.state == .checking)
@@ -106,11 +115,16 @@ func settingsCopyDoesNotImplyDurableBackupHistory() {
     }
 }
 
-private func makeWorkspaceMetadata() -> WorkspaceMetadata {
+private func makeWorkspaceMetadata(
+    requiresReset: Bool = false,
+    resetReason: String? = nil
+) -> WorkspaceMetadata {
     WorkspaceMetadata(
         databaseURL: URL(fileURLWithPath: "/tmp/Alderwise.sqlite"),
         databaseExists: true,
         databaseSizeBytes: 4_096,
-        modifiedAt: Date(timeIntervalSince1970: 1_777_363_200)
+        modifiedAt: Date(timeIntervalSince1970: 1_777_363_200),
+        requiresReset: requiresReset,
+        resetReason: resetReason
     )
 }
