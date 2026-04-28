@@ -19,7 +19,7 @@ func firstRunWorkflowLoadsHomeReadyEmptySnapshot() throws {
     #expect(snapshot.pendingReviewItems.isEmpty)
     #expect(snapshot.monthlyReport.currentMonthAcceptedSpend == 0)
     #expect(snapshot.categories.isEmpty == false)
-    #expect(snapshot.categoryGroups.isEmpty == false)
+    #expect(snapshot.categoryGroups.isEmpty)
 }
 
 @Test
@@ -174,7 +174,6 @@ func targetServiceWorkflowSupportsEditDeleteAndHomeActionReference() throws {
     let account = try service.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
     let snapshot = try service.loadSnapshot()
     let category = try #require(snapshot.categories.first { $0.kind == .expense })
-    let categoryGroup = try #require(snapshot.categoryGroups.first)
     let csv = """
     Date,Description,Amount
     2026-04-01,Market,-40.00
@@ -194,14 +193,15 @@ func targetServiceWorkflowSupportsEditDeleteAndHomeActionReference() throws {
     )
     try service.updateMonthlyTarget(
         id: created.id,
-        MonthlyTargetDraft(scope: .categoryGroup(categoryGroup.id), monthlyLimit: Decimal(20))
+        MonthlyTargetDraft(scope: .category(category.id), monthlyLimit: Decimal(20))
     )
 
     let updatedTargets = try service.fetchManagedTargets(referenceDate: Date(timeIntervalSince1970: 1_775_171_200))
     let refreshedSnapshot = try service.loadSnapshot()
 
     #expect(updatedTargets.map(\.id) == [created.id])
-    #expect(updatedTargets.map(\.scope) == [.categoryGroup(categoryGroup.id)])
+    #expect(updatedTargets.map(\.scope) == [.category(category.id)])
+    #expect(updatedTargets.map(\.monthlyLimit) == [Decimal(20)])
     #expect(refreshedSnapshot.homeDashboard?.actions.first?.kind == .pressuredTarget)
     #expect(refreshedSnapshot.homeDashboard?.actions.first?.destination == .targets(created.id))
 

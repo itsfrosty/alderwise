@@ -5284,15 +5284,15 @@ func fetchWorkspaceInsightSummaryAddsSpendDriverChangeInsightWithEvidence() thro
     let insight = try #require(summary.insights.first(where: { spendDriverChangeDetail(from: $0) != nil }))
     let detail = try #require(spendDriverChangeDetail(from: insight))
 
-    #expect(detail.title == "Food")
-    #expect(detail.scope == .categoryGroup(foodGroupID))
+    #expect(detail.title == "Dining")
+    #expect(detail.scope == .category(diningID))
     #expect(detail.currentSpend == Decimal(180))
     #expect(detail.comparisonSpend == Decimal(40))
     #expect(detail.delta == Decimal(140))
     #expect(insight.family == .spendDriverChange)
-    #expect(insight.evidence.scope == .categoryGroup(foodGroupID))
+    #expect(insight.evidence.scope == .category(diningID))
     #expect(insight.evidence.destination == InsightEvidenceDestination(
-        scope: .categoryGroup(foodGroupID),
+        scope: .category(diningID),
         direction: .expense
     ))
     #expect(summary.homeProjectedInsights.contains(where: { candidate in
