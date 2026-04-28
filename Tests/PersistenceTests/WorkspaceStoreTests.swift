@@ -63,6 +63,7 @@ func bootstrapSeedsDefaultBudgetCategories() throws {
         "Transfers",
     ])
     #expect(Set(categories.map(\.id)) == DefaultBudgetTaxonomy.canonicalCategoryIDs)
+    #expect(Set(categories.map(\.id)).isDisjoint(with: DefaultBudgetTaxonomy.removedLegacyCategoryIDs))
     #expect(categories.allSatisfy { $0.groupID == nil })
     #expect(categories.contains { $0.name == "Uncategorized" } == false)
     #expect(categories.first { $0.name == "Income" }?.kind == .income)
@@ -6521,25 +6522,27 @@ private func categoryNamesByGroup(
 private func insertLegacyDefaultTaxonomyWithoutTravel(databaseURL: URL) throws {
     let queue = try DatabaseQueue(path: databaseURL.path)
     try queue.write { db in
-        try db.execute(
-            sql: "INSERT INTO category_groups (id, name) VALUES (?, ?)",
-            arguments: [
-                DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink.uuidString,
-                "Food & Drink",
-            ]
-        )
-        try db.execute(
-            sql: """
-            INSERT INTO categories (id, name, kind, category_group_id)
-            VALUES (?, ?, ?, ?)
-            """,
-            arguments: [
-                DefaultBudgetTaxonomy.LegacyCategoryID.restaurantsAndBars.id.uuidString,
-                "Restaurants & Bars",
-                BudgetCategoryKind.expense.rawValue,
-                DefaultBudgetTaxonomy.CategoryGroupID.foodAndDrink.uuidString,
-            ]
-        )
+        for group in DefaultBudgetTaxonomy.legacyCategoryGroups where group.name != "Travel" {
+            try db.execute(
+                sql: "INSERT INTO category_groups (id, name) VALUES (?, ?)",
+                arguments: [group.id.uuidString, group.name]
+            )
+        }
+
+        for category in DefaultBudgetTaxonomy.legacyCategories where category.name != "Flights" && category.name != "Hotels" {
+            try db.execute(
+                sql: """
+                INSERT INTO categories (id, name, kind, category_group_id)
+                VALUES (?, ?, ?, ?)
+                """,
+                arguments: [
+                    category.id.uuidString,
+                    category.name,
+                    category.kind.rawValue,
+                    category.groupID?.uuidString,
+                ]
+            )
+        }
     }
 }
 

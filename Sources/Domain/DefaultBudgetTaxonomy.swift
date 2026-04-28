@@ -110,6 +110,17 @@ public enum DefaultBudgetTaxonomy {
 
     public static let categoryGroups: [DefaultCategoryGroupDefinition] = []
 
+    public static let legacyCategoryGroups: [DefaultCategoryGroupDefinition] = [
+        DefaultCategoryGroupDefinition(id: CategoryGroupID.housingAndUtilities, name: "Housing & Utilities"),
+        DefaultCategoryGroupDefinition(id: CategoryGroupID.foodAndDrink, name: "Food & Drink"),
+        DefaultCategoryGroupDefinition(id: CategoryGroupID.autoAndTransit, name: "Auto & Transit"),
+        DefaultCategoryGroupDefinition(id: CategoryGroupID.travel, name: "Travel"),
+        DefaultCategoryGroupDefinition(id: CategoryGroupID.lifestyleAndDiscretionary, name: "Lifestyle & Discretionary"),
+        DefaultCategoryGroupDefinition(id: CategoryGroupID.healthAndWellness, name: "Health & Wellness"),
+        DefaultCategoryGroupDefinition(id: CategoryGroupID.familyAndHousehold, name: "Family & Household"),
+        DefaultCategoryGroupDefinition(id: CategoryGroupID.financial, name: "Financial"),
+    ]
+
     public static let categories: [DefaultBudgetCategoryDefinition] = [
         DefaultBudgetCategoryDefinition(id: CategoryID.homeAndUtilities, name: "Home & Utilities", kind: .expense),
         DefaultBudgetCategoryDefinition(id: CategoryID.groceries, name: "Groceries", kind: .expense),
@@ -122,6 +133,35 @@ public enum DefaultBudgetTaxonomy {
         DefaultBudgetCategoryDefinition(id: CategoryID.financial, name: "Financial", kind: .expense),
         DefaultBudgetCategoryDefinition(id: CategoryID.income, name: "Income", kind: .income),
         DefaultBudgetCategoryDefinition(id: CategoryID.transfers, name: "Transfers", kind: .transfer),
+    ]
+
+    public static let legacyCategories: [DefaultBudgetCategoryDefinition] = [
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.rentAndMortgage.id, name: "Rent & Mortgage", kind: .expense, groupID: CategoryGroupID.housingAndUtilities),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.utilities.id, name: "Utilities", kind: .expense, groupID: CategoryGroupID.housingAndUtilities),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.internetAndPhone.id, name: "Internet & Phone", kind: .expense, groupID: CategoryGroupID.housingAndUtilities),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.homeMaintenanceAndSupplies.id, name: "Home Maintenance & Supplies", kind: .expense, groupID: CategoryGroupID.housingAndUtilities),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.groceries.id, name: "Groceries", kind: .expense, groupID: CategoryGroupID.foodAndDrink),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.restaurantsAndBars.id, name: "Restaurants & Bars", kind: .expense, groupID: CategoryGroupID.foodAndDrink),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.coffeeShops.id, name: "Coffee Shops", kind: .expense, groupID: CategoryGroupID.foodAndDrink),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.gasAndCharging.id, name: "Gas & Charging", kind: .expense, groupID: CategoryGroupID.autoAndTransit),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.publicTransitAndRideShare.id, name: "Public Transit & Ride Share", kind: .expense, groupID: CategoryGroupID.autoAndTransit),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.autoMaintenanceAndInsurance.id, name: "Auto Maintenance & Insurance", kind: .expense, groupID: CategoryGroupID.autoAndTransit),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.flights.id, name: "Flights", kind: .expense, groupID: CategoryGroupID.travel),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.hotels.id, name: "Hotels", kind: .expense, groupID: CategoryGroupID.travel),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.shoppingAndClothing.id, name: "Shopping & Clothing", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.subscriptionsAndEntertainment.id, name: "Subscriptions & Entertainment", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.personalCare.id, name: "Personal Care", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.pets.id, name: "Pets", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.funMoney.id, name: "Fun Money", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.donations.id, name: "Donations", kind: .expense, groupID: CategoryGroupID.lifestyleAndDiscretionary),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.medicalAndPharmacy.id, name: "Medical & Pharmacy", kind: .expense, groupID: CategoryGroupID.healthAndWellness),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.fitnessAndGym.id, name: "Fitness & Gym", kind: .expense, groupID: CategoryGroupID.healthAndWellness),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.childcareAndKidsActivities.id, name: "Childcare & Kids' Activities", kind: .expense, groupID: CategoryGroupID.familyAndHousehold),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.educationAndStudentLoans.id, name: "Education & Student Loans", kind: .expense, groupID: CategoryGroupID.familyAndHousehold),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.income.id, name: "Income", kind: .income, groupID: CategoryGroupID.financial),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.transfers.id, name: "Transfers", kind: .transfer, groupID: CategoryGroupID.financial),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.taxes.id, name: "Taxes", kind: .expense, groupID: CategoryGroupID.financial),
+        DefaultBudgetCategoryDefinition(id: LegacyCategoryID.feesAndBankCharges.id, name: "Fees & Bank Charges", kind: .expense, groupID: CategoryGroupID.financial),
     ]
 
     public static let canonicalCategoryIDs = Set(categories.map(\.id))
