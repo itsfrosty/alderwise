@@ -14,10 +14,8 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
     let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000111")!
     let dining = UUID(uuidString: "00000000-0000-0000-0000-000000000112")!
     let travel = UUID(uuidString: "00000000-0000-0000-0000-000000000113")!
-    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000201")!
-    try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
-    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
-    try homeDashboardInsertCategory(databaseURL: databaseURL, id: dining, name: "Restaurants & Bars", kind: "expense", categoryGroupID: food)
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: dining, name: "Dining", kind: "expense")
     try homeDashboardInsertCategory(databaseURL: databaseURL, id: travel, name: "Travel", kind: "expense")
 
     try homeDashboardInsertAcceptedExpense(
@@ -57,7 +55,7 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
     )
 
     _ = try store.createMonthlyTarget(
-        MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(300)),
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(300)),
         createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 1)
     )
     let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
@@ -85,13 +83,20 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
         MonthlySpendPoint(day: 14, actualSpend: Decimal(180), expectedSpend: Decimal(140)),
         MonthlySpendPoint(day: 15, actualSpend: Decimal(180), expectedSpend: Decimal(150)),
     ])
-    #expect(report.drivers.count == 2)
+    #expect(report.drivers.count == 3)
     #expect(report.drivers.contains {
-        $0.title == "Food"
-            && $0.scope == .categoryGroup(food)
-            && $0.currentPeriodSpend == Decimal(150)
+        $0.title == "Groceries"
+            && $0.scope == .category(groceries)
+            && $0.currentPeriodSpend == Decimal(60)
             && $0.comparisonPeriodSpend == Decimal(20)
-            && $0.delta == Decimal(130)
+            && $0.delta == Decimal(40)
+    })
+    #expect(report.drivers.contains {
+        $0.title == "Dining"
+            && $0.scope == .category(dining)
+            && $0.currentPeriodSpend == Decimal(90)
+            && $0.comparisonPeriodSpend == Decimal(0)
+            && $0.delta == Decimal(90)
     })
     #expect(report.drivers.contains {
         $0.title == "Travel"
@@ -101,11 +106,11 @@ func monthlyReportBuildsPaceSeriesDriversAndBiggestShiftForHomeDashboard() throw
             && $0.delta == Decimal(20)
     })
     #expect(report.biggestShift == MonthlySpendingDriver(
-        title: "Food",
-        scope: .categoryGroup(food),
-        currentPeriodSpend: Decimal(150),
-        comparisonPeriodSpend: Decimal(20),
-        delta: Decimal(130)
+        title: "Dining",
+        scope: .category(dining),
+        currentPeriodSpend: Decimal(90),
+        comparisonPeriodSpend: Decimal(0),
+        delta: Decimal(90)
     ))
 }
 
@@ -117,9 +122,7 @@ func monthlyReportExposesAcceptedSpendReviewCountTargetsPaceAndDriversForHome() 
 
     let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
     let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000611")!
-    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000701")!
-    try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
-    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
     try homeDashboardInsertAcceptedExpense(
         databaseURL: databaseURL,
         accountID: account.id,
@@ -133,7 +136,7 @@ func monthlyReportExposesAcceptedSpendReviewCountTargetsPaceAndDriversForHome() 
     )
 
     let target = try store.createMonthlyTarget(
-        MonthlyTargetDraft(scope: .categoryGroup(food), monthlyLimit: Decimal(300)),
+        MonthlyTargetDraft(scope: .category(groceries), monthlyLimit: Decimal(300)),
         createdAt: homeDashboardUTCDate(year: 2026, month: 4, day: 1)
     )
     let report = try store.fetchMonthlyReport(referenceDate: homeDashboardUTCDate(year: 2026, month: 4, day: 15))
@@ -145,8 +148,8 @@ func monthlyReportExposesAcceptedSpendReviewCountTargetsPaceAndDriversForHome() 
     #expect(report.targets == [
         TargetProgress(
             id: target.id,
-            name: "Food",
-            scope: .categoryGroup(food),
+            name: "Groceries",
+            scope: .category(groceries),
             monthlyLimit: Decimal(300),
             spent: Decimal(42),
             remaining: Decimal(258),
@@ -176,16 +179,16 @@ func monthlyReportExposesAcceptedSpendReviewCountTargetsPaceAndDriversForHome() 
     ])
     #expect(report.drivers == [
         MonthlySpendingDriver(
-            title: "Food",
-            scope: .categoryGroup(food),
+            title: "Groceries",
+            scope: .category(groceries),
             currentPeriodSpend: Decimal(42),
             comparisonPeriodSpend: Decimal(0),
             delta: Decimal(42)
         )
     ])
     #expect(report.biggestShift == MonthlySpendingDriver(
-        title: "Food",
-        scope: .categoryGroup(food),
+        title: "Groceries",
+        scope: .category(groceries),
         currentPeriodSpend: Decimal(42),
         comparisonPeriodSpend: Decimal(0),
         delta: Decimal(42)
@@ -322,9 +325,7 @@ func monthlyReportBuildsDriversWhenCurrentMonthOnlyHasAcceptedSpend() throws {
 
     let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
     let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000411")!
-    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000501")!
-    try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
-    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
     try homeDashboardInsertAcceptedExpense(
         databaseURL: databaseURL,
         accountID: account.id,
@@ -337,16 +338,16 @@ func monthlyReportBuildsDriversWhenCurrentMonthOnlyHasAcceptedSpend() throws {
 
     #expect(report.drivers == [
         MonthlySpendingDriver(
-            title: "Food",
-            scope: .categoryGroup(food),
+            title: "Groceries",
+            scope: .category(groceries),
             currentPeriodSpend: Decimal(42),
             comparisonPeriodSpend: Decimal(0),
             delta: Decimal(42)
         ),
     ])
     #expect(report.biggestShift == MonthlySpendingDriver(
-        title: "Food",
-        scope: .categoryGroup(food),
+        title: "Groceries",
+        scope: .category(groceries),
         currentPeriodSpend: Decimal(42),
         comparisonPeriodSpend: Decimal(0),
         delta: Decimal(42)
@@ -361,9 +362,7 @@ func monthlyReportCountsIncludedPendingExpensesAndExcludesHiddenExpenses() throw
 
     let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
     let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000811")!
-    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000812")!
-    try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
-    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
 
     _ = try homeDashboardInsertExpense(
         databaseURL: databaseURL,
@@ -389,8 +388,8 @@ func monthlyReportCountsIncludedPendingExpensesAndExcludesHiddenExpenses() throw
     #expect(report.targets.isEmpty)
     #expect(report.drivers == [
         MonthlySpendingDriver(
-            title: "Food",
-            scope: .categoryGroup(food),
+            title: "Groceries",
+            scope: .category(groceries),
             currentPeriodSpend: Decimal(40),
             comparisonPeriodSpend: Decimal(0),
             delta: Decimal(40)
@@ -449,9 +448,7 @@ func monthlyReportExcludesRejectedIncomeAndTransferRowsFromIncludedVisibleExpens
 
     let account = try store.createAccount(named: "Checking", kind: .checking, institutionName: "Local Bank")
     let groceries = UUID(uuidString: "00000000-0000-0000-0000-000000000831")!
-    let food = UUID(uuidString: "00000000-0000-0000-0000-000000000832")!
-    try homeDashboardInsertCategoryGroup(databaseURL: databaseURL, id: food, name: "Food")
-    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense", categoryGroupID: food)
+    try homeDashboardInsertCategory(databaseURL: databaseURL, id: groceries, name: "Groceries", kind: "expense")
     try homeDashboardInsertAcceptedExpense(
         databaseURL: databaseURL,
         accountID: account.id,
@@ -485,8 +482,8 @@ func monthlyReportExcludesRejectedIncomeAndTransferRowsFromIncludedVisibleExpens
     #expect(report.currentMonthAcceptedSpend == Decimal(40))
     #expect(report.drivers == [
         MonthlySpendingDriver(
-            title: "Food",
-            scope: .categoryGroup(food),
+            title: "Groceries",
+            scope: .category(groceries),
             currentPeriodSpend: Decimal(40),
             comparisonPeriodSpend: Decimal(0),
             delta: Decimal(40)

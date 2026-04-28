@@ -4212,28 +4212,18 @@ private func spendingDriverBuckets(from rows: [Row]) throws -> DriverBuckets {
 }
 
 private func spendingDriverRollup(from row: Row) throws -> SpendingDriverRollup {
-    if let categoryGroupIDText = row["category_group_id"] as String? {
-        guard let categoryGroupID = UUID(uuidString: categoryGroupIDText) else {
-            throw WorkspaceStoreError.invalidStoredReviewItem(field: "category_groups.id", value: categoryGroupIDText)
+    if let categoryIDText = row["category_id"] as String? {
+        guard let categoryID = UUID(uuidString: categoryIDText) else {
+            throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: categoryIDText)
         }
         return SpendingDriverRollup(
-            title: (row["category_group_name"] as String?) ?? "Category Group",
-            scope: .categoryGroup(categoryGroupID)
+            title: (row["category_name"] as String?) ?? "Uncategorized",
+            scope: .category(categoryID)
         )
-    }
-
-    guard let categoryIDText = row["category_id"] as String? else {
-        return SpendingDriverRollup(
-            title: "Uncategorized",
-            scope: .uncategorized
-        )
-    }
-    guard let categoryID = UUID(uuidString: categoryIDText) else {
-        throw WorkspaceStoreError.invalidStoredReviewItem(field: "categories.id", value: categoryIDText)
     }
     return SpendingDriverRollup(
-        title: (row["category_name"] as String?) ?? "Uncategorized",
-        scope: .category(categoryID)
+        title: "Uncategorized",
+        scope: .uncategorized
     )
 }
 

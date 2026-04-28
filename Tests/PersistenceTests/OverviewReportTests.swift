@@ -55,7 +55,7 @@ func overviewReportReconcilesDriverEvidenceToLedgerSlice() throws {
     )
 
     let report = try store.fetchOverviewReport(context: context)
-    let driver = try #require(report.drivers.first(where: { $0.title == "Food" }))
+    let driver = try #require(report.drivers.first(where: { $0.title == "Groceries" }))
     let filter = ledgerFilter(for: driver.evidence)
     let ledger = try store.fetchTransactionLedger(filter: filter)
 
@@ -76,11 +76,23 @@ private func ledgerFilter(for evidence: InsightEvidence) -> TransactionLedgerFil
     TransactionLedgerFilter(
         startDate: evidence.resolvedInterval.start,
         endDate: Calendar(identifier: .gregorian).date(byAdding: .second, value: -1, to: evidence.resolvedInterval.end),
+        categoryID: {
+            if case .category(let id) = evidence.destination.scope {
+                return id
+            }
+            return nil
+        }(),
         categoryGroupID: {
             if case .categoryGroup(let id) = evidence.destination.scope {
                 return id
             }
             return nil
+        }(),
+        uncategorizedOnly: {
+            if case .uncategorized = evidence.destination.scope {
+                return true
+            }
+            return false
         }(),
         direction: .expense,
         reviewStatuses: Set([.accepted, .pending]),
