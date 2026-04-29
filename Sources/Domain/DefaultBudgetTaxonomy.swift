@@ -129,7 +129,7 @@ public enum DefaultBudgetTaxonomy {
         DefaultBudgetCategoryDefinition(id: CategoryID.travel, name: "Travel", kind: .expense),
         DefaultBudgetCategoryDefinition(id: CategoryID.shoppingAndLifestyle, name: "Shopping & Lifestyle", kind: .expense),
         DefaultBudgetCategoryDefinition(id: CategoryID.health, name: "Health", kind: .expense),
-        DefaultBudgetCategoryDefinition(id: CategoryID.family, name: "Family", kind: .expense),
+        DefaultBudgetCategoryDefinition(id: CategoryID.family, name: "Kids & Education", kind: .expense),
         DefaultBudgetCategoryDefinition(id: CategoryID.financial, name: "Financial", kind: .expense),
         DefaultBudgetCategoryDefinition(id: CategoryID.income, name: "Income", kind: .income),
         DefaultBudgetCategoryDefinition(id: CategoryID.transfers, name: "Transfers", kind: .transfer),
