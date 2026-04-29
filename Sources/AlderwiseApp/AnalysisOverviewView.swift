@@ -6,7 +6,7 @@ struct AnalysisOverviewView: View {
     let snapshot: AnalysisOverviewSnapshot
     @Binding var selection: AnalysisOverviewSelection?
     var inspectorPresentation: AnalysisInspectorPresentation = .persistent
-    var onDismissTransientInspector: (() -> Void)?
+    @Binding var isTransientInspectorPresented: Bool
     let onShowTransactions: (TransactionLedgerFilter) -> Void
 
     private var layout: OverviewLayout {
@@ -97,24 +97,31 @@ struct AnalysisOverviewView: View {
 
     private var transientInspectorBinding: Binding<Bool> {
         Binding(
-            get: { inspectorPresentation.shouldPresentTransientInspector(hasSelection: selection != nil) },
+            get: {
+                inspectorPresentation.shouldPresentTransientInspector(
+                    isExplicitlyPresented: isTransientInspectorPresented
+                )
+            },
             set: { isPresented in
-                if isPresented == false {
-                    onDismissTransientInspector?()
-                }
+                isTransientInspectorPresented = isPresented
             }
         )
     }
 
     private var transientInspectorView: some View {
-        ZStack(alignment: .topTrailing) {
-            inspectorView
-
-            Button("Done") {
-                onDismissTransientInspector?()
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button("Done") {
+                    isTransientInspectorPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
             }
-            .keyboardShortcut(.cancelAction)
             .padding()
+
+            Divider()
+
+            inspectorView
         }
     }
 

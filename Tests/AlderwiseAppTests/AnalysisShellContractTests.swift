@@ -61,7 +61,7 @@ func analysisShellKeepsInspectorHiddenWithCommittedSelectionAcrossWideAndNarrowW
     #expect(model.analysisToolbarState.isInspectorVisible == false)
     #expect(wide == .hidden)
     #expect(narrow == .hidden)
-    #expect(narrow.shouldPresentTransientInspector(hasSelection: true) == false)
+    #expect(narrow.shouldPresentTransientInspector(isExplicitlyPresented: true) == false)
 }
 
 @Test
@@ -95,7 +95,7 @@ func analysisShellTransientDismissalKeepsSelectionAndPageSwitchPreservesInspecto
     model.setAnalysisCategoriesSelection(categoriesSelection)
     model.setAnalysisInspectorVisible(true)
     let dismissInspector = AnalysisView.dismissTransientInspector(
-        setInspectorVisible: model.setAnalysisInspectorVisible
+        setTransientInspectorPresented: { _ in }
     )
     dismissInspector()
     model.selectAnalysisPage(.merchants)
@@ -103,34 +103,84 @@ func analysisShellTransientDismissalKeepsSelectionAndPageSwitchPreservesInspecto
 
     #expect(model.analysisCategoriesSelection == categoriesSelection)
     #expect(model.analysisToolbarState.selectedPage == .categories)
-    #expect(model.analysisToolbarState.isInspectorVisible == false)
+    #expect(model.analysisToolbarState.isInspectorVisible == true)
 }
 
 @Test
-func analysisShellWidthTransitionKeepsInspectorOwnershipWithSelectionAlreadyCommitted() {
+func analysisInspectorLayoutAvailabilityIsIndependentFromVisibilityRequest() {
+    #expect(
+        AnalysisInspectorPresentation.layoutAvailability(
+            availableWidth: AnalysisView.persistentInspectorMinimumWidth + 1
+        ) == .persistent
+    )
+    #expect(
+        AnalysisInspectorPresentation.layoutAvailability(
+            availableWidth: AnalysisView.persistentInspectorMinimumWidth
+        ) == .transient
+    )
+    #expect(
+        AnalysisInspectorPresentation.resolve(
+            isRequested: false,
+            layoutAvailability: .transient
+        ) == .hidden
+    )
+    #expect(
+        AnalysisInspectorPresentation.resolve(
+            isRequested: true,
+            layoutAvailability: .transient
+        ) == .transient
+    )
+}
+
+@Test
+@MainActor
+func analysisShellTransientDismissalClearsOnlyExplicitTransientPresentation() {
+    let model = WorkspaceShellModel(store: nil, service: nil)
+    var isExplicitlyPresented = true
+
+    model.setAnalysisInspectorVisible(true)
+
+    let dismissTransient = AnalysisView.dismissTransientInspector(
+        setTransientInspectorPresented: { isExplicitlyPresented = $0 }
+    )
+
+    dismissTransient()
+
+    #expect(isExplicitlyPresented == false)
+    #expect(model.analysisToolbarState.isInspectorVisible == true)
+    #expect(
+        AnalysisInspectorPresentation.resolve(
+            isRequested: model.analysisToolbarState.isInspectorVisible,
+            layoutAvailability: .persistent
+        ) == .persistent
+    )
+}
+
+@Test
+func analysisShellWidthTransitionDoesNotAutoPresentTransientInspector() {
     let persistent = AnalysisInspectorPresentation.resolve(
         isRequested: true,
-        availableWidth: AnalysisView.persistentInspectorMinimumWidth + 1
+        layoutAvailability: .persistent
     )
     let transient = AnalysisInspectorPresentation.resolve(
         isRequested: true,
-        availableWidth: AnalysisView.persistentInspectorMinimumWidth
+        layoutAvailability: .transient
     )
     let hiddenWide = AnalysisInspectorPresentation.resolve(
         isRequested: false,
-        availableWidth: AnalysisView.persistentInspectorMinimumWidth + 1
+        layoutAvailability: .persistent
     )
     let hiddenNarrow = AnalysisInspectorPresentation.resolve(
         isRequested: false,
-        availableWidth: AnalysisView.persistentInspectorMinimumWidth
+        layoutAvailability: .transient
     )
 
     #expect(persistent == .persistent)
     #expect(transient == .transient)
     #expect(hiddenWide == .hidden)
     #expect(hiddenNarrow == .hidden)
-    #expect(transient.shouldPresentTransientInspector(hasSelection: false))
-    #expect(transient.shouldPresentTransientInspector(hasSelection: true))
+    #expect(transient.shouldPresentTransientInspector(isExplicitlyPresented: false) == false)
+    #expect(transient.shouldPresentTransientInspector(isExplicitlyPresented: true) == true)
 }
 
 @Test

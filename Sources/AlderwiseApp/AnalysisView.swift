@@ -3,32 +3,67 @@ import Domain
 import SwiftUI
 
 enum AnalysisInspectorPresentation: Equatable {
+    enum LayoutAvailability: Equatable {
+        case persistent
+        case transient
+    }
+
     case hidden
     case persistent
     case transient
 
+    static func layoutAvailability(availableWidth: CGFloat) -> LayoutAvailability {
+        availableWidth > AnalysisView.persistentInspectorMinimumWidth ? .persistent : .transient
+    }
+
     static func resolve(
         isRequested: Bool,
-        availableWidth: CGFloat
+        layoutAvailability: LayoutAvailability
     ) -> AnalysisInspectorPresentation {
         guard isRequested else {
             return .hidden
         }
 
-        return availableWidth > AnalysisView.persistentInspectorMinimumWidth ? .persistent : .transient
+        switch layoutAvailability {
+        case .persistent:
+            return .persistent
+        case .transient:
+            return .transient
+        }
+    }
+
+    static func resolve(
+        isRequested: Bool,
+        availableWidth: CGFloat
+    ) -> AnalysisInspectorPresentation {
+        resolve(
+            isRequested: isRequested,
+            layoutAvailability: layoutAvailability(availableWidth: availableWidth)
+        )
     }
 
     var presentsTransientSheet: Bool {
         self == .transient
     }
 
-    func shouldPresentTransientInspector(hasSelection: Bool) -> Bool {
-        presentsTransientSheet
+    func shouldPresentTransientInspector(isExplicitlyPresented: Bool) -> Bool {
+        presentsTransientSheet && isExplicitlyPresented
     }
 }
 
 struct AnalysisView: View {
     nonisolated static let persistentInspectorMinimumWidth = WorkspaceLayout.minimumWindowWidth - WorkspaceLayout.sidebarIdealWidth
+
+    struct InspectorToolbarState: Equatable {
+        let title: String
+        let systemImage: String
+        let isPresented: Bool
+    }
+
+    struct InspectorToggleResult: Equatable {
+        let isInspectorRequested: Bool
+        let isTransientInspectorPresented: Bool
+    }
 
     struct ReadOnlyMetadata: Equatable {
         let scopeLabel: String?
@@ -36,6 +71,7 @@ struct AnalysisView: View {
     }
 
     @ObservedObject var model: WorkspaceShellModel
+    @State private var isTransientInspectorPresented = false
 
     private var availablePages: [AnalysisPage] {
         Self.familyStripPages(in: model.analysisSnapshot)
@@ -48,9 +84,17 @@ struct AnalysisView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let layoutAvailability = AnalysisInspectorPresentation.layoutAvailability(
+                availableWidth: proxy.size.width
+            )
             let inspectorPresentation = AnalysisInspectorPresentation.resolve(
                 isRequested: model.analysisToolbarState.isInspectorVisible,
-                availableWidth: proxy.size.width
+                layoutAvailability: layoutAvailability
+            )
+            let toolbarState = Self.inspectorToolbarState(
+                layoutAvailability: layoutAvailability,
+                isInspectorRequested: model.analysisToolbarState.isInspectorVisible,
+                isTransientInspectorPresented: isTransientInspectorPresented
             )
 
             Group {
@@ -76,31 +120,48 @@ struct AnalysisView: View {
                     }
                 }
             }
-        }
-        .navigationTitle("Analysis")
-        .toolbar {
-            AnalysisContextControls(
-                page: selectedPage,
-                context: model.analysisContext,
-                snapshot: model.analysisSnapshot,
-                setRange: model.setAnalysisRange,
-                setComparison: model.setAnalysisComparison
-            )
+            .toolbar {
+                AnalysisContextControls(
+                    page: selectedPage,
+                    context: model.analysisContext,
+                    snapshot: model.analysisSnapshot,
+                    setRange: model.setAnalysisRange,
+                    setComparison: model.setAnalysisComparison
+                )
 
-            ToolbarItem {
-                Button {
-                    model.toggleAnalysisInspector()
-                } label: {
-                    Label(
-                        model.analysisToolbarState.isInspectorVisible ? "Hide Inspector" : "Show Inspector",
-                        systemImage: model.analysisToolbarState.isInspectorVisible ? "sidebar.right" : "sidebar.right"
-                    )
+                ToolbarItem {
+                    Button {
+                        toggleInspectorPresentation(layoutAvailability: layoutAvailability)
+                    } label: {
+                        Label(toolbarState.title, systemImage: toolbarState.systemImage)
+                    }
+                }
+            }
+            .focusedSceneValue(
+                \.analysisInspectorCommandContext,
+                AnalysisInspectorCommandContext(
+                    title: toolbarState.title,
+                    toggle: {
+                        toggleInspectorPresentation(layoutAvailability: layoutAvailability)
+                    }
+                )
+            )
+            .onChange(of: layoutAvailability, initial: true) { _, availability in
+                if availability != .transient {
+                    isTransientInspectorPresented = false
                 }
             }
         }
+        .navigationTitle("Analysis")
         .onAppear {
             model.ensureAnalysisLoaded()
             model.selectAnalysisPage(selectedPage)
+        }
+        .onChange(of: model.analysisToolbarState.selectedPage) { _, _ in
+            isTransientInspectorPresented = false
+        }
+        .onDisappear {
+            isTransientInspectorPresented = false
         }
     }
 
@@ -108,11 +169,51 @@ struct AnalysisView: View {
         AnalysisToolbarState.availablePages(in: snapshot)
     }
 
+    nonisolated static func inspectorToolbarState(
+        layoutAvailability: AnalysisInspectorPresentation.LayoutAvailability,
+        isInspectorRequested: Bool,
+        isTransientInspectorPresented: Bool
+    ) -> InspectorToolbarState {
+        switch layoutAvailability {
+        case .persistent:
+            InspectorToolbarState(
+                title: isInspectorRequested ? "Hide Inspector" : "Show Inspector",
+                systemImage: "sidebar.right",
+                isPresented: isInspectorRequested
+            )
+        case .transient:
+            InspectorToolbarState(
+                title: isTransientInspectorPresented ? "Hide Details" : "Show Details",
+                systemImage: "sidebar.right",
+                isPresented: isTransientInspectorPresented
+            )
+        }
+    }
+
+    nonisolated static func inspectorToggleResult(
+        layoutAvailability: AnalysisInspectorPresentation.LayoutAvailability,
+        isInspectorRequested: Bool,
+        isTransientInspectorPresented: Bool
+    ) -> InspectorToggleResult {
+        switch layoutAvailability {
+        case .persistent:
+            InspectorToggleResult(
+                isInspectorRequested: !isInspectorRequested,
+                isTransientInspectorPresented: false
+            )
+        case .transient:
+            InspectorToggleResult(
+                isInspectorRequested: true,
+                isTransientInspectorPresented: !isTransientInspectorPresented
+            )
+        }
+    }
+
     nonisolated static func dismissTransientInspector(
-        setInspectorVisible: @escaping (Bool) -> Void
+        setTransientInspectorPresented: @escaping (Bool) -> Void
     ) -> () -> Void {
         {
-            setInspectorVisible(false)
+            setTransientInspectorPresented(false)
         }
     }
 
@@ -124,6 +225,20 @@ struct AnalysisView: View {
             scopeLabel: AnalysisContextControls.scopeLabel(for: page, snapshot: snapshot),
             basisLabel: AnalysisContextControls.metricBasisLabel(for: page, snapshot: snapshot)
         )
+    }
+
+    @MainActor
+    private func toggleInspectorPresentation(
+        layoutAvailability: AnalysisInspectorPresentation.LayoutAvailability
+    ) {
+        let result = Self.inspectorToggleResult(
+            layoutAvailability: layoutAvailability,
+            isInspectorRequested: model.analysisToolbarState.isInspectorVisible,
+            isTransientInspectorPresented: isTransientInspectorPresented
+        )
+
+        model.setAnalysisInspectorVisible(result.isInspectorRequested)
+        isTransientInspectorPresented = result.isTransientInspectorPresented
     }
 
     private var familyStrip: some View {
@@ -206,11 +321,7 @@ struct AnalysisView: View {
                         set: { model.setAnalysisOverviewSelection($0) }
                     ),
                     inspectorPresentation: inspectorPresentation,
-                    onDismissTransientInspector: {
-                        Self.dismissTransientInspector(
-                            setInspectorVisible: model.setAnalysisInspectorVisible
-                        )()
-                    },
+                    isTransientInspectorPresented: $isTransientInspectorPresented,
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
                     }
@@ -229,11 +340,7 @@ struct AnalysisView: View {
                         set: { model.setAnalysisCategoriesSelection($0) }
                     ),
                     inspectorPresentation: inspectorPresentation,
-                    onDismissTransientInspector: {
-                        Self.dismissTransientInspector(
-                            setInspectorVisible: model.setAnalysisInspectorVisible
-                        )()
-                    },
+                    isTransientInspectorPresented: $isTransientInspectorPresented,
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
                     },
@@ -255,11 +362,7 @@ struct AnalysisView: View {
                         set: { model.setAnalysisMerchantsSelection($0) }
                     ),
                     inspectorPresentation: inspectorPresentation,
-                    onDismissTransientInspector: {
-                        Self.dismissTransientInspector(
-                            setInspectorVisible: model.setAnalysisInspectorVisible
-                        )()
-                    },
+                    isTransientInspectorPresented: $isTransientInspectorPresented,
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
                     },

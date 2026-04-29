@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct AnalysisInspectorCommandContext {
+    let title: String
     let toggle: @MainActor () -> Void
 }
 
@@ -20,7 +21,7 @@ struct WorkspaceCommandMenu: Commands {
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
-            Button("Toggle Analysis Inspector") {
+            Button(analysisInspectorCommandContext?.title ?? "Toggle Analysis Inspector") {
                 analysisInspectorCommandContext?.toggle()
             }
             .keyboardShortcut("i", modifiers: [.command, .option])

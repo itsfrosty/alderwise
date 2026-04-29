@@ -13,7 +13,7 @@ struct AnalysisCategoriesView: View {
     @Binding var sort: AnalysisScreenState.CategoriesState.Sort
     @Binding var selection: AnalysisCategoriesSelection?
     var inspectorPresentation: AnalysisInspectorPresentation = .persistent
-    var onDismissTransientInspector: (() -> Void)?
+    @Binding var isTransientInspectorPresented: Bool
     let onShowTransactions: (TransactionLedgerFilter) -> Void
     let onShowTarget: (UUID) -> Void
 
@@ -218,24 +218,31 @@ struct AnalysisCategoriesView: View {
 
     private var transientInspectorBinding: Binding<Bool> {
         Binding(
-            get: { inspectorPresentation.shouldPresentTransientInspector(hasSelection: selection != nil) },
+            get: {
+                inspectorPresentation.shouldPresentTransientInspector(
+                    isExplicitlyPresented: isTransientInspectorPresented
+                )
+            },
             set: { isPresented in
-                if isPresented == false {
-                    onDismissTransientInspector?()
-                }
+                isTransientInspectorPresented = isPresented
             }
         )
     }
 
     private var transientInspectorView: some View {
-        ZStack(alignment: .topTrailing) {
-            inspectorView
-
-            Button("Done") {
-                onDismissTransientInspector?()
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button("Done") {
+                    isTransientInspectorPresented = false
+                }
+                .keyboardShortcut(.cancelAction)
             }
-            .keyboardShortcut(.cancelAction)
             .padding()
+
+            Divider()
+
+            inspectorView
         }
     }
 

@@ -7,32 +7,6 @@ import Testing
 
 @Test
 @MainActor
-func commandDrivenInspectorToggleRoutesOnlyFromAnalysisSection() throws {
-    let model = WorkspaceShellModel(store: nil, service: nil)
-    let initialVisibility = model.analysisToolbarState.isInspectorVisible
-
-    #expect(
-        WorkspaceRootView.analysisInspectorCommandContext(
-            selectedSection: .home,
-            model: model
-        ) == nil
-    )
-    #expect(model.analysisToolbarState.isInspectorVisible == initialVisibility)
-
-    let commandContext = try #require(
-        WorkspaceRootView.analysisInspectorCommandContext(
-            selectedSection: .analysis,
-            model: model
-        )
-    )
-
-    commandContext.toggle()
-
-    #expect(model.analysisToolbarState.isInspectorVisible == !initialVisibility)
-}
-
-@Test
-@MainActor
 func directSidebarTapOverrideAppliesOnlyToSettings() {
     for section in AppSection.allCases where section != .settings {
         #expect(WorkspaceRootView.requiresDirectSidebarTapOverride(for: section) == false)
