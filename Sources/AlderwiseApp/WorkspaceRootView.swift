@@ -23,19 +23,6 @@ struct WorkspaceRootView: View {
         selectedSectionRawValue = section.rawValue
     }
 
-    static func analysisInspectorCommandContext(
-        selectedSection: AppSection,
-        model: WorkspaceShellModel
-    ) -> AnalysisInspectorCommandContext? {
-        guard selectedSection == .analysis else {
-            return nil
-        }
-
-        return AnalysisInspectorCommandContext(
-            toggle: { model.toggleAnalysisInspector() }
-        )
-    }
-
     static func generalAccountCreationSheetBinding(for model: WorkspaceShellModel) -> Binding<Bool> {
         Binding(
             get: { model.accountCreationRoute == .general },
@@ -138,13 +125,6 @@ struct WorkspaceRootView: View {
             selectedSectionRawValue = section.rawValue
             model.consumePendingAppSectionNavigation()
         }
-        .focusedSceneValue(
-            \.analysisInspectorCommandContext,
-            Self.analysisInspectorCommandContext(
-                selectedSection: selectedSection,
-                model: model
-            )
-        )
         .toolbar {
             ToolbarItemGroup {
                 toolbarActions

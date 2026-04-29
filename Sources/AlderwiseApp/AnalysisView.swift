@@ -137,6 +137,15 @@ struct AnalysisView: View {
                     }
                 }
             }
+            .focusedSceneValue(
+                \.analysisInspectorCommandContext,
+                AnalysisInspectorCommandContext(
+                    title: toolbarState.title,
+                    toggle: {
+                        toggleInspectorPresentation(layoutAvailability: layoutAvailability)
+                    }
+                )
+            )
             .onChange(of: layoutAvailability, initial: true) { _, availability in
                 if availability != .transient {
                     isTransientInspectorPresented = false
