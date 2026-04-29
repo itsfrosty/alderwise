@@ -312,11 +312,7 @@ struct AnalysisView: View {
                         set: { model.setAnalysisOverviewSelection($0) }
                     ),
                     inspectorPresentation: inspectorPresentation,
-                    onDismissTransientInspector: {
-                        Self.dismissTransientInspector(
-                            setTransientInspectorPresented: { isTransientInspectorPresented = $0 }
-                        )()
-                    },
+                    isTransientInspectorPresented: $isTransientInspectorPresented,
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
                     }
@@ -335,11 +331,7 @@ struct AnalysisView: View {
                         set: { model.setAnalysisCategoriesSelection($0) }
                     ),
                     inspectorPresentation: inspectorPresentation,
-                    onDismissTransientInspector: {
-                        Self.dismissTransientInspector(
-                            setTransientInspectorPresented: { isTransientInspectorPresented = $0 }
-                        )()
-                    },
+                    isTransientInspectorPresented: $isTransientInspectorPresented,
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
                     },
@@ -361,11 +353,7 @@ struct AnalysisView: View {
                         set: { model.setAnalysisMerchantsSelection($0) }
                     ),
                     inspectorPresentation: inspectorPresentation,
-                    onDismissTransientInspector: {
-                        Self.dismissTransientInspector(
-                            setTransientInspectorPresented: { isTransientInspectorPresented = $0 }
-                        )()
-                    },
+                    isTransientInspectorPresented: $isTransientInspectorPresented,
                     onShowTransactions: {
                         model.showAnalysisTransactions(filter: $0)
                     },
