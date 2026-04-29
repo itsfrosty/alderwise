@@ -431,12 +431,26 @@ func analysisNarrowWidthsUseTransientInspectorPresentationWhenRequested() {
 }
 
 @Test
-func transientInspectorPresentationIsOwnedByToolbarVisibilityRatherThanSelection() {
+func transientInspectorPresentationRequiresExplicitPresentation() {
     #expect(
-        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: false)
+        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(
+            isExplicitlyPresented: false
+        ) == false
     )
     #expect(
-        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(hasSelection: true)
+        AnalysisInspectorPresentation.transient.shouldPresentTransientInspector(
+            isExplicitlyPresented: true
+        )
+    )
+    #expect(
+        AnalysisInspectorPresentation.persistent.shouldPresentTransientInspector(
+            isExplicitlyPresented: true
+        ) == false
+    )
+    #expect(
+        AnalysisInspectorPresentation.hidden.shouldPresentTransientInspector(
+            isExplicitlyPresented: true
+        ) == false
     )
 }
 
@@ -463,7 +477,137 @@ func analysisWidthTransitionKeepsInspectorInVisibleModesWhenSelectionAlreadyExis
 
     #expect(persistent == .persistent)
     #expect(transient == .transient)
-    #expect(transient.shouldPresentTransientInspector(hasSelection: true))
+    #expect(transient.shouldPresentTransientInspector(isExplicitlyPresented: false) == false)
+    #expect(transient.shouldPresentTransientInspector(isExplicitlyPresented: true))
+}
+
+@Test
+func analysisInspectorToolbarShowsDetailsAndExplicitlyPresentsTransientInspectorOnNarrowLayouts() {
+    let toolbarState = AnalysisView.inspectorToolbarState(
+        layoutAvailability: .transient,
+        isInspectorRequested: false,
+        isTransientInspectorPresented: false
+    )
+    let toggleResult = AnalysisView.inspectorToggleResult(
+        layoutAvailability: .transient,
+        isInspectorRequested: false,
+        isTransientInspectorPresented: false
+    )
+
+    #expect(toolbarState.title == "Show Details")
+    #expect(toolbarState.systemImage == "sidebar.right")
+    #expect(toolbarState.isPresented == false)
+    #expect(toggleResult.isInspectorRequested == true)
+    #expect(toggleResult.isTransientInspectorPresented == true)
+}
+
+@Test
+func analysisInspectorToolbarHidesOnlyTransientPresentationOnNarrowLayouts() {
+    let toolbarState = AnalysisView.inspectorToolbarState(
+        layoutAvailability: .transient,
+        isInspectorRequested: true,
+        isTransientInspectorPresented: true
+    )
+    let toggleResult = AnalysisView.inspectorToggleResult(
+        layoutAvailability: .transient,
+        isInspectorRequested: true,
+        isTransientInspectorPresented: true
+    )
+
+    #expect(toolbarState.title == "Hide Details")
+    #expect(toolbarState.systemImage == "sidebar.right")
+    #expect(toolbarState.isPresented == true)
+    #expect(toggleResult.isInspectorRequested == true)
+    #expect(toggleResult.isTransientInspectorPresented == false)
+}
+
+@Test
+func analysisInspectorToolbarKeepsDurableRequestAfterTransientDismissalForWideResize() {
+    let toolbarState = AnalysisView.inspectorToolbarState(
+        layoutAvailability: .transient,
+        isInspectorRequested: true,
+        isTransientInspectorPresented: false
+    )
+    let widePresentation = AnalysisInspectorPresentation.resolve(
+        isRequested: true,
+        layoutAvailability: .persistent
+    )
+
+    #expect(toolbarState.title == "Show Details")
+    #expect(toolbarState.systemImage == "sidebar.right")
+    #expect(toolbarState.isPresented == false)
+    #expect(widePresentation == .persistent)
+}
+
+@Test
+func analysisInspectorToolbarTogglesDurableRequestOnWideLayoutsWhenHidden() {
+    let toolbarState = AnalysisView.inspectorToolbarState(
+        layoutAvailability: .persistent,
+        isInspectorRequested: false,
+        isTransientInspectorPresented: false
+    )
+    let toggleResult = AnalysisView.inspectorToggleResult(
+        layoutAvailability: .persistent,
+        isInspectorRequested: false,
+        isTransientInspectorPresented: false
+    )
+
+    #expect(toolbarState.title == "Show Inspector")
+    #expect(toolbarState.systemImage == "sidebar.right")
+    #expect(toolbarState.isPresented == false)
+    #expect(toggleResult.isInspectorRequested == true)
+    #expect(toggleResult.isTransientInspectorPresented == false)
+}
+
+@Test
+func analysisInspectorToolbarTogglesDurableRequestOffAndClearsTransientStateOnWideLayouts() {
+    let toolbarState = AnalysisView.inspectorToolbarState(
+        layoutAvailability: .persistent,
+        isInspectorRequested: true,
+        isTransientInspectorPresented: true
+    )
+    let toggleResult = AnalysisView.inspectorToggleResult(
+        layoutAvailability: .persistent,
+        isInspectorRequested: true,
+        isTransientInspectorPresented: true
+    )
+
+    #expect(toolbarState.title == "Hide Inspector")
+    #expect(toolbarState.systemImage == "sidebar.right")
+    #expect(toolbarState.isPresented == true)
+    #expect(toggleResult.isInspectorRequested == false)
+    #expect(toggleResult.isTransientInspectorPresented == false)
+}
+
+@Test
+func analysisInspectorCommandUsesTheSameTitleAndActionPolicyAsToolbar() {
+    let narrowToolbarState = AnalysisView.inspectorToolbarState(
+        layoutAvailability: .transient,
+        isInspectorRequested: false,
+        isTransientInspectorPresented: false
+    )
+    let narrowCommandResult = AnalysisView.inspectorToggleResult(
+        layoutAvailability: .transient,
+        isInspectorRequested: false,
+        isTransientInspectorPresented: false
+    )
+    let wideToolbarState = AnalysisView.inspectorToolbarState(
+        layoutAvailability: .persistent,
+        isInspectorRequested: true,
+        isTransientInspectorPresented: true
+    )
+    let wideCommandResult = AnalysisView.inspectorToggleResult(
+        layoutAvailability: .persistent,
+        isInspectorRequested: true,
+        isTransientInspectorPresented: true
+    )
+
+    #expect(narrowToolbarState.title == "Show Details")
+    #expect(narrowCommandResult.isInspectorRequested == true)
+    #expect(narrowCommandResult.isTransientInspectorPresented == true)
+    #expect(wideToolbarState.title == "Hide Inspector")
+    #expect(wideCommandResult.isInspectorRequested == false)
+    #expect(wideCommandResult.isTransientInspectorPresented == false)
 }
 
 @Test
