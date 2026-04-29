@@ -87,9 +87,8 @@ public struct MonthlySpendPoint: Equatable, Sendable {
     }
 }
 
-/// Reporting emits driver rows at the category-group level when possible for readability.
-/// Categories without a group remain category-scoped so every included expense can still
-/// participate in driver analysis without downstream re-aggregation.
+/// Reporting emits driver rows at category scope for persisted categories and keeps
+/// uncategorized spend as its own `nil`-backed reporting path.
 public enum SpendingDriverScope: Hashable, Sendable {
     case category(UUID)
     case categoryGroup(UUID)

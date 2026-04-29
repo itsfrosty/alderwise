@@ -829,38 +829,38 @@ func seededClassifierMatchesRepresentativeSampleMerchants() {
     let classifier = SeededClassification.liveClassifier()
     let cases: [(description: String, categoryID: UUID, autoAccepted: Bool)] = [
         ("VENMO            PAYMENT    1049657853223   WEB ID: 3264681992", DefaultBudgetTaxonomy.CategoryID.transfers, true),
-        ("CONNECTYOURCARE  OPTUMCLAIM                 PPD ID: 7261274092", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy, true),
-        ("IRS              USATAXPYMT 240650542279973 WEB ID: 3387702000", DefaultBudgetTaxonomy.CategoryID.taxes, true),
-        ("PGANDE           WEB ONLINE 69773024032626  WEB ID: 5940742640", DefaultBudgetTaxonomy.CategoryID.utilities, true),
-        ("DISHDASH 408-7741889 CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
+        ("CONNECTYOURCARE  OPTUMCLAIM                 PPD ID: 7261274092", DefaultBudgetTaxonomy.CategoryID.health, true),
+        ("IRS              USATAXPYMT 240650542279973 WEB ID: 3387702000", DefaultBudgetTaxonomy.CategoryID.financial, true),
+        ("PGANDE           WEB ONLINE 69773024032626  WEB ID: 5940742640", DefaultBudgetTaxonomy.CategoryID.homeAndUtilities, true),
+        ("DISHDASH 408-7741889 CA", DefaultBudgetTaxonomy.CategoryID.dining, true),
         ("AUTOPAY 999990000061865RAUTOPAY AUTO-PMT", DefaultBudgetTaxonomy.CategoryID.transfers, true),
-        ("KHANS KARAHI KABOB (WA 165-06819470 CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
-        ("MERIT VEGAN RESTAURANT Sunnyvale CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
-        ("HAPPY SUSHI SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
-        ("SQ *TOBANG KOREAN BBQ SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
-        ("SRI ANANDABHAVAN SUNNYVALE CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
-        ("WALMART.COM WALMART.COM AR", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, true),
-        ("FLAGSTAR BANK TROY MI", DefaultBudgetTaxonomy.CategoryID.rentAndMortgage, true),
-        ("TAJ MAHAL SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, true),
-        ("PAMF 2441 MISSION CO M SANTA CLARA CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy, true),
+        ("KHANS KARAHI KABOB (WA 165-06819470 CA", DefaultBudgetTaxonomy.CategoryID.dining, true),
+        ("MERIT VEGAN RESTAURANT Sunnyvale CA", DefaultBudgetTaxonomy.CategoryID.dining, true),
+        ("HAPPY SUSHI SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.dining, true),
+        ("SQ *TOBANG KOREAN BBQ SANTA CLARA CA", DefaultBudgetTaxonomy.CategoryID.dining, true),
+        ("SRI ANANDABHAVAN SUNNYVALE CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.dining, true),
+        ("WALMART.COM WALMART.COM AR", DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle, true),
+        ("FLAGSTAR BANK TROY MI", DefaultBudgetTaxonomy.CategoryID.homeAndUtilities, true),
+        ("TAJ MAHAL SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.dining, true),
+        ("PAMF 2441 MISSION CO M SANTA CLARA CA null XXXXXXXXXXXX3969", DefaultBudgetTaxonomy.CategoryID.health, true),
         ("CHAVEZ SUPERMARKET SUNNYVALE CA null XXXXXXXXXXXX2110", DefaultBudgetTaxonomy.CategoryID.groceries, true),
-        ("FRANCHISE TAX BO PAYMENTS   129035404    PM WEB ID: 1282532045", DefaultBudgetTaxonomy.CategoryID.taxes, true),
+        ("FRANCHISE TAX BO PAYMENTS   129035404    PM WEB ID: 1282532045", DefaultBudgetTaxonomy.CategoryID.financial, true),
         ("INTEREST PAID 03-31-2026", DefaultBudgetTaxonomy.CategoryID.income, true),
         ("AUTOMATIC PAYMENT - THANK", DefaultBudgetTaxonomy.CategoryID.transfers, true),
         ("META             DIRECT DEP                 PPD ID: 9111111101", DefaultBudgetTaxonomy.CategoryID.income, true),
-        ("DISNEYPLUS          888-905-7888        CA", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, true),
-        ("GOOGLE *YOUTUBEPREMIUM MOUNTAIN VIEW CA", DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment, true),
-        ("BLUE BOTTLE COFFEE PALO ALTO CA", DefaultBudgetTaxonomy.CategoryID.coffeeShops, true),
-        ("T J MAXX #0712 SUNNYVALE CA", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, true),
-        ("MARSHALLS #0567 SAN JOSE CA", DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing, true),
-        ("PROGRESSIVE INS 4407", DefaultBudgetTaxonomy.CategoryID.autoMaintenanceAndInsurance, true),
-        ("BB TUITION MGMT ACH", DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans, true),
-        ("BEAST ACADEMY ONLINE", DefaultBudgetTaxonomy.CategoryID.educationAndStudentLoans, true),
-        ("AIRBORNE GYMNASTICS CAMP", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, true),
-        ("WATERWORKS SWIM SCHOOL", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, true),
-        ("TUTU SCHOOL LOS ALTOS", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, true),
-        ("FIRST POSITION DANCE CO", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, true),
-        ("BITES* CHAAT BHAVAN EX WWW.DELIVERYCCA", DefaultBudgetTaxonomy.CategoryID.restaurantsAndBars, false),
+        ("DISNEYPLUS          888-905-7888        CA", DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle, true),
+        ("GOOGLE *YOUTUBEPREMIUM MOUNTAIN VIEW CA", DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle, true),
+        ("BLUE BOTTLE COFFEE PALO ALTO CA", DefaultBudgetTaxonomy.CategoryID.dining, true),
+        ("T J MAXX #0712 SUNNYVALE CA", DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle, true),
+        ("MARSHALLS #0567 SAN JOSE CA", DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle, true),
+        ("PROGRESSIVE INS 4407", DefaultBudgetTaxonomy.CategoryID.transportation, true),
+        ("BB TUITION MGMT ACH", DefaultBudgetTaxonomy.CategoryID.family, true),
+        ("BEAST ACADEMY ONLINE", DefaultBudgetTaxonomy.CategoryID.family, true),
+        ("AIRBORNE GYMNASTICS CAMP", DefaultBudgetTaxonomy.CategoryID.family, true),
+        ("WATERWORKS SWIM SCHOOL", DefaultBudgetTaxonomy.CategoryID.family, true),
+        ("TUTU SCHOOL LOS ALTOS", DefaultBudgetTaxonomy.CategoryID.family, true),
+        ("FIRST POSITION DANCE CO", DefaultBudgetTaxonomy.CategoryID.family, true),
+        ("BITES* CHAAT BHAVAN EX WWW.DELIVERYCCA", DefaultBudgetTaxonomy.CategoryID.dining, false),
     ]
 
     for (index, testCase) in cases.enumerated() {
@@ -881,12 +881,26 @@ func seededClassifierMatchesRepresentativeSampleMerchants() {
 }
 
 @Test
+func seededClassificationUsesOnlyCanonicalSimplifiedCategoryIDs() {
+    let deterministicCategoryIDs = Set(SeededClassification.deterministicRules.map(\.categoryID))
+    let heuristicCategoryIDs = Set(SeededClassification.heuristics.map(\.categoryID))
+    let curatedCategoryIDs = Set(SeededClassification.curatedReviewPrefills.map(\.assignment.categoryID))
+
+    #expect(deterministicCategoryIDs.isSubset(of: DefaultBudgetTaxonomy.canonicalCategoryIDs))
+    #expect(heuristicCategoryIDs.isSubset(of: DefaultBudgetTaxonomy.canonicalCategoryIDs))
+    #expect(curatedCategoryIDs.isSubset(of: DefaultBudgetTaxonomy.canonicalCategoryIDs))
+    #expect(deterministicCategoryIDs.isDisjoint(with: DefaultBudgetTaxonomy.removedLegacyCategoryIDs))
+    #expect(heuristicCategoryIDs.isDisjoint(with: DefaultBudgetTaxonomy.removedLegacyCategoryIDs))
+    #expect(curatedCategoryIDs.isDisjoint(with: DefaultBudgetTaxonomy.removedLegacyCategoryIDs))
+}
+
+@Test
 func seededClassifierRoutesRepresentativeCuratedPrefillThroughReview() {
     let classifier = SeededClassification.liveClassifier()
     let cases: [(description: String, categoryID: UUID, merchantName: String, sourceReference: String)] = [
-        ("99PLEDG*ONIR BAWEJA", DefaultBudgetTaxonomy.CategoryID.donations, "99PLEDG", "starter.99pledg.family"),
-        ("CHOICELUNCH 855-465-8624 CA", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, "Choicelunch", "starter.choicelunch.school-lunch"),
-        ("LINELEADER       J2542 RCUR                 PPD ID: 8263863381", DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities, "LineLeader", "starter.lineleader.childcare-billing"),
+        ("99PLEDG*ONIR BAWEJA", DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle, "99PLEDG", "starter.99pledg.family"),
+        ("CHOICELUNCH 855-465-8624 CA", DefaultBudgetTaxonomy.CategoryID.family, "Choicelunch", "starter.choicelunch.school-lunch"),
+        ("LINELEADER       J2542 RCUR                 PPD ID: 8263863381", DefaultBudgetTaxonomy.CategoryID.family, "LineLeader", "starter.lineleader.childcare-billing"),
     ]
 
     for (index, testCase) in cases.enumerated() {
@@ -940,13 +954,13 @@ func seededClassifierUsesSaferPrefixMatchingForFirstPositionDance() {
     )
 
     #expect(prefixedDecision.isAutoAccepted)
-    #expect(prefixedDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities)
-    #expect(embeddedDecision.assignment?.categoryID != DefaultBudgetTaxonomy.CategoryID.childcareAndKidsActivities)
+    #expect(prefixedDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.family)
+    #expect(embeddedDecision.assignment?.categoryID != DefaultBudgetTaxonomy.CategoryID.family)
     #expect(embeddedDecision.assignment?.merchantName != "First Position Dance")
 }
 
 @Test
-func seededClassifierRoutesAirlinesToFlights() {
+func seededClassifierRoutesAirlinesToTravel() {
     let classifier = SeededClassification.liveClassifier()
 
     let cases: [(description: String, merchantName: String)] = [
@@ -969,7 +983,7 @@ func seededClassifierRoutesAirlinesToFlights() {
         )
 
         #expect(decision.isAutoAccepted)
-        #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.flights)
+        #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.travel)
         #expect(decision.assignment?.merchantName == testCase.merchantName)
         #expect(decision.source == .rule)
         #expect(decision.reason == "Matched explicit merchant rule.")
@@ -977,7 +991,7 @@ func seededClassifierRoutesAirlinesToFlights() {
 }
 
 @Test
-func seededClassifierRoutesClearHotelDescriptorsToHotels() {
+func seededClassifierRoutesClearHotelDescriptorsToTravel() {
     let classifier = SeededClassification.liveClassifier()
 
     let cases: [(description: String, merchantName: String)] = [
@@ -999,7 +1013,7 @@ func seededClassifierRoutesClearHotelDescriptorsToHotels() {
         )
 
         #expect(decision.isAutoAccepted)
-        #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.hotels)
+        #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.travel)
         #expect(decision.assignment?.merchantName == testCase.merchantName)
         #expect(decision.source == .rule)
         #expect(decision.reason == "Matched explicit merchant rule.")
@@ -1029,7 +1043,7 @@ func seededClassifierRoutesTravelAggregatorsThroughReviewFirst() {
 
         #expect(decision == .reviewRequired(
             prefill: ClassificationAssignment(
-                categoryID: DefaultBudgetTaxonomy.CategoryID.hotels,
+                categoryID: DefaultBudgetTaxonomy.CategoryID.travel,
                 merchantName: testCase.merchantName
             ),
             source: .curatedPrefill,
@@ -1046,19 +1060,19 @@ func issuerCreditArtifactsRouteThroughBuiltInReviewFirst() {
     let cases: [(description: String, categoryID: UUID, merchantName: String, sourceReference: String)] = [
         (
             "PLATINUM DIGITAL ENTERTAINMENT CREDIT",
-            DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment,
+            DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle,
             "Platinum Digital Entertainment Credit",
             "starter.issuer-credit.platinum-digital-entertainment-credit"
         ),
         (
             "AMEX AIRLINE FEE REIMBURSEMENT",
-            DefaultBudgetTaxonomy.CategoryID.flights,
+            DefaultBudgetTaxonomy.CategoryID.travel,
             "Amex Airline Fee Reimbursement",
             "starter.issuer-credit.amex-airline-fee-reimbursement"
         ),
         (
             "PLATINUM HOTEL CREDIT",
-            DefaultBudgetTaxonomy.CategoryID.hotels,
+            DefaultBudgetTaxonomy.CategoryID.travel,
             "Platinum Hotel Credit",
             "starter.issuer-credit.platinum-hotel-credit"
         ),
@@ -1090,7 +1104,7 @@ func issuerCreditArtifactsRouteThroughBuiltInReviewFirst() {
 }
 
 @Test
-func airlineFeeReimbursementPrefillsFlights() {
+func airlineFeeReimbursementPrefillsTravel() {
     let classifier = SeededClassification.liveClassifier()
 
     let decision = classifier.classify(
@@ -1104,7 +1118,7 @@ func airlineFeeReimbursementPrefillsFlights() {
         )
     )
 
-    #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.flights)
+    #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.travel)
     #expect(decision.assignment?.merchantName == "Amex Airline Fee Reimbursement")
     #expect(decision.source == .curatedPrefill)
     #expect(decision.source != .rule)
@@ -1113,7 +1127,7 @@ func airlineFeeReimbursementPrefillsFlights() {
 }
 
 @Test
-func hotelCreditPrefillsHotels() {
+func hotelCreditPrefillsTravel() {
     let classifier = SeededClassification.liveClassifier()
 
     let decision = classifier.classify(
@@ -1127,7 +1141,7 @@ func hotelCreditPrefillsHotels() {
         )
     )
 
-    #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.hotels)
+    #expect(decision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.travel)
     #expect(decision.assignment?.merchantName == "Platinum Hotel Credit")
     #expect(decision.source == .curatedPrefill)
     #expect(decision.source != .rule)
@@ -1170,7 +1184,31 @@ func specificSeededRulesBeatBroaderMerchantRules() {
         )
     )
 
-    #expect(costcoRxDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.medicalAndPharmacy)
-    #expect(walmartComDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.shoppingAndClothing)
+    #expect(costcoRxDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.health)
+    #expect(walmartComDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle)
     #expect(walmartStoreDecision.assignment?.categoryID == DefaultBudgetTaxonomy.CategoryID.groceries)
+}
+
+@Test
+func weakGenericMarketEvidenceFallsBackToUncategorized() {
+    let classifier = SeededClassification.liveClassifier()
+
+    let decision = classifier.classify(
+        candidate: NormalizedImportCandidate(
+            rowHash: "generic-market",
+            sourceLineNumber: 2,
+            transactionDate: Date(timeIntervalSince1970: 1_775_171_700),
+            rawDescription: "LOCAL MARKET",
+            normalizedMerchantName: MerchantNormalizer().normalize("LOCAL MARKET"),
+            amount: Decimal(-12.50)
+        )
+    )
+
+    #expect(decision == .reviewRequired(
+        prefill: nil,
+        source: nil,
+        sourceReference: nil,
+        confidence: nil,
+        reason: "No classification matched."
+    ))
 }

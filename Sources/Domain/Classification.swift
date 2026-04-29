@@ -116,6 +116,22 @@ public struct ClassificationHeuristic: Equatable, Sendable {
     }
 }
 
+public extension ClassificationRule {
+    func canonicalizedDefaultCategory() -> ClassificationRule {
+        var copy = self
+        copy.categoryID = canonicalDefaultCategoryID(for: categoryID)
+        return copy
+    }
+}
+
+public extension ClassificationHeuristic {
+    func canonicalizedDefaultCategory() -> ClassificationHeuristic {
+        var copy = self
+        copy.categoryID = canonicalDefaultCategoryID(for: categoryID)
+        return copy
+    }
+}
+
 public struct CuratedReviewPrefill: Equatable, Sendable {
     public var id: String
     public var merchantPattern: String
@@ -132,6 +148,14 @@ public struct CuratedReviewPrefill: Equatable, Sendable {
         self.merchantPattern = merchantPattern
         self.assignment = assignment
         self.matchKind = matchKind
+    }
+}
+
+public extension CuratedReviewPrefill {
+    func canonicalizedDefaultCategory() -> CuratedReviewPrefill {
+        var copy = self
+        copy.assignment.categoryID = canonicalDefaultCategoryID(for: assignment.categoryID)
+        return copy
     }
 }
 
@@ -247,6 +271,13 @@ public struct LearnedRuleMatchCandidate: Equatable, Sendable {
         self.normalizedMerchantName = normalizedMerchantName
         self.rawDescription = rawDescription
     }
+}
+
+private func canonicalDefaultCategoryID(for categoryID: UUID) -> UUID {
+    guard let canonicalCategoryID = DefaultBudgetTaxonomy.canonicalCategoryID(for: categoryID) else {
+        return categoryID
+    }
+    return canonicalCategoryID
 }
 
 public enum LearnedRuleMatcher {

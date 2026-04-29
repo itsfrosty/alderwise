@@ -2364,7 +2364,7 @@ func stageCSVImportCarriesCuratedReviewPrefillForLive99PLEDGFamily() throws {
     let expectedRowHash = try WorkspaceService.rowHash(for: preview.sourceRows[0])
     let expectedDecision = TransactionClassificationDecision.reviewRequired(
         prefill: ClassificationAssignment(
-            categoryID: DefaultBudgetTaxonomy.CategoryID.donations,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle,
             merchantName: "99PLEDG"
         ),
         source: .curatedPrefill,
@@ -2417,8 +2417,8 @@ func stageCSVImportCountsTravelAggregatorsAsPendingReviewPrefills() throws {
     #expect(result.classifications.allSatisfy { $0.decision.source == .curatedPrefill })
     #expect(
         result.classifications.map(\.decision.assignment?.categoryID) == [
-            DefaultBudgetTaxonomy.CategoryID.hotels,
-            DefaultBudgetTaxonomy.CategoryID.hotels,
+            DefaultBudgetTaxonomy.CategoryID.travel,
+            DefaultBudgetTaxonomy.CategoryID.travel,
         ]
     )
 
@@ -2478,7 +2478,7 @@ func stageCSVImportAppliesHeuristicPreferenceWithoutChangingCuratedReviewPrefill
 
     let expectedDecision = TransactionClassificationDecision.reviewRequired(
         prefill: ClassificationAssignment(
-            categoryID: DefaultBudgetTaxonomy.CategoryID.donations,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle,
             merchantName: "99PLEDG"
         ),
         source: .curatedPrefill,
@@ -2488,7 +2488,7 @@ func stageCSVImportAppliesHeuristicPreferenceWithoutChangingCuratedReviewPrefill
     )
     let aggressiveHeuristicDecision = TransactionClassificationDecision.autoAccepted(
         assignment: ClassificationAssignment(
-            categoryID: DefaultBudgetTaxonomy.CategoryID.coffeeShops,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.dining,
             merchantName: nil
         ),
         source: .heuristic,
@@ -2498,7 +2498,7 @@ func stageCSVImportAppliesHeuristicPreferenceWithoutChangingCuratedReviewPrefill
     )
     let conservativeHeuristicDecision = TransactionClassificationDecision.reviewRequired(
         prefill: ClassificationAssignment(
-            categoryID: DefaultBudgetTaxonomy.CategoryID.coffeeShops,
+            categoryID: DefaultBudgetTaxonomy.CategoryID.dining,
             merchantName: nil
         ),
         source: .heuristic,
@@ -2576,9 +2576,9 @@ func stageCSVImportCountsIssuerCreditsAsPendingReviewPrefills() throws {
     #expect(result.classifications.allSatisfy { $0.decision.source == .curatedPrefill })
     #expect(
         result.classifications.map(\.decision.assignment?.categoryID) == [
-            DefaultBudgetTaxonomy.CategoryID.subscriptionsAndEntertainment,
-            DefaultBudgetTaxonomy.CategoryID.flights,
-            DefaultBudgetTaxonomy.CategoryID.hotels,
+            DefaultBudgetTaxonomy.CategoryID.shoppingAndLifestyle,
+            DefaultBudgetTaxonomy.CategoryID.travel,
+            DefaultBudgetTaxonomy.CategoryID.travel,
         ]
     )
 
@@ -3142,6 +3142,7 @@ func seededManagerRowsAreAssembledFromSeededClassification() throws {
     #expect(snapshot.seeded.rows.count == expectedSeededCount)
     #expect(snapshot.seeded.rows.contains(where: { $0.sourceKind == .deterministicRule }) == true)
     #expect(snapshot.seeded.rows.contains(where: { $0.sourceKind == .curatedPrefill }) == true)
+    #expect(snapshot.seeded.rows.map(\.categoryID).allSatisfy(DefaultBudgetTaxonomy.isCanonicalCategoryID))
 }
 
 @Test
@@ -3312,7 +3313,7 @@ func loadTransactionDetailResolvesCuratedReviewFirstBuiltInProvenance() throws {
     let source = try #require(SeededClassification.curatedReviewPrefills.first)
     let store = MutableWorkspaceStore()
     store.categories = [
-        BudgetCategory(id: source.assignment.categoryID, name: "Donations", kind: .expense)
+        BudgetCategory(id: source.assignment.categoryID, name: "Shopping & Lifestyle", kind: .expense)
     ]
     store.transactionDetailsByID[transactionID] = makeTransactionDetail(
         id: transactionID,
@@ -3333,8 +3334,51 @@ func loadTransactionDetailResolvesCuratedReviewFirstBuiltInProvenance() throws {
     #expect(seededSource.merchantPattern == source.merchantPattern)
     #expect(seededSource.matchKind == source.matchKind)
     #expect(seededSource.categoryID == source.assignment.categoryID)
-    #expect(seededSource.categoryName == "Donations")
+    #expect(seededSource.categoryName == "Shopping & Lifestyle")
     #expect(seededSource.merchantName == source.assignment.merchantName)
+}
+
+@Test
+func seededRuleProvenanceFallsBackToCanonicalCategoryNamesForAllSeededOutputs() throws {
+    for (index, rule) in SeededClassification.deterministicRules.enumerated() {
+        let transactionID = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index + 7000))!
+        let store = MutableWorkspaceStore()
+        store.transactionDetailsByID[transactionID] = makeTransactionDetail(
+            id: transactionID,
+            decisionSource: .rule,
+            decisionSourceReference: rule.seededSourceID
+        )
+
+        let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
+        let provenance = try #require(detail.ruleProvenance)
+
+        guard case .seededSource(let seededSource) = provenance else {
+            Issue.record("Expected seeded source provenance for deterministic rule \(rule.seededSourceID)")
+            continue
+        }
+
+        #expect(seededSource.categoryName == DefaultBudgetTaxonomy.categoryName(for: seededSource.categoryID))
+    }
+
+    for (index, source) in SeededClassification.curatedReviewPrefills.enumerated() {
+        let transactionID = UUID(uuidString: String(format: "00000000-0000-0000-0000-%012d", index + 8000))!
+        let store = MutableWorkspaceStore()
+        store.transactionDetailsByID[transactionID] = makeTransactionDetail(
+            id: transactionID,
+            decisionSource: .curatedPrefill,
+            decisionSourceReference: source.id
+        )
+
+        let detail = try #require(try WorkspaceService(store: store).loadTransactionDetail(id: transactionID))
+        let provenance = try #require(detail.ruleProvenance)
+
+        guard case .seededSource(let seededSource) = provenance else {
+            Issue.record("Expected seeded source provenance for curated prefill \(source.id)")
+            continue
+        }
+
+        #expect(seededSource.categoryName == DefaultBudgetTaxonomy.categoryName(for: seededSource.categoryID))
+    }
 }
 
 @Test

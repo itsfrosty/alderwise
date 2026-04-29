@@ -1214,13 +1214,18 @@ final class WorkspaceShellModel: ObservableObject {
             return
         }
 
+        let metadata = try? service.loadWorkspaceMetadata()
+        if let metadata, metadata.requiresReset {
+            applyResetRequiredWorkspaceState(metadata: metadata)
+            return
+        }
+
         let referenceDate = referenceDateProvider()
         let snapshot = try service.loadSnapshot(
             filter: transactionFilter,
             referenceDate: referenceDate
         )
         let managedTargets = try service.fetchManagedTargets(referenceDate: referenceDate)
-        let metadata = try? service.loadWorkspaceMetadata()
         let preferences = (try? service.loadWorkspacePreferences()) ?? .default
         let learnedRuleManagerSnapshot = try? service.loadLearnedRuleManagerSnapshot()
         let merchantRecommendationEligibilityByReviewItemID = loadMerchantRecommendationEligibility(
@@ -1288,6 +1293,31 @@ final class WorkspaceShellModel: ObservableObject {
         merchantRecommendationEligibilityByReviewItemID = [:]
         state = .failed(message)
         workspaceStatus = .failedToOpen(message)
+    }
+
+    private func applyResetRequiredWorkspaceState(metadata: WorkspaceMetadata) {
+        clearReviewRulePreview()
+        managedTargets = []
+        selectedTargetID = nil
+        selectedTransactionID = nil
+        selectedTransactionDetail = nil
+        transactionDetailErrorMessage = nil
+        learnedRuleManagerSnapshot = nil
+        reviewCreatedLearnedRuleAction = nil
+        pendingAppSectionNavigation = nil
+        analysisToolbarState = AnalysisToolbarState()
+        analysisContext = Self.defaultAnalysisContext(referenceDate: referenceDateProvider())
+        analysisSnapshot = .empty
+        analysisErrorMessage = nil
+        isPresentingAnalysisOverview = false
+        analysisScreenState = AnalysisScreenState()
+        merchantRecommendationEligibilityByReviewItemID = [:]
+        workspacePreferences = .default
+        state = .failed(
+            metadata.resetReason
+                ?? "This workspace must be reset before it can be used with this version of Alderwise."
+        )
+        workspaceStatus = .available(metadata)
     }
 
     private func repairAnalysisState() {

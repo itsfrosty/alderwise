@@ -4,7 +4,7 @@ import Persistence
 import Testing
 
 @Test
-func categoryAnalysisReportReconcilesCategoryGroupRowToLedgerSlice() throws {
+func categoryAnalysisReportReconcilesCategoryRowToLedgerSlice() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
@@ -41,16 +41,16 @@ func categoryAnalysisReportReconcilesCategoryGroupRowToLedgerSlice() throws {
     )
 
     let report = try store.fetchCategoryAnalysisReport(context: context)
-    let row = try #require(report.rows.first(where: { $0.title == "Food" }))
+    let row = try #require(report.rows.first(where: { $0.title == "Dining" }))
     let filter = ledgerFilter(for: row.evidence)
     let ledger = try store.fetchTransactionLedger(filter: filter)
 
-    #expect(row.currentSpend == Decimal(75))
+    #expect(row.currentSpend == Decimal(25))
     #expect(ledgerExpenseTotal(ledger) == row.currentSpend)
 }
 
 @Test
-func categoryAnalysisReportCapturesComparisonDeltaForCategoryGroupContribution() throws {
+func categoryAnalysisReportCapturesComparisonDeltaForCategoryContribution() throws {
     let databaseURL = try homeDashboardTemporaryDatabaseURL()
     let store = try WorkspaceStore.at(databaseURL: databaseURL)
     try store.bootstrap()
@@ -94,11 +94,11 @@ func categoryAnalysisReportCapturesComparisonDeltaForCategoryGroupContribution()
     )
 
     let report = try store.fetchCategoryAnalysisReport(context: context)
-    let row = try #require(report.rows.first(where: { $0.title == "Food" }))
+    let row = try #require(report.rows.first(where: { $0.title == "Groceries" }))
 
-    #expect(row.currentSpend == Decimal(100))
+    #expect(row.currentSpend == Decimal(80))
     #expect(row.comparisonSpend == Decimal(25))
-    #expect(row.delta == Decimal(75))
+    #expect(row.delta == Decimal(55))
 }
 
 private func ledgerExpenseTotal(_ rows: [TransactionLedgerRow]) -> Decimal {
@@ -111,11 +111,23 @@ private func ledgerFilter(for evidence: InsightEvidence) -> TransactionLedgerFil
     TransactionLedgerFilter(
         startDate: evidence.resolvedInterval.start,
         endDate: Calendar(identifier: .gregorian).date(byAdding: .second, value: -1, to: evidence.resolvedInterval.end),
+        categoryID: {
+            if case .category(let id) = evidence.destination.scope {
+                return id
+            }
+            return nil
+        }(),
         categoryGroupID: {
             if case .categoryGroup(let id) = evidence.destination.scope {
                 return id
             }
             return nil
+        }(),
+        uncategorizedOnly: {
+            if case .uncategorized = evidence.destination.scope {
+                return true
+            }
+            return false
         }(),
         direction: .expense,
         reviewStatuses: Set([.accepted, .pending]),

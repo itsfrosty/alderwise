@@ -987,7 +987,10 @@ public struct WorkspaceService: Sendable {
         guard let categoryID else {
             return nil
         }
-        return try store.fetchCategories().first { $0.id == categoryID }?.name
+        if let storedName = try store.fetchCategories().first(where: { $0.id == categoryID })?.name {
+            return storedName
+        }
+        return DefaultBudgetTaxonomy.categoryName(for: categoryID)
     }
 
     private func seededRuleSourceRows() -> [SeededRuleSourceRow] {

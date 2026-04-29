@@ -28,7 +28,7 @@ struct TargetsManagementView: View {
                         ContentUnavailableView {
                             Label("No Targets", systemImage: AppSection.targets.systemImage)
                         } description: {
-                            Text("Create a monthly limit to track visible spending for a category or group.")
+                            Text(Self.emptyStateDescription)
                         } actions: {
                             Button {
                                 onCreate()
@@ -272,12 +272,7 @@ struct TargetsManagementView: View {
     }
 
     private func scopeLabel(for scope: TargetScope) -> String {
-        switch scope {
-        case .category:
-            "Category target"
-        case .categoryGroup:
-            "Group target"
-        }
+        Self.scopeLabel(for: scope)
     }
 
     private func transactionFilter(for target: ManagedMonthlyTarget) -> TransactionLedgerFilter {
@@ -305,5 +300,18 @@ struct TargetsManagementView: View {
         formatter.numberStyle = .currency
         formatter.currencyCode = Locale.current.currency?.identifier ?? "USD"
         return formatter.string(from: NSDecimalNumber(decimal: amount)) ?? "\(amount)"
+    }
+}
+
+extension TargetsManagementView {
+    static let emptyStateDescription = "Create a monthly limit to track visible spending for an expense category."
+
+    static func scopeLabel(for scope: TargetScope) -> String {
+        switch scope {
+        case .category:
+            return "Category target"
+        case .categoryGroup:
+            return "Target needs category reassignment"
+        }
     }
 }
